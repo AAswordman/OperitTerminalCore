@@ -239,10 +239,10 @@ class TerminalManager private constructor(
                 // 启动读取协程
                 val readJob = launch {
                     try {
-                        terminalSession.stdout.bufferedReader().use { reader ->
-                            val buffer = CharArray(4096)
+                        terminalSession.stdout.use { inputStream ->
+                            val buffer = ByteArray(4096)
                             var bytesRead: Int
-                            while (reader.read(buffer).also { bytesRead = it } != -1) {
+                            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
                                 val chunk = String(buffer, 0, bytesRead)
                                 Log.d(TAG, "Read chunk: '$chunk'")
                                 outputProcessor.processOutput(sessionId, chunk, sessionManager)
@@ -261,7 +261,6 @@ class TerminalManager private constructor(
                     session.copy(
                         terminalSession = terminalSession,
                         sessionWriter = sessionWriter,
-                        isInitializing = false,
                         readJob = readJob
                     )
                 }

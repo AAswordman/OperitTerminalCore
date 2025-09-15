@@ -81,7 +81,6 @@ data class TerminalSessionData(
     val lastInteractivePrompt: String = "",
     val isInteractiveMode: Boolean = false,
     val interactivePrompt: String = "",
-    val isInitializing: Boolean = true,
     val initState: SessionInitState = SessionInitState.INITIALIZING,
     val readJob: Job? = null,
     val isFullscreen: Boolean = false,
@@ -89,7 +88,10 @@ data class TerminalSessionData(
     @Transient val ansiParser: AnsiParser = AnsiParser(),
     @Transient var currentExecutingCommand: CommandHistoryItem? = null,
     @Transient var currentOutputLineCount: Int = 0
-)
+) {
+    val isInitializing: Boolean
+        get() = initState != SessionInitState.READY
+}
 
 /**
  * 终端状态数据类

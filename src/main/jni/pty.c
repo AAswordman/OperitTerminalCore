@@ -42,8 +42,13 @@ Java_com_ai_assistance_operit_terminal_Pty_00024Companion_createSubprocess(JNIEn
     tt.c_cc[VMIN]     = 1;
     tt.c_cc[VTIME]    = 0;
 
+    struct winsize ws;
+    ws.ws_row = 40;
+    ws.ws_col = 100;
+    ws.ws_xpixel = 0;
+    ws.ws_ypixel = 0;
 
-    pid = forkpty(&master_fd, NULL, &tt, NULL);
+    pid = forkpty(&master_fd, NULL, &tt, &ws);
 
     if (pid < 0) {
         LOGE("forkpty failed");

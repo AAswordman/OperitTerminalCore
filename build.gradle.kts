@@ -70,6 +70,7 @@ dependencies {
     implementation(libs.compose.material.icons.extended)
     implementation(libs.compose.animation)
     implementation(libs.compose.animation.core)
+    implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.ui.graphics.android)
     implementation(libs.androidx.runtime.android)
     implementation(libs.androidx.ui.text.android)
