@@ -1,11 +1,11 @@
 plugins {
-    alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
+    id("com.android.library")
+    id("org.jetbrains.kotlin.android")
     id("kotlin-parcelize")
 }
 
 android {
-    namespace = "com.ai.assistance.operit.terminal.core"
+    namespace = "com.ai.assistance.operit.terminal"
     compileSdk = 34
 
     defaultConfig {
@@ -40,11 +40,11 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
     buildFeatures {
         aidl = true
@@ -58,8 +58,8 @@ android {
 
 dependencies {
     implementation(libs.androidx.core.ktx)
-    implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.compose.runtime)
-    implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.kotlinx.coroutines.android)
+    implementation(platform(libs.compose.bom))
+    implementation(libs.compose.ui)
+    implementation(libs.coroutines.core)
+    implementation(libs.coroutines.android)
 } 
