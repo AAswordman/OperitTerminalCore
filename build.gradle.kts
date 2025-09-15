@@ -48,6 +48,10 @@ android {
     }
     buildFeatures {
         aidl = true
+        compose = true
+    }
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.5.8"
     }
     packaging {
         jniLibs {
@@ -60,6 +64,17 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
+    implementation(libs.compose.ui.graphics)
+    implementation(libs.compose.ui.tooling.preview)
+    implementation(libs.compose.material3)
+    implementation(libs.compose.material.icons.extended)
+    implementation(libs.compose.animation)
+    implementation(libs.compose.animation.core)
+    implementation(libs.androidx.ui.graphics.android)
+    implementation(libs.androidx.runtime.android)
+    implementation(libs.androidx.ui.text.android)
+    implementation(libs.androidx.animation.android)
+    implementation(libs.androidx.ui.android)
     implementation(libs.coroutines.core)
     implementation(libs.coroutines.android)
 } 
