@@ -53,12 +53,14 @@ import com.ai.assistance.operit.terminal.TerminalEnv
 import com.ai.assistance.operit.terminal.view.SyntaxColors
 import com.ai.assistance.operit.terminal.view.SyntaxHighlightingVisualTransformation
 import com.ai.assistance.operit.terminal.view.highlight
+import androidx.compose.material.icons.filled.Settings
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun TerminalHome(
     env: TerminalEnv,
-    onNavigateToSetup: () -> Unit
+    onNavigateToSetup: () -> Unit,
+    onNavigateToSettings: () -> Unit
 ) {
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -135,7 +137,8 @@ fun TerminalHome(
                 onGesture = { zoom ->
                     scaleFactor = max(0.5f, min(3f, scaleFactor * zoom))
                 },
-                onNavigateToSetup = onNavigateToSetup
+                onNavigateToSetup = onNavigateToSetup,
+                onNavigateToSettings = onNavigateToSettings
             )
         }
     }
@@ -292,7 +295,8 @@ private fun TerminalContent(
     lineHeight: Float,
     padding: androidx.compose.ui.unit.Dp,
     onGesture: (zoom: Float) -> Unit,
-    onNavigateToSetup: () -> Unit
+    onNavigateToSetup: () -> Unit,
+    onNavigateToSettings: () -> Unit
 ) {
     // 终端内容
     Box(
@@ -419,7 +423,8 @@ private fun TerminalContent(
                 onSendCommand = onSendCommand,
                 fontSize = fontSize * 0.8f,
                 padding = padding,
-                onNavigateToSetup = onNavigateToSetup
+                onNavigateToSetup = onNavigateToSetup,
+                onNavigateToSettings = onNavigateToSettings
             )
 
             // 当前输入行
@@ -569,7 +574,8 @@ private fun TerminalToolbar(
     onSendCommand: (String) -> Unit,
     fontSize: androidx.compose.ui.unit.TextUnit,
     padding: androidx.compose.ui.unit.Dp,
-    onNavigateToSetup: () -> Unit
+    onNavigateToSetup: () -> Unit,
+    onNavigateToSettings: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -639,6 +645,17 @@ private fun TerminalToolbar(
                     )
                 }
             }
+
+            // 设置按钮
+            Icon(
+                imageVector = Icons.Default.Settings,
+                contentDescription = "设置",
+                tint = Color.Gray,
+                modifier = Modifier
+                    .clickable { onNavigateToSettings() }
+                    .padding(start = padding)
+                    .size(padding * 2.5f)
+            )
         }
     }
 } 

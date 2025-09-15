@@ -54,6 +54,17 @@ android {
         kotlinCompilerExtensionVersion = "1.5.8"
     }
     packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE",
+                "META-INF/LICENSE.txt",
+                "META-INF/NOTICE",
+                "META-INF/NOTICE.txt"
+            )
+        }
+    }
+    packaging {
         jniLibs {
             useLegacyPackaging = true
         }
@@ -78,4 +89,9 @@ dependencies {
     implementation(libs.androidx.ui.android)
     implementation(libs.coroutines.core)
     implementation(libs.coroutines.android)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    
+    // FTP服务器依赖
+    implementation("org.apache.ftpserver:ftpserver-core:1.2.0")
+    implementation("org.apache.ftpserver:ftplet-api:1.2.0")
 } 

@@ -525,6 +525,7 @@ class TerminalManager private constructor(
             ls ~/${'$'}UBUNTU
             progress_echo "Extracting Ubuntu rootfs..."
             busybox tar xf ~/${'$'}UBUNTU -C ${'$'}UBUNTU_PATH/ >/dev/null 2>&1
+            rm -f ~/${'$'}UBUNTU
             echo "Extraction complete"
             mv ${'$'}UBUNTU_PATH/${'$'}UBUNTU_NAME/* ${'$'}UBUNTU_PATH/ 2>/dev/null
             rm -rf ${'$'}UBUNTU_PATH/${'$'}UBUNTU_NAME
@@ -547,6 +548,8 @@ class TerminalManager private constructor(
             busybox unzip proot-distro.zip -d proot-distro
             cd ~/proot-distro
             bash ./install.sh
+            cd ~
+            rm -rf proot-distro.zip proot-distro
           else
             progress_echo "proot-distro ${'$'}L_INSTALLED"
           fi
