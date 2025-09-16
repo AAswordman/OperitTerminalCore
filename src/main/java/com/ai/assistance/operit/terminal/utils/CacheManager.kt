@@ -1,11 +1,13 @@
 package com.ai.assistance.operit.terminal.utils
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.file.Files
-import java.nio.file.attribute.BasicFileAttributes
+import kotlin.math.log10
+import kotlin.math.pow
 
 class CacheManager(private val context: Context) {
 
@@ -13,10 +15,55 @@ class CacheManager(private val context: Context) {
     private val usrDir: File = File(filesDir, "usr")
     private val tmpDir: File = File(filesDir, "tmp")
 
-    suspend fun getCacheSize(): Long = withContext(Dispatchers.IO) {
-        val usrSize = getDirectorySize(usrDir)
-        val tmpSize = getDirectorySize(tmpDir)
-        usrSize + tmpSize
+    suspend fun getCacheSize(onProgress: (bytes: Long) -> Unit): Long = withContext(Dispatchers.IO) {
+        var totalSize = 0L
+        var filesProcessed = 0
+        val seenFiles = mutableSetOf<Any>()
+        onProgress(0L) // Initial progress
+
+        listOf(usrDir, tmpDir).forEach { dir ->
+            if (dir.exists()) {
+                dir.walkTopDown().onEnter {
+                    // To prevent visiting directories we don't have permission to read,
+                    // which would cause the walk to fail.
+                    it.canRead() 
+                }.forEach { file ->
+                    if (file.isFile) {
+                        try {
+                            val path = file.toPath()
+                            // On Linux, fileKey() returns an object containing inode and device ID.
+                            // This allows us to correctly handle hard links and not double-count them.
+                            val fileKey = try {
+                                Files.readAttributes(path, java.nio.file.attribute.BasicFileAttributes::class.java).fileKey()
+                            } catch (e: Exception) {
+                                null // If we can't read attributes, assume no key.
+                            }
+
+                            if (fileKey != null) {
+                                if (seenFiles.add(fileKey)) {
+                                    totalSize += file.length()
+                                }
+                            } else {
+                                // Fallback for filesystems without fileKey support or if attribute read fails.
+                                // This might overcount hard links, but it's the best we can do.
+                                totalSize += file.length()
+                            }
+
+                            filesProcessed++
+                            // To avoid overwhelming the main thread, update progress periodically.
+                            if (filesProcessed % 200 == 0) {
+                                onProgress(totalSize)
+                            }
+                        } catch (e: Exception) {
+                            // Ignore files that can't be accessed, e.g. broken symlinks
+                        }
+                    }
+                }
+            }
+        }
+        
+        onProgress(totalSize) // Final update with the total size
+        totalSize
     }
 
     suspend fun clearCache(terminalManager: com.ai.assistance.operit.terminal.TerminalManager? = null) = withContext(Dispatchers.IO) {
@@ -43,38 +90,6 @@ class CacheManager(private val context: Context) {
                 file.delete()
             }
         }
-    }
-
-    private fun getDirectorySize(dir: File): Long {
-        if (!dir.exists()) return 0L
-
-        val visitedInodes = mutableSetOf<Any>()
-        
-        return dir.walkTopDown()
-            .mapNotNull { file ->
-                if (!file.isFile) return@mapNotNull null
-
-                try {
-                    val path = file.toPath()
-                    val attrs = Files.readAttributes(path, BasicFileAttributes::class.java)
-                    val fileKey = attrs.fileKey()
-
-                    if (fileKey != null) {
-                        if (visitedInodes.add(fileKey)) {
-                            attrs.size()
-                        } else {
-                            0L // Already counted
-                        }
-                    } else {
-                        // Fallback for file systems without fileKey support
-                        file.length()
-                    }
-                } catch (e: Exception) {
-                    // Fallback for broken symlinks or other errors
-                    file.length()
-                }
-            }
-            .sum()
     }
 
     fun formatSize(size: Long): String {

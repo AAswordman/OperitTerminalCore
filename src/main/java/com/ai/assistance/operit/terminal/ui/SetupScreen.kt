@@ -58,7 +58,8 @@ fun SetupScreen(
                 packages = listOf(
                     PackageItem("python-is-python3", "Python 链接", "python-is-python3", "将python命令链接到python3"),
                     PackageItem("python3-venv", "虚拟环境", "python3-venv", "Python 虚拟环境支持"),
-                    PackageItem("python3-pip", "Pip", "python3-pip", "Python 包管理器")
+                    PackageItem("python3-pip", "Pip", "python3-pip", "Python 包管理器"),
+                    PackageItem("uv", "uv", "curl -LsSf https://astral.sh/uv/install.sh | sh", "一个用 Rust 编写的极速 Python 包安装器")
                 )
             ),
             PackageCategory(
@@ -67,6 +68,22 @@ fun SetupScreen(
                 description = "Java 开发环境",
                 packages = listOf(
                     PackageItem("openjdk-17", "OpenJDK 17", "openjdk-17-jdk", "Java 17 开发环境")
+                )
+            ),
+            PackageCategory(
+                id = "rust",
+                name = "Rust (Cargo) 环境",
+                description = "Rust 开发环境和包管理器",
+                packages = listOf(
+                    PackageItem("rust", "Rust & Cargo", "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y", "通过 rustup 安装 Rust 工具链")
+                )
+            ),
+            PackageCategory(
+                id = "go",
+                name = "Go 环境",
+                description = "Go 语言开发环境",
+                packages = listOf(
+                    PackageItem("go", "Go", "golang-go", "Go 编程语言")
                 )
             )
         )
@@ -80,6 +97,39 @@ fun SetupScreen(
     
     // 跟踪每个分类的全选状态
     val categorySelectAll = remember { mutableStateMapOf<String, Boolean>() }
+    
+    var showSetupDialog by remember { mutableStateOf(false) }
+    val commandsToRun = remember { mutableStateOf<List<String>>(emptyList()) }
+
+    if (showSetupDialog) {
+        AlertDialog(
+            onDismissRequest = { showSetupDialog = false },
+            title = { Text("温馨提示") },
+            text = { Text("即将开始环境配置，这可能需要一些时间。请尽量保持应用在前台或小窗运行以确保配置顺利进行。\n\n如果配置意外中断，不必担心。下次回到本页面再次开始配置时，会自动从上次的进度继续。") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showSetupDialog = false
+                        onSetup(commandsToRun.value)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF006400))
+                ) {
+                    Text("我明白了", color = Color.White)
+                }
+            },
+            dismissButton = {
+                Button(
+                    onClick = { showSetupDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A4A4A))
+                ) {
+                    Text("取消", color = Color.White)
+                }
+            },
+            containerColor = Color(0xFF2D2D2D),
+            titleContentColor = Color.White,
+            textContentColor = Color.Gray
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -148,6 +198,9 @@ fun SetupScreen(
                     commands.add("dpkg --configure -a")
                     commands.add("apt install -f -y")
 
+                    // 删除残留的锁文件，防止apt-fast安装或使用失败
+                    commands.add("rm -f /tmp/apt-fast.lock")
+
                     // 安装 apt-fast 以实现多线程下载
                     commands.add("apt update -y")
                     commands.add("DEBIAN_FRONTEND=noninteractive apt install -y software-properties-common")
@@ -161,12 +214,15 @@ fun SetupScreen(
                     // 收集选中的包
                     val selectedAptPackages = mutableListOf<String>()
                     val selectedNpmPackages = mutableListOf<String>()
+                    val selectedCustomCommands = mutableListOf<String>()
                     
                     packageCategories.forEach { category ->
                         category.packages.forEach { pkg ->
                             if (selectedPackages[pkg.id] == true) {
                                 // 根据分类和包ID判断包管理器
-                                if (category.id == "nodejs" && pkg.id != "nodejs") {
+                                if (pkg.id == "uv" || pkg.id == "rust") {
+                                    selectedCustomCommands.add(pkg.command)
+                                } else if (category.id == "nodejs" && pkg.id != "nodejs") {
                                     selectedNpmPackages.add(pkg.command)
                                 } else {
                                     selectedAptPackages.add(pkg.command)
@@ -180,6 +236,23 @@ fun SetupScreen(
                         commands.add("apt-fast install -y ${selectedAptPackages.joinToString(" ")}")
                     }
                     
+                    // 运行自定义命令，例如安装 uv 和 rust
+                    if (selectedCustomCommands.isNotEmpty()) {
+                        val deps = mutableSetOf<String>()
+                        if (selectedPackages.getOrDefault("uv", false)) {
+                            deps.add("curl")
+                            deps.add("unzip")
+                        }
+                        if (selectedPackages.getOrDefault("rust", false)) {
+                            deps.add("curl")
+                            deps.add("build-essential")
+                        }
+                        if (deps.isNotEmpty()) {
+                            commands.add("apt-fast install -y ${deps.joinToString(" ")}")
+                        }
+                        commands.addAll(selectedCustomCommands)
+                    }
+                    
                     // 使用 apt-fast 安装 npm，然后并行安装 NPM 包
                     if (selectedNpmPackages.isNotEmpty()) {
                         commands.add("apt-fast install -y npm")
@@ -191,13 +264,8 @@ fun SetupScreen(
                         commands.add("pnpm add -g ${selectedNpmPackages.joinToString(" ")}")
                     }
                     
-                    // 检查是否有包被选中
-                    if (commands.size > 8) { // 8条是基础安装命令
-                        onSetup(commands)
-                    } else {
-                        // 即使没选包也执行基础更新
-                        onSetup(commands)
-                    }
+                    commandsToRun.value = commands
+                    showSetupDialog = true
                 },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF006400))
@@ -233,12 +301,23 @@ private fun CategoryCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = category.name,
-                        color = Color.White,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(verticalAlignment = Alignment.Top) {
+                        Text(
+                            text = category.name,
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (category.id == "nodejs" || category.id == "python") {
+                            Text(
+                                text = " (Operit 必须)",
+                                color = Color(0xFFFFA500), // Orange color
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
+                        }
+                    }
                     Text(
                         text = category.description,
                         color = Color.Gray,

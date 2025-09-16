@@ -1,7 +1,9 @@
 package com.ai.assistance.operit.terminal.utils
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import kotlinx.coroutines.Dispatchers
@@ -15,6 +17,8 @@ class UpdateChecker(private val context: Context) {
 
     companion object {
         private const val GITHUB_API_URL = "https://api.github.com/repos/AAswordman/OperitTerminal/tags"
+        const val GITHUB_REPO_URL = "https://github.com/AAswordman/OperitTerminal"
+        const val GITHUB_RELEASES_URL = "https://github.com/AAswordman/OperitTerminal/releases"
     }
 
     sealed class UpdateResult {
@@ -108,6 +112,26 @@ class UpdateChecker(private val context: Context) {
             "v" + packageInfo.versionName
         } catch (e: PackageManager.NameNotFoundException) {
             "v0.0" // Should not happen
+        }
+    }
+
+    fun openGitHubReleases() {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB_RELEASES_URL))
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "无法打开浏览器", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun openGitHubRepo() {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(GITHUB_REPO_URL))
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "无法打开浏览器", Toast.LENGTH_SHORT).show()
         }
     }
 } 

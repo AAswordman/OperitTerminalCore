@@ -271,6 +271,12 @@ class OutputProcessor(
             return
         }
 
+        // 检查是否为进度更新行
+        if (isProgressLine(cleanLine)) {
+            updateProgressOutput(sessionId, cleanLine, sessionManager)
+            return
+        }
+
         // 优先处理常规提示符，因为它表示命令结束，应退出任何交互模式
         if (handlePrompt(sessionId, cleanLine, sessionManager)) {
             return
@@ -641,6 +647,7 @@ class OutputProcessor(
 
     private fun isProgressLine(line: String): Boolean {
         val cleanLine = line.trim()
+        val lowerCleanLine = cleanLine.lowercase()
         return cleanLine.contains("%") ||
                cleanLine.contains("█") ||
                cleanLine.contains("▓") ||
@@ -652,13 +659,14 @@ class OutputProcessor(
                cleanLine.contains("▊") ||
                cleanLine.contains("▉") ||
                cleanLine.matches(Regex(".*\\d+/\\d+.*")) ||
-               cleanLine.matches(Regex(".*\\[.*\\].*")) ||
-               cleanLine.contains("downloading") ||
-               cleanLine.contains("installing") ||
-               cleanLine.contains("progress") ||
-               cleanLine.contains("Loading") ||
-               cleanLine.contains("Downloading") ||
-               cleanLine.contains("Installing")
+               cleanLine.matches(Regex(".*\\[.*[#=.\\s].*\\].*")) ||
+               lowerCleanLine.contains("...") ||
+               lowerCleanLine.contains("downloading") ||
+               lowerCleanLine.contains("installing") ||
+               lowerCleanLine.contains("progress") ||
+               lowerCleanLine.contains("loading") ||
+               lowerCleanLine.contains("unpacking") ||
+               lowerCleanLine.contains("setting up")
     }
 
     /**

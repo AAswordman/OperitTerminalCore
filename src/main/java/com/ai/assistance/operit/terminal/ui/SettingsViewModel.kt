@@ -41,6 +41,10 @@ class SettingsViewModel(
     private val _isManagingFtpServer = MutableStateFlow(false)
     val isManagingFtpServer = _isManagingFtpServer.asStateFlow()
 
+    // 更新相关状态
+    private val _hasUpdateAvailable = MutableStateFlow(false)
+    val hasUpdateAvailable = _hasUpdateAvailable.asStateFlow()
+
     // 自动检测更新，但不自动计算缓存大小
     init {
         checkForUpdates()
@@ -52,7 +56,11 @@ class SettingsViewModel(
             _isCalculatingCache.value = true
             _cacheSize.value = "计算中..."
             try {
-                val size = cacheManager.getCacheSize()
+                // 调用新的 getCacheSize，并传入一个更新UI的回调
+                val size = cacheManager.getCacheSize { currentSize ->
+                    // 在回调中，实时更新UI状态
+                    _cacheSize.value = "计算中... (${cacheManager.formatSize(currentSize)})"
+                }
                 _cacheSize.value = cacheManager.formatSize(size)
             } catch (e: Exception) {
                 _cacheSize.value = "计算失败"
@@ -89,15 +97,26 @@ class SettingsViewModel(
             when (val result = updateChecker.checkForUpdates(showToast = true)) {
                 is UpdateChecker.UpdateResult.UpdateAvailable -> {
                     _updateStatus.value = "发现新版本: ${result.latestVersion} (当前: ${result.currentVersion})"
+                    _hasUpdateAvailable.value = true
                 }
                 is UpdateChecker.UpdateResult.UpToDate -> {
                     _updateStatus.value = "已是最新版本 (${result.currentVersion})"
+                    _hasUpdateAvailable.value = false
                 }
                 is UpdateChecker.UpdateResult.Error -> {
                     _updateStatus.value = "检查失败: ${result.message}"
+                    _hasUpdateAvailable.value = false
                 }
             }
         }
+    }
+    
+    fun openGitHubRepo() {
+        updateChecker.openGitHubRepo()
+    }
+    
+    fun openGitHubReleases() {
+        updateChecker.openGitHubReleases()
     }
     
     fun startFtpServer() {

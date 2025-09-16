@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.GetApp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,6 +22,23 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+
+// 三色系主题配置
+object SettingsTheme {
+    // 蓝色系 - 主要操作和强调
+    val primaryColor = Color(0xFF2196F3)        // 主色
+    val primaryVariant = Color(0xFF1976D2)      // 深蓝变体
+    
+    // 灰色系 - 背景和文字
+    val backgroundColor = Color(0xFF121212)     // 深色背景
+    val surfaceColor = Color(0xFF1E1E1E)       // 卡片背景
+    val onSurfaceColor = Color(0xFFE0E0E0)     // 主要文字
+    val onSurfaceVariant = Color(0xFFB0B0B0)   // 次要文字
+    
+    // 红色系 - 危险操作和错误
+    val errorColor = Color(0xFFE53E3E)         // 错误/危险色
+    val errorVariant = Color(0xFFD32F2F)       // 深红变体
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,23 +57,26 @@ fun SettingsScreen(
     val isFtpServerRunning by viewModel.isFtpServerRunning.collectAsState()
     val isManagingFtpServer by viewModel.isManagingFtpServer.collectAsState()
     
+    // 更新相关状态
+    val hasUpdateAvailable by viewModel.hasUpdateAvailable.collectAsState()
+    
     var showClearCacheDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("设置", color = Color.White) },
+                title = { Text("设置", color = SettingsTheme.onSurfaceColor) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = SettingsTheme.onSurfaceColor)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF1A1A1A)
+                    containerColor = SettingsTheme.surfaceColor
                 )
             )
         },
-        containerColor = Color(0xFF1A1A1A)
+        containerColor = SettingsTheme.backgroundColor
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -67,7 +88,7 @@ fun SettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF2D2D2D))
+                colors = CardDefaults.cardColors(containerColor = SettingsTheme.surfaceColor)
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp)
@@ -76,12 +97,12 @@ fun SettingsScreen(
                         text = "FTP文件服务器",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = SettingsTheme.onSurfaceColor
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = ftpServerStatus,
-                        color = if (isFtpServerRunning) Color.Green else Color.Gray,
+                        color = if (isFtpServerRunning) SettingsTheme.primaryColor else SettingsTheme.onSurfaceVariant,
                         fontSize = 14.sp
                     )
                     Spacer(modifier = Modifier.height(12.dp))
@@ -93,14 +114,14 @@ fun SettingsScreen(
                             Button(
                                 onClick = { viewModel.stopFtpServer() },
                                 enabled = !isManagingFtpServer,
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                                colors = ButtonDefaults.buttonColors(containerColor = SettingsTheme.errorColor),
                                 modifier = Modifier.weight(1f)
                             ) {
                                 if (isManagingFtpServer) {
                                     CircularProgressIndicator(
                                         modifier = Modifier.size(16.dp),
                                         strokeWidth = 2.dp,
-                                        color = Color.White
+                                        color = SettingsTheme.onSurfaceColor
                                     )
                                 } else {
                                     Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -112,14 +133,14 @@ fun SettingsScreen(
                             Button(
                                 onClick = { viewModel.startFtpServer() },
                                 enabled = !isManagingFtpServer,
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
+                                colors = ButtonDefaults.buttonColors(containerColor = SettingsTheme.primaryColor),
                                 modifier = Modifier.weight(1f)
                             ) {
                                 if (isManagingFtpServer) {
                                     CircularProgressIndicator(
                                         modifier = Modifier.size(16.dp),
                                         strokeWidth = 2.dp,
-                                        color = Color.White
+                                        color = SettingsTheme.onSurfaceColor
                                     )
                                 } else {
                                     Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -134,7 +155,13 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
                             text = "💡 提示：使用FTP客户端连接到上述地址即可访问Ubuntu文件系统",
-                            color = Color(0xFFFFEB3B),
+                            color = SettingsTheme.primaryColor,
+                            fontSize = 12.sp
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "📱 建议：开启小窗模式保持应用运行，确保FTP服务持续可用",
+                            color = SettingsTheme.primaryColor,
                             fontSize = 12.sp
                         )
                     }
@@ -146,7 +173,7 @@ fun SettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF2D2D2D))
+                colors = CardDefaults.cardColors(containerColor = SettingsTheme.surfaceColor)
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp)
@@ -155,12 +182,12 @@ fun SettingsScreen(
                         text = "存储管理",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White
+                        color = SettingsTheme.onSurfaceColor
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = "Ubuntu环境大小: $cacheSize",
-                        color = Color.Gray,
+                        color = SettingsTheme.onSurfaceVariant,
                         fontSize = 14.sp
                     )
                     Spacer(modifier = Modifier.height(12.dp))
@@ -171,13 +198,17 @@ fun SettingsScreen(
                         OutlinedButton(
                             onClick = { viewModel.getCacheSize() },
                             enabled = !isCalculatingCache,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = SettingsTheme.primaryColor
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, SettingsTheme.primaryColor)
                         ) {
                             if (isCalculatingCache) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(16.dp),
                                     strokeWidth = 2.dp,
-                                    color = Color.White
+                                    color = SettingsTheme.primaryColor
                                 )
                             } else {
                                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -188,7 +219,7 @@ fun SettingsScreen(
                         
                         Button(
                             onClick = { showClearCacheDialog = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                            colors = ButtonDefaults.buttonColors(containerColor = SettingsTheme.errorColor),
                             modifier = Modifier.weight(1f)
                         ) {
                             Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -199,13 +230,79 @@ fun SettingsScreen(
                 }
             }
             
-            SettingsItem(
-                title = "更新检查",
-                subtitle = updateStatus,
-                onClick = { viewModel.checkForUpdates() },
-                icon = Icons.Default.Refresh
-            )
-            HorizontalDivider(color = Color(0xFF2D2D2D))
+            // 项目地址和更新检查区域
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = SettingsTheme.surfaceColor)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Text(
+                        text = "项目地址",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = SettingsTheme.onSurfaceColor
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                                         Text(
+                         text = "AAswordman/OperitTerminal",
+                         color = SettingsTheme.onSurfaceVariant,
+                         fontSize = 14.sp
+                     )
+                     Spacer(modifier = Modifier.height(8.dp))
+                     Text(
+                         text = updateStatus,
+                         color = if (hasUpdateAvailable) SettingsTheme.primaryColor else SettingsTheme.onSurfaceVariant,
+                         fontSize = 12.sp
+                     )
+                     Spacer(modifier = Modifier.height(12.dp))
+                     
+                     Row(
+                         horizontalArrangement = Arrangement.spacedBy(8.dp)
+                     ) {
+                         OutlinedButton(
+                             onClick = { viewModel.openGitHubRepo() },
+                             enabled = true,
+                             modifier = Modifier.weight(1f),
+                             colors = ButtonDefaults.outlinedButtonColors(
+                                 contentColor = SettingsTheme.primaryColor
+                             ),
+                             border = androidx.compose.foundation.BorderStroke(1.dp, SettingsTheme.primaryColor)
+                         ) {
+                             Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(16.dp))
+                             Spacer(modifier = Modifier.width(4.dp))
+                             Text("访问项目")
+                         }
+                         
+                         Button(
+                             onClick = { 
+                                 if (hasUpdateAvailable) {
+                                     viewModel.openGitHubReleases()
+                                 } else {
+                                     viewModel.checkForUpdates()
+                                 }
+                             },
+                             enabled = true,
+                             colors = ButtonDefaults.buttonColors(
+                                 containerColor = if (hasUpdateAvailable) SettingsTheme.primaryColor else SettingsTheme.surfaceColor
+                             ),
+                             modifier = Modifier.weight(1f)
+                         ) {
+                             if (hasUpdateAvailable) {
+                                 Icon(Icons.Default.GetApp, contentDescription = null, modifier = Modifier.size(16.dp))
+                             } else {
+                                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                             }
+                             Spacer(modifier = Modifier.width(4.dp))
+                             Text(if (hasUpdateAvailable) "立即更新" else "检查更新")
+                         }
+                     }
+                }
+            }
+            HorizontalDivider(color = SettingsTheme.surfaceColor)
         }
     }
     
@@ -213,28 +310,28 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showClearCacheDialog = false },
             title = { 
-                Text("⚠️ 危险操作", color = Color.Red, fontWeight = FontWeight.Bold) 
+                Text("⚠️ 危险操作", color = SettingsTheme.errorColor, fontWeight = FontWeight.Bold) 
             },
             text = { 
                 Column {
                     Text(
                         "此操作将完全删除Ubuntu虚拟环境，包括：",
-                        color = Color.White,
+                        color = SettingsTheme.onSurfaceColor,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("• 所有已安装的软件包", color = Color.White)
-                    Text("• 用户数据和配置文件", color = Color.White) 
-                    Text("• 系统文件和环境设置", color = Color.White)
+                    Text("• 所有已安装的软件包", color = SettingsTheme.onSurfaceColor)
+                    Text("• 用户数据和配置文件", color = SettingsTheme.onSurfaceColor) 
+                    Text("• 系统文件和环境设置", color = SettingsTheme.onSurfaceColor)
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         "操作后需要重新初始化Ubuntu环境，这可能需要几分钟时间。",
-                        color = Color.Yellow
+                                                    color = SettingsTheme.errorColor
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         "FTP服务器也将被停止。确定要继续吗？",
-                        color = Color.Red,
+                        color = SettingsTheme.errorColor,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -245,17 +342,23 @@ fun SettingsScreen(
                         viewModel.clearCache()
                         showClearCacheDialog = false
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                    colors = ButtonDefaults.buttonColors(containerColor = SettingsTheme.errorColor)
                 ) {
-                    Text("确定重置", color = Color.White)
+                    Text("确定重置", color = SettingsTheme.onSurfaceColor)
                 }
             },
             dismissButton = {
-                OutlinedButton(onClick = { showClearCacheDialog = false }) {
-                    Text("取消", color = Color.White)
+                OutlinedButton(
+                    onClick = { showClearCacheDialog = false },
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = SettingsTheme.onSurfaceVariant
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, SettingsTheme.onSurfaceVariant)
+                ) {
+                    Text("取消", color = SettingsTheme.onSurfaceVariant)
                 }
             },
-            containerColor = Color(0xFF2D2D2D)
+            containerColor = SettingsTheme.surfaceColor
         )
     }
 }
@@ -275,14 +378,14 @@ private fun SettingsItem(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(text = title, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+            Text(text = title, color = SettingsTheme.onSurfaceColor, fontSize = 16.sp, fontWeight = FontWeight.Medium)
             Spacer(modifier = Modifier.height(4.dp))
-            Text(text = subtitle, color = Color.Gray, fontSize = 14.sp)
+            Text(text = subtitle, color = SettingsTheme.onSurfaceVariant, fontSize = 14.sp)
         }
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = Color.Gray
+            tint = SettingsTheme.primaryColor
         )
     }
 } 
