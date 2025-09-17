@@ -470,7 +470,7 @@ private fun TerminalContent(
     }
 }
 
-private fun getTruncatedPrompt(prompt: String, maxLength: Int = 35): String {
+private fun getTruncatedPrompt(prompt: String, maxLength: Int = 16): String {
     val trimmed = prompt.trimEnd()
     return if (trimmed.length > maxLength) {
         "..." + trimmed.takeLast(maxLength - 3)
