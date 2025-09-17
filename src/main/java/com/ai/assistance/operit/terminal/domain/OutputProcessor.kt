@@ -97,6 +97,10 @@ class OutputProcessor(
                 val remainingContent = stripAnsi(bufferContent)
                 if (isPrompt(remainingContent) || isPersistentInteractivePrompt(remainingContent) || isInteractivePrompt(remainingContent)) {
                     Log.d(TAG, "Processing remaining buffer as interactive/shell prompt: '$bufferContent'")
+                    // Since this is not a newline-terminated line, the justHandledCarriageReturn
+                    // state from a previous CR is not relevant here. We reset it to ensure
+                    // the prompt is processed correctly by handleReadyState.
+                    state.justHandledCarriageReturn = false
                     processLine(sessionId, bufferContent, sessionManager)
                     session.rawBuffer.clear()
                 }
@@ -257,6 +261,7 @@ class OutputProcessor(
         sessionManager: SessionManager
     ) {
         val cleanLine = stripAnsi(line)
+        Log.d(TAG, "Stripped line: '$cleanLine'")
 
         // 跳过TERMINAL_READY信号
         if (cleanLine.trim() == "TERMINAL_READY") {
@@ -468,20 +473,54 @@ class OutputProcessor(
         sessionManager: SessionManager
     ) {
         Log.d(TAG, "Detected persistent interactive prompt: $cleanLine")
-        finishCurrentCommand(sessionId, sessionManager)
-        sessionManager.updateSession(sessionId) { session ->
-            session.copy(
-                isInteractiveMode = true,
-                interactivePrompt = cleanLine.trim()
-            )
+        val session = sessionManager.getSession(sessionId) ?: return
+        val lastCommand = session.currentExecutingCommand?.command?.trim() ?: ""
+
+        // List of commands that start a REPL
+        val replCommands = listOf("node", "python", "irb", "js", "bash", "sh")
+
+        // Check if the prompt is a shell continuation prompt (PS2)
+        // This happens for multi-line commands that are not REPLs.
+        val isContinuationPrompt = cleanLine.trim() == ">" && replCommands.none { lastCommand.startsWith(it) }
+
+        if (isContinuationPrompt) {
+            Log.d(TAG, "Identified as shell continuation prompt. Not finishing command.")
+            // Don't finish the command. Just update the output to show the prompt.
+            updateCommandOutput(sessionId, cleanLine, sessionManager)
+            sessionManager.updateSession(sessionId) {
+                it.copy(
+                    isWaitingForInteractiveInput = true,
+                    lastInteractivePrompt = cleanLine.trim()
+                )
+            }
+        } else {
+            Log.d(TAG, "Identified as REPL prompt. Finishing previous command.")
+            // This is a real interactive prompt (like Node.js), finish the command that started it.
+            finishCurrentCommand(sessionId, sessionManager)
+            sessionManager.updateSession(sessionId) {
+                it.copy(
+                    isInteractiveMode = true,
+                    interactivePrompt = cleanLine.trim()
+                )
+            }
         }
     }
 
     private fun isCommandEcho(cleanLine: String, session: TerminalSessionData): Boolean {
         val lastExecutingItem = session.currentExecutingCommand
         if (lastExecutingItem != null && lastExecutingItem.isExecuting) {
-            if (session.currentCommandOutputBuilder.isEmpty() &&
-                cleanLine.trim() == lastExecutingItem.command.trim()) {
+            val commandToCheck = lastExecutingItem.command.trim()
+            val lineToCheck = cleanLine.trim()
+            val isMatch = lineToCheck == commandToCheck
+            Log.d(TAG, """
+                isCommandEcho check:
+                - Line: '$lineToCheck' (len=${lineToCheck.length})
+                - Stored: '$commandToCheck' (len=${commandToCheck.length})
+                - Output buffer empty: ${session.currentCommandOutputBuilder.isEmpty()}
+                - Match: $isMatch
+            """.trimIndent())
+
+            if (session.currentCommandOutputBuilder.isEmpty() && isMatch) {
                 return true
             }
         }
@@ -574,6 +613,8 @@ class OutputProcessor(
         if (lastExecutingItem != null && lastExecutingItem.isExecuting) {
             lastExecutingItem.setOutput(session.currentCommandOutputBuilder.toString().trim())
             lastExecutingItem.setExecuting(false)
+
+            Log.i(TAG, "Finishing command ${lastExecutingItem.id} for session $sessionId")
             
             // 发出命令完成事件
             onCommandExecutionEvent(CommandExecutionEvent(
@@ -673,7 +714,16 @@ class OutputProcessor(
      * 去除ANSI转义序列
      */
     private fun stripAnsi(text: String): String {
-        return text.replace(Regex("\\x1B\\[[0-?]*[ -/]*[@-~]"), "")
+        // This regex is intended to remove:
+        // - CSI (Control Sequence Introducer) sequences: \x1B[...
+        // - OSC (Operating System Command) sequences: \x1B]...\u0007 (BEL) or \x1B]...\x1B\\ (ST)
+        // This version is more robust against malformed sequences than a simple non-greedy match.
+        val ansiRegex = Regex(
+            "\\x1B\\[[0-?]*[ -/]*[@-~]|" + // CSI sequences
+            "\\x1B][^\\u0007\\x1B]*" +      // OSC sequences content (avoids crossing boundaries)
+            "(?:\\u0007|\\x1B\\\\)"        // OSC terminators (BEL or ST)
+        )
+        return ansiRegex.replace(text, "")
     }
 
     /**

@@ -57,13 +57,13 @@ fun SetupScreen(
                 description = "Python 开发环境",
                 packages = listOf(
                     PackageItem("python-is-python3", "Python 链接", "python-is-python3", "将python命令链接到python3"),
-                    PackageItem("python3-venv", "虚拟环境", "python3-venv", "Python 虚拟环境支持"),
+                    PackageItem("python3-venv", "虚拟环境", "python3 -venv", "Python 虚拟环境支持"),
                     PackageItem("python3-pip", "Pip", "python3-pip", "Python 包管理器"),
-                    PackageItem("uv", "uv", "curl -LsSf https://astral.sh/uv/install.sh | sh", "一个用 Rust 编写的极速 Python 包安装器")
+                    PackageItem("uv", "uv", "pipx install uv", "一个用 Rust 编写的极速 Python 包安装器")
                 )
             ),
             PackageCategory(
-                id = "java",
+                id = "java", 
                 name = "Java 环境",
                 description = "Java 开发环境",
                 packages = listOf(
@@ -220,7 +220,7 @@ fun SetupScreen(
                         category.packages.forEach { pkg ->
                             if (selectedPackages[pkg.id] == true) {
                                 // 根据分类和包ID判断包管理器
-                                if (pkg.id == "uv" || pkg.id == "rust") {
+                                if (pkg.id == "rust") {
                                     selectedCustomCommands.add(pkg.command)
                                 } else if (category.id == "nodejs" && pkg.id != "nodejs") {
                                     selectedNpmPackages.add(pkg.command)
@@ -230,19 +230,15 @@ fun SetupScreen(
                             }
                         }
                     }
-                    
-                    // 使用 apt-fast 并行安装 APT 包
-                    if (selectedAptPackages.isNotEmpty()) {
-                        commands.add("apt-fast install -y ${selectedAptPackages.joinToString(" ")}")
+
+                    // 添加 pipx 作为 uv 的依赖
+                    if (selectedPackages.getOrDefault("uv", false)) {
+                        selectedAptPackages.add("pipx")
                     }
-                    
-                    // 运行自定义命令，例如安装 uv 和 rust
+
+                    // 运行自定义命令，例如安装 rust
                     if (selectedCustomCommands.isNotEmpty()) {
                         val deps = mutableSetOf<String>()
-                        if (selectedPackages.getOrDefault("uv", false)) {
-                            deps.add("curl")
-                            deps.add("unzip")
-                        }
                         if (selectedPackages.getOrDefault("rust", false)) {
                             deps.add("curl")
                             deps.add("build-essential")
@@ -251,6 +247,11 @@ fun SetupScreen(
                             commands.add("apt-fast install -y ${deps.joinToString(" ")}")
                         }
                         commands.addAll(selectedCustomCommands)
+                    }
+
+                    // 使用 apt-fast 安装 apt 包
+                    if (selectedAptPackages.isNotEmpty()) {
+                        commands.add("apt-fast install -y ${selectedAptPackages.joinToString(" ")}")
                     }
                     
                     // 使用 apt-fast 安装 npm，然后并行安装 NPM 包

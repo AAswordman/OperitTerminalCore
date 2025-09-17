@@ -37,12 +37,15 @@ import java.io.OutputStreamWriter
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
 
 @RequiresApi(Build.VERSION_CODES.O)
 class TerminalManager private constructor(
     private val context: Context
 ) {
     private val coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val envInitMutex = Mutex()
+    private var isEnvInitialized = false
 
     private val filesDir: File = context.filesDir
     private val usrDir: File = File(filesDir, "usr")
@@ -104,15 +107,17 @@ class TerminalManager private constructor(
     }
 
     init {
-        // 创建第一个会话
-        createNewSession()
+        // 如果没有会话，则创建第一个会话
+        if (sessionManager.state.value.sessions.isEmpty()) {
+            createNewSession()
+        }
     }
     
     /**
      * 创建新会话
      */
-    fun createNewSession(): com.ai.assistance.operit.terminal.data.TerminalSessionData {
-        val newSession = sessionManager.createNewSession()
+    fun createNewSession(title: String? = null): com.ai.assistance.operit.terminal.data.TerminalSessionData {
+        val newSession = sessionManager.createNewSession(title)
         initializeSession(newSession.id)
         return newSession
     }
@@ -273,31 +278,46 @@ class TerminalManager private constructor(
 
     @RequiresApi(Build.VERSION_CODES.O)
     suspend fun initializeEnvironment(): Boolean {
-        return withContext(Dispatchers.IO) {
-            try {
-                Log.d(TAG, "Starting environment initialization...")
+        if (isEnvInitialized) return true
 
-                // 1. Create necessary directories
-                createDirectories()
-
-                // 2. Link native libraries
-                linkNativeLibs()
-                createBusyboxSymlinks()
-
-                // 3. Extract assets
-                extractAssets()
-
-                // 4. Generate and write startup script
-                val startScript = generateStartScript()
-                File(filesDir, "common.sh").writeText(startScript)
-
-
-                Log.d(TAG, "Environment initialization completed successfully.")
-                true
-            } catch (e: Exception) {
-                Log.e(TAG, "Environment initialization failed", e)
-                false
+        envInitMutex.lock()
+        try {
+            if (isEnvInitialized) {
+                return true
             }
+
+            val success = withContext(Dispatchers.IO) {
+                try {
+                    Log.d(TAG, "Starting environment initialization...")
+
+                    // 1. Create necessary directories
+                    createDirectories()
+
+                    // 2. Link native libraries
+                    linkNativeLibs()
+                    createBusyboxSymlinks()
+
+                    // 3. Extract assets
+                    extractAssets()
+
+                    // 4. Generate and write startup script
+                    val startScript = generateStartScript()
+                    File(filesDir, "common.sh").writeText(startScript)
+
+
+                    Log.d(TAG, "Environment initialization completed successfully.")
+                    true
+                } catch (e: Exception) {
+                    Log.e(TAG, "Environment initialization failed", e)
+                    false
+                }
+            }
+            if (success) {
+                isEnvInitialized = true
+            }
+            return success
+        } finally {
+            envInitMutex.unlock()
         }
     }
 

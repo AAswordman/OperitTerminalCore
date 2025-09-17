@@ -55,7 +55,6 @@ class UpdateChecker(private val context: Context) {
                             Toast.makeText(context, "发现新版本: ${result.latestVersion}", Toast.LENGTH_LONG).show()
                         }
                         is UpdateResult.UpToDate -> {
-                            Toast.makeText(context, "已是最新版本", Toast.LENGTH_SHORT).show()
                         }
                         is UpdateResult.Error -> {
                             Toast.makeText(context, "检查更新失败", Toast.LENGTH_SHORT).show()
@@ -95,6 +94,10 @@ class UpdateChecker(private val context: Context) {
     }
 
     private fun isNewer(newVersion: String, oldVersion: String): Boolean {
+        // 当自己是三位版本号的时候，就直接认为自己是最新版本
+        if (oldVersion.replace("v", "").split('.').size >= 3) {
+            return false
+        }
         // Simple version comparison, assumes vX.Y format
         val newVersionValue = newVersion.replace("v", "").toFloatOrNull() ?: 0f
         val oldVersionValue = oldVersion.replace("v", "").toFloatOrNull() ?: 0f

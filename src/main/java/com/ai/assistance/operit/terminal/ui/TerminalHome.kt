@@ -343,7 +343,7 @@ private fun TerminalContent(
                                             shape = RoundedCornerShape(4.dp)
                                         ) {
                                             Text(
-                                                text = historyItem.prompt.trimEnd(),
+                                                text = getTruncatedPrompt(historyItem.prompt),
                                                 color = Color.White,
                                                 fontFamily = FontFamily.Monospace,
                                                 fontSize = fontSize,
@@ -440,7 +440,7 @@ private fun TerminalContent(
                     shape = RoundedCornerShape(4.dp)
                 ) {
                     Text(
-                        text = currentDirectory.ifEmpty { "$ " }.trimEnd(),
+                        text = getTruncatedPrompt(currentDirectory.ifEmpty { "$ " }),
                         color = Color.White,
                         fontFamily = FontFamily.Monospace,
                         fontSize = fontSize,
@@ -467,6 +467,15 @@ private fun TerminalContent(
                 )
             }
         }
+    }
+}
+
+private fun getTruncatedPrompt(prompt: String, maxLength: Int = 35): String {
+    val trimmed = prompt.trimEnd()
+    return if (trimmed.length > maxLength) {
+        "..." + trimmed.takeLast(maxLength - 3)
+    } else {
+        trimmed
     }
 }
 

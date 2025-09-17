@@ -22,11 +22,11 @@ class SessionManager(private val terminalManager: TerminalManager) {
     /**
      * 创建新会话
      */
-    fun createNewSession(): TerminalSessionData {
+    fun createNewSession(title: String? = null): TerminalSessionData {
         val currentState = _state.value
         val sessionCount = currentState.sessions.size + 1
         val newSession = TerminalSessionData(
-            title = "Ubuntu $sessionCount"
+            title = title ?: "Ubuntu $sessionCount"
         )
         newSession.commandHistory.add(
                 com.ai.assistance.operit.terminal.data.CommandHistoryItem(
