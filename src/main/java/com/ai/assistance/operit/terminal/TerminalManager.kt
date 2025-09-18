@@ -191,23 +191,23 @@ class TerminalManager private constructor(
     /**
      * 发送命令
      */
-    fun sendCommand(command: String): String {
-        val commandId = UUID.randomUUID().toString()
+    fun sendCommand(command: String, commandId: String? = null): String {
+        val actualCommandId = commandId ?: UUID.randomUUID().toString()
         
         val session = sessionManager.getCurrentSession()
         if (session != null) {
             // 检查是否有命令正在执行
             if (session.currentExecutingCommand?.isExecuting == true) {
                 // 有命令正在执行，将新命令加入队列
-                session.commandQueue.add(QueuedCommand(commandId, command))
-                Log.d(TAG, "Command queued: $command (id: $commandId). Queue size: ${session.commandQueue.size}")
-                return commandId
+                session.commandQueue.add(QueuedCommand(actualCommandId, command))
+                Log.d(TAG, "Command queued: $command (id: $actualCommandId). Queue size: ${session.commandQueue.size}")
+                return actualCommandId
             }
         }
         
         // 没有命令在执行，直接执行
-        sendInput(command, isCommand = true, commandId = commandId)
-        return commandId
+        sendInput(command, isCommand = true, commandId = actualCommandId)
+        return actualCommandId
     }
 
     /**

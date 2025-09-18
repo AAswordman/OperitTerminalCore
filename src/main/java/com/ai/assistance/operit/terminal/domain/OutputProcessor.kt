@@ -104,6 +104,12 @@ class OutputProcessor(
                     state.justHandledCarriageReturn = false
                     processLine(sessionId, bufferContent, sessionManager)
                     session.rawBuffer.clear()
+                } else if (carriageReturnIndex != -1) {
+                    // Handle case where buffer ends with a progress line and CR
+                    Log.d(TAG, "Processing CR line from remaining buffer: '$bufferContent'")
+                    handleCarriageReturn(sessionId, bufferContent.substring(0, carriageReturnIndex), sessionManager)
+                    session.rawBuffer.delete(0, carriageReturnIndex + 1)
+                    continue
                 }
                 break // Exit loop, wait for more data.
             }
@@ -117,7 +123,9 @@ class OutputProcessor(
             processLine(sessionId, line, sessionManager)
             return
         }
-        updateProgressOutput(sessionId, cleanLine, sessionManager)
+        if (cleanLine.isNotEmpty()) {
+            updateProgressOutput(sessionId, cleanLine, sessionManager)
+        }
         sessionStates[sessionId]?.justHandledCarriageReturn = true
     }
 

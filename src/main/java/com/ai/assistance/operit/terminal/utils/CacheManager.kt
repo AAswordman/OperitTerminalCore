@@ -8,6 +8,7 @@ import java.io.File
 import java.nio.file.Files
 import kotlin.math.log10
 import kotlin.math.pow
+import kotlinx.coroutines.ensureActive
 
 class CacheManager(private val context: Context) {
 
@@ -28,6 +29,7 @@ class CacheManager(private val context: Context) {
                     // which would cause the walk to fail.
                     it.canRead() 
                 }.forEach { file ->
+                    ensureActive() // 检查协程是否已被取消
                     if (file.isFile) {
                         try {
                             val path = file.toPath()

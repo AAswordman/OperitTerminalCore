@@ -87,10 +87,14 @@ class SettingsViewModel(
             _isClearingCache.value = true
             
             // 先停止正在进行的缓存计算
-            if (cacheSizeCalculationJob?.isActive == true) {
-                cacheSizeCalculationJob?.cancel()
-                _isCalculatingCache.value = false
-                _cacheSize.value = "计算已停止"
+            val jobToCancel = cacheSizeCalculationJob
+            if (jobToCancel?.isActive == true) {
+                jobToCancel.cancel()
+                try {
+                    jobToCancel.join() // 等待任务完成
+                } catch (e: Exception) {
+                    // 忽略join可能抛出的异常，因为我们就是要取消它
+                }
             }
             
             _cacheSize.value = "正在重置环境..."
