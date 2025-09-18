@@ -22,7 +22,7 @@ class FtpServerManager(private val context: Context) {
     
     companion object {
         private const val TAG = "FtpServerManager"
-        private const val FTP_PORT = 2121
+        private const val FTP_PORT = 2127
         private const val FTP_USERNAME = "ubuntu"
         private const val FTP_PASSWORD = "ubuntu123"
     }
@@ -60,7 +60,7 @@ class FtpServerManager(private val context: Context) {
 
             // 配置被动模式
             val dataConnectionConfigFactory = DataConnectionConfigurationFactory()
-            dataConnectionConfigFactory.setPassivePorts("2122-2130")
+            dataConnectionConfigFactory.setPassivePorts("2128-2136")
             dataConnectionConfigFactory.setPassiveExternalAddress(getLocalIpAddress())
             listenerFactory.setDataConnectionConfiguration(dataConnectionConfigFactory.createDataConnectionConfiguration())
 
@@ -130,22 +130,6 @@ class FtpServerManager(private val context: Context) {
     }
     
     private fun getLocalIpAddress(): String {
-        try {
-            val interfaces = Collections.list(NetworkInterface.getNetworkInterfaces())
-            for (networkInterface in interfaces) {
-                val addresses = Collections.list(networkInterface.inetAddresses)
-                for (address in addresses) {
-                    if (!address.isLoopbackAddress && !address.isLinkLocalAddress) {
-                        val hostAddress = address.hostAddress
-                        if (hostAddress != null && hostAddress.indexOf(':') < 0) {
-                            return hostAddress
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "获取IP地址失败", e)
-        }
         return "127.0.0.1"
     }
 } 
