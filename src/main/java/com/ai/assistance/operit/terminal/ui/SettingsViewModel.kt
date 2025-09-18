@@ -10,6 +10,7 @@ import com.ai.assistance.operit.terminal.TerminalManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 
 class SettingsViewModel(
     application: Application,
@@ -18,6 +19,9 @@ class SettingsViewModel(
     private val cacheManager = CacheManager(application)
     private val updateChecker = UpdateChecker(application)
     private val ftpServerManager = FtpServerManager(application)
+
+    // 用于跟踪缓存计算任务的Job
+    private var cacheSizeCalculationJob: Job? = null
 
     private val _cacheSize = MutableStateFlow("点击刷新计算")
     val cacheSize = _cacheSize.asStateFlow()
@@ -52,7 +56,10 @@ class SettingsViewModel(
     }
 
     fun getCacheSize() {
-        viewModelScope.launch {
+        // 如果已经有正在运行的计算任务，先取消它
+        cacheSizeCalculationJob?.cancel()
+        
+        cacheSizeCalculationJob = viewModelScope.launch {
             _isCalculatingCache.value = true
             _cacheSize.value = "计算中..."
             try {
@@ -63,9 +70,14 @@ class SettingsViewModel(
                 }
                 _cacheSize.value = cacheManager.formatSize(size)
             } catch (e: Exception) {
-                _cacheSize.value = "计算失败"
+                if (e is kotlinx.coroutines.CancellationException) {
+                    _cacheSize.value = "计算已取消"
+                } else {
+                    _cacheSize.value = "计算失败"
+                }
             } finally {
                 _isCalculatingCache.value = false
+                cacheSizeCalculationJob = null
             }
         }
     }
@@ -73,6 +85,14 @@ class SettingsViewModel(
     fun clearCache() {
         viewModelScope.launch {
             _isClearingCache.value = true
+            
+            // 先停止正在进行的缓存计算
+            if (cacheSizeCalculationJob?.isActive == true) {
+                cacheSizeCalculationJob?.cancel()
+                _isCalculatingCache.value = false
+                _cacheSize.value = "计算已停止"
+            }
+            
             _cacheSize.value = "正在重置环境..."
             try {
                 // 在清理缓存前停止FTP服务器

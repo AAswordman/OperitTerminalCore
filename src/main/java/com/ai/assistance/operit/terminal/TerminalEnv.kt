@@ -11,6 +11,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.ai.assistance.operit.terminal.data.CommandHistoryItem
 import com.ai.assistance.operit.terminal.data.TerminalSessionData
+import kotlinx.coroutines.launch
+import android.util.Log
 
 @Stable
 class TerminalEnv(
@@ -54,7 +56,17 @@ class TerminalEnv(
     }
 
     fun onInterrupt() = terminalManager.sendInterruptSignal()
-    fun onNewSession() = terminalManager.createNewSession()
+    fun onNewSession() {
+        // 在terminalManager的协程作用域中异步创建会话
+        terminalManager.coroutineScope.launch {
+            try {
+                terminalManager.createNewSession()
+                Log.d("TerminalEnv", "New session created successfully")
+            } catch (e: Exception) {
+                Log.e("TerminalEnv", "Failed to create new session", e)
+            }
+        }
+    }
     fun onSwitchSession(sessionId: String) = terminalManager.switchToSession(sessionId)
     fun onCloseSession(sessionId: String) = terminalManager.closeSession(sessionId)
 }

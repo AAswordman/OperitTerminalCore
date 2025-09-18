@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.map
 import com.ai.assistance.operit.terminal.data.TerminalState
 import com.ai.assistance.operit.terminal.data.CommandHistoryItem
+import com.ai.assistance.operit.terminal.data.QueuedCommand
 import com.ai.assistance.operit.terminal.domain.SessionManager
 import com.ai.assistance.operit.terminal.domain.OutputProcessor
 import java.util.UUID
@@ -38,12 +39,14 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.first
 
 @RequiresApi(Build.VERSION_CODES.O)
 class TerminalManager private constructor(
     private val context: Context
 ) {
-    private val coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    internal val coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val envInitMutex = Mutex()
     private var isEnvInitialized = false
 
@@ -65,6 +68,9 @@ class TerminalManager private constructor(
             coroutineScope.launch {
                 _directoryChangeEvents.emit(event)
             }
+        },
+        onCommandCompleted = { sessionId ->
+            processNextQueuedCommand(sessionId)
         }
     )
     
@@ -107,19 +113,38 @@ class TerminalManager private constructor(
     }
 
     init {
-        // 如果没有会话，则创建第一个会话
-        if (sessionManager.state.value.sessions.isEmpty()) {
-            createNewSession()
-        }
+        // 会话将在需要时延迟创建，不在初始化时立即创建
+        // 这样可以避免在 init 块中调用 suspend 函数
     }
     
     /**
-     * 创建新会话
+     * 创建新会话 - 同步等待初始化完成
      */
-    fun createNewSession(title: String? = null): com.ai.assistance.operit.terminal.data.TerminalSessionData {
+    suspend fun createNewSession(title: String? = null): com.ai.assistance.operit.terminal.data.TerminalSessionData {
         val newSession = sessionManager.createNewSession(title)
-        initializeSession(newSession.id)
-        return newSession
+        
+        // 异步初始化会话
+        val initJob = coroutineScope.launch {
+            initializeSession(newSession.id)
+        }
+        
+        // 等待会话初始化完成
+        val success = withTimeoutOrNull(30000) { // 30秒超时
+            terminalState.first { state ->
+                val session = state.sessions.find { it.id == newSession.id }
+                session?.initState == com.ai.assistance.operit.terminal.data.SessionInitState.READY
+            }
+        }
+        
+        if (success == null) {
+            Log.e(TAG, "Session initialization timeout for session: ${newSession.id}")
+            // 初始化失败，移除会话
+            sessionManager.closeSession(newSession.id)
+            throw Exception("Session initialization timeout")
+        }
+        
+        Log.d(TAG, "Session ${newSession.id} initialized successfully")
+        return sessionManager.getSession(newSession.id) ?: newSession
     }
     
     /**
@@ -168,8 +193,50 @@ class TerminalManager private constructor(
      */
     fun sendCommand(command: String): String {
         val commandId = UUID.randomUUID().toString()
+        
+        val session = sessionManager.getCurrentSession()
+        if (session != null) {
+            // 检查是否有命令正在执行
+            if (session.currentExecutingCommand?.isExecuting == true) {
+                // 有命令正在执行，将新命令加入队列
+                session.commandQueue.add(QueuedCommand(commandId, command))
+                Log.d(TAG, "Command queued: $command (id: $commandId). Queue size: ${session.commandQueue.size}")
+                return commandId
+            }
+        }
+        
+        // 没有命令在执行，直接执行
         sendInput(command, isCommand = true, commandId = commandId)
         return commandId
+    }
+
+    /**
+     * 处理队列中的下一个命令
+     */
+    private fun processNextQueuedCommand(sessionId: String) {
+        val session = sessionManager.getSession(sessionId) ?: return
+        
+        if (session.commandQueue.isNotEmpty()) {
+            val nextCommand = session.commandQueue.removeAt(0)
+            Log.d(TAG, "Processing next queued command: ${nextCommand.command} (id: ${nextCommand.id}). Queue size: ${session.commandQueue.size}")
+            
+            // 直接执行队列中的下一个命令
+            coroutineScope.launch(Dispatchers.IO) {
+                try {
+                    val fullInput = "${nextCommand.command}\n"
+                    session.sessionWriter?.write(fullInput)
+                    session.sessionWriter?.flush()
+                    Log.d(TAG, "Sent queued command: ${nextCommand.command}")
+                    
+                    handleCommandLogic(nextCommand.command, session, nextCommand.id)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error sending queued command", e)
+                    appendOutputToHistory(session.id, "Error sending queued command: ${e.message}")
+                    // 如果队列中的命令失败，继续处理下一个
+                    processNextQueuedCommand(sessionId)
+                }
+            }
+        }
     }
 
     /**

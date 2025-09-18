@@ -92,10 +92,11 @@ class SessionManager(private val terminalManager: TerminalManager) {
             currentSessionId = newCurrentSessionId
         )
         
-        // 如果没有会话了，创建一个新的
-        if (updatedSessions.isEmpty()) {
-            createNewSession()
-        }
+        // 如果没有会话了，不自动创建新会话
+        // 让调用者决定何时创建新会话，确保会话能正确初始化
+        // if (updatedSessions.isEmpty()) {
+        //     createNewSession()
+        // }
         
         Log.d("SessionManager", "Closed session: $sessionId")
     }

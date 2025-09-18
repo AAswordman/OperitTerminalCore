@@ -32,21 +32,16 @@ class TerminalService : Service() {
 
     private val binder = object : ITerminalService.Stub() {
         override fun createSession(): String {
-            val newSession = terminalManager.createNewSession()
-            
-            // 阻塞等待会话初始化完成
-            runBlocking {
-                withTimeoutOrNull(30000) { // 30秒超时
-                    terminalManager.terminalState.first { state ->
-                        val session = state.sessions.find { it.id == newSession.id }
-                        session?.initState == SessionInitState.READY
-                    }
-                } ?: run {
-                    Log.e("TerminalService", "Session initialization timeout for session: ${newSession.id}")
+            // 使用 runBlocking 调用 suspend 函数
+            return runBlocking {
+                try {
+                    val newSession = terminalManager.createNewSession()
+                    newSession.id
+                } catch (e: Exception) {
+                    Log.e("TerminalService", "Session creation failed", e)
+                    throw e
                 }
             }
-            
-            return newSession.id
         }
 
         override fun switchToSession(sessionId: String) {

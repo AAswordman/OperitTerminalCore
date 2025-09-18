@@ -11,6 +11,14 @@ import java.io.OutputStreamWriter
 import java.util.UUID
 
 /**
+ * 队列中的命令项
+ */
+data class QueuedCommand(
+    val id: String,
+    val command: String
+)
+
+/**
  * 命令历史项数据类
  */
 class CommandHistoryItem(
@@ -87,7 +95,8 @@ data class TerminalSessionData(
     val screenContent: String = "",
     @Transient val ansiParser: AnsiParser = AnsiParser(),
     @Transient var currentExecutingCommand: CommandHistoryItem? = null,
-    @Transient var currentOutputLineCount: Int = 0
+    @Transient var currentOutputLineCount: Int = 0,
+    @Transient val commandQueue: MutableList<QueuedCommand> = mutableListOf()
 ) {
     val isInitializing: Boolean
         get() = initState != SessionInitState.READY

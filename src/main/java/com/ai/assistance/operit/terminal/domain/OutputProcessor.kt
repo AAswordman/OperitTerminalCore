@@ -22,7 +22,8 @@ private data class SessionProcessingState(
  */
 class OutputProcessor(
     private val onCommandExecutionEvent: (CommandExecutionEvent) -> Unit = {},
-    private val onDirectoryChangeEvent: (SessionDirectoryEvent) -> Unit = {}
+    private val onDirectoryChangeEvent: (SessionDirectoryEvent) -> Unit = {},
+    private val onCommandCompleted: (String) -> Unit = {}
 ) {
 
     private val sessionStates = mutableMapOf<String, SessionProcessingState>()
@@ -512,13 +513,6 @@ class OutputProcessor(
             val commandToCheck = lastExecutingItem.command.trim()
             val lineToCheck = cleanLine.trim()
             val isMatch = lineToCheck == commandToCheck
-            Log.d(TAG, """
-                isCommandEcho check:
-                - Line: '$lineToCheck' (len=${lineToCheck.length})
-                - Stored: '$commandToCheck' (len=${commandToCheck.length})
-                - Output buffer empty: ${session.currentCommandOutputBuilder.isEmpty()}
-                - Match: $isMatch
-            """.trimIndent())
 
             if (session.currentCommandOutputBuilder.isEmpty() && isMatch) {
                 return true
@@ -627,6 +621,9 @@ class OutputProcessor(
             // Clear the reference since command is no longer executing
             session.currentExecutingCommand = null
             session.currentCommandOutputBuilder.clear()
+            
+            // 通知命令已完成，可以处理下一个队列命令
+            onCommandCompleted(sessionId)
         }
     }
 
