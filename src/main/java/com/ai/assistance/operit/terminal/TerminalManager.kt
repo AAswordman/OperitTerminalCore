@@ -113,8 +113,16 @@ class TerminalManager private constructor(
     }
 
     init {
-        // 会话将在需要时延迟创建，不在初始化时立即创建
-        // 这样可以避免在 init 块中调用 suspend 函数
+        // 在初始化时异步创建默认session
+        coroutineScope.launch {
+            try {
+                Log.d(TAG, "Creating default session...")
+                createNewSession("default")
+                Log.d(TAG, "Default session created successfully")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to create default session", e)
+            }
+        }
     }
     
     /**
