@@ -1,5 +1,7 @@
 package com.ai.assistance.operit.terminal.ui
 
+import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -18,6 +20,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ai.assistance.operit.terminal.TerminalManager
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.UUID
+import android.util.Log
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.flow.collect
+
+enum class InstallStatus {
+    CHECKING,
+    INSTALLED,
+    NOT_INSTALLED
+}
 
 data class PackageItem(
     val id: String,
@@ -33,6 +53,7 @@ data class PackageCategory(
     val packages: List<PackageItem>
 )
 
+@RequiresApi(Build.VERSION_CODES.O)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SetupScreen(
@@ -47,8 +68,7 @@ fun SetupScreen(
                 description = "Node.js 和前端开发环境",
                 packages = listOf(
                     PackageItem("nodejs", "Node.js", "nodejs", "JavaScript 运行时"),
-                    PackageItem("pnpm", "PNPM", "pnpm", "快速包管理器"),
-                    PackageItem("typescript", "TypeScript", "typescript", "TypeScript 编译器")
+                    PackageItem("pnpm", "PNPM", "typescript", "快速的包管理器和 TypeScript")
                 )
             ),
             PackageCategory(
@@ -98,6 +118,68 @@ fun SetupScreen(
     // 跟踪每个分类的全选状态
     val categorySelectAll = remember { mutableStateMapOf<String, Boolean>() }
     
+    // 新增：跟踪包的安装状态
+    val packageStatus = remember { mutableStateMapOf<String, InstallStatus>() }
+    val context = LocalContext.current
+    val terminalManager = remember(context) { TerminalManager.getInstance(context) }
+    val coroutineScope = rememberCoroutineScope()
+    var checkSessionId by remember { mutableStateOf<String?>(null) }
+
+    // 创建一个用于检查的会话，并在Composable销毁时关闭它
+    DisposableEffect(terminalManager) {
+        val job = coroutineScope.launch {
+            try {
+                val session = terminalManager.createNewSession("setup-check")
+                checkSessionId = session.id
+                Log.d("SetupScreen", "Created check session: ${session.id}")
+            } catch (e: Exception) {
+                Log.e("SetupScreen", "Failed to create check session", e)
+            }
+        }
+
+        onDispose {
+            job.cancel()
+            checkSessionId?.let {
+                Log.d("SetupScreen", "Closing check session $it")
+                terminalManager.closeSession(it)
+            }
+        }
+    }
+
+    // 当会话准备好后，开始检查包状态
+    LaunchedEffect(checkSessionId) {
+        val sessionId = checkSessionId ?: return@LaunchedEffect
+
+        // 初始化所有包为检查中状态
+        val allPackages = packageCategories.flatMap { it.packages }
+        allPackages.forEach { pkg ->
+            packageStatus[pkg.id] = InstallStatus.CHECKING
+        }
+
+        // 并发检查所有包
+        allPackages.forEach { pkg ->
+            launch {
+                val isInstalled = checkPackageInstalled(terminalManager, sessionId, pkg, this)
+                if (isInstalled) {
+                    packageStatus[pkg.id] = InstallStatus.INSTALLED
+                    selectedPackages[pkg.id] = true
+                } else {
+                    packageStatus[pkg.id] = InstallStatus.NOT_INSTALLED
+                }
+
+                // 检查是否需要更新分类的全选状态
+                val category = packageCategories.find { c -> c.packages.any { it.id == pkg.id } }
+                category?.let { cat ->
+                    val allInCategoryFinishedChecking = cat.packages.all { p -> packageStatus[p.id] != InstallStatus.CHECKING }
+                    if (allInCategoryFinishedChecking) {
+                        val allInCategorySelected = cat.packages.all { p -> selectedPackages[p.id] == true }
+                        categorySelectAll[cat.id] = allInCategorySelected
+                    }
+                }
+            }
+        }
+    }
+
     var showSetupDialog by remember { mutableStateOf(false) }
     val commandsToRun = remember { mutableStateOf<List<String>>(emptyList()) }
 
@@ -110,6 +192,12 @@ fun SetupScreen(
                 Button(
                     onClick = {
                         showSetupDialog = false
+                        // 在开始设置前，显式关闭检查会话
+                        checkSessionId?.let { sid ->
+                            Log.d("SetupScreen", "Closing check session $sid before starting setup.")
+                            terminalManager.closeSession(sid)
+                            checkSessionId = null // 防止 onDispose 重复关闭
+                        }
                         onSetup(commandsToRun.value)
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF006400))
@@ -164,13 +252,8 @@ fun SetupScreen(
                     isExpanded = expandedCategories[category.id] ?: false,
                     onExpandToggle = { expandedCategories[category.id] = !expandedCategories.getOrDefault(category.id, false) },
                     selectedPackages = selectedPackages,
-                    isAllSelected = categorySelectAll[category.id] ?: false,
-                    onSelectAll = { selectAll ->
-                        categorySelectAll[category.id] = selectAll
-                        category.packages.forEach { pkg ->
-                            selectedPackages[pkg.id] = selectAll
-                        }
-                    }
+                    categorySelectAll = categorySelectAll,
+                    packageStatus = packageStatus
                 )
             }
         }
@@ -218,7 +301,7 @@ fun SetupScreen(
                     
                     packageCategories.forEach { category ->
                         category.packages.forEach { pkg ->
-                            if (selectedPackages[pkg.id] == true) {
+                            if (selectedPackages[pkg.id] == true && packageStatus[pkg.id] != InstallStatus.INSTALLED) {
                                 // 根据分类和包ID判断包管理器
                                 if (pkg.id == "rust" || pkg.id == "uv") {
                                     selectedCustomCommands.add(pkg.command)
@@ -232,7 +315,7 @@ fun SetupScreen(
                     }
 
                     // 添加 pipx 作为 uv 的依赖
-                    if (selectedPackages.getOrDefault("uv", false)) {
+                    if (selectedPackages.getOrDefault("uv", false) && packageStatus["uv"] != InstallStatus.INSTALLED) {
                         selectedAptPackages.add("pipx")
                     }
 
@@ -295,8 +378,8 @@ private fun CategoryCard(
     isExpanded: Boolean,
     onExpandToggle: () -> Unit,
     selectedPackages: MutableMap<String, Boolean>,
-    isAllSelected: Boolean,
-    onSelectAll: (Boolean) -> Unit
+    categorySelectAll: MutableMap<String, Boolean>,
+    packageStatus: Map<String, InstallStatus>
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -318,14 +401,14 @@ private fun CategoryCard(
                         Text(
                             text = category.name,
                             color = Color.White,
-                            fontSize = 18.sp,
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
                         )
                         if (category.id == "nodejs" || category.id == "python") {
                             Text(
-                                text = " (Operit 必须)",
+                                text = "(Operit 必须)",
                                 color = Color(0xFFFFA500), // Orange color
-                                fontSize = 10.sp,
+                                fontSize = 8.sp,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(start = 8.dp)
                             )
@@ -345,8 +428,15 @@ private fun CategoryCard(
                     modifier = Modifier.padding(end = 8.dp)
                 ) {
                     Checkbox(
-                        checked = isAllSelected,
-                        onCheckedChange = onSelectAll,
+                        checked = categorySelectAll[category.id] ?: false,
+                        onCheckedChange = { selectAll ->
+                            categorySelectAll[category.id] = selectAll
+                            category.packages.forEach { pkg ->
+                                if (packageStatus[pkg.id] != InstallStatus.INSTALLED) {
+                                    selectedPackages[pkg.id] = selectAll
+                                }
+                            }
+                        },
                         colors = CheckboxDefaults.colors(
                             checkedColor = Color(0xFF006400),
                             uncheckedColor = Color.Gray
@@ -379,11 +469,12 @@ private fun CategoryCard(
                         onSelectionChange = { selected ->
                             selectedPackages[pkg.id] = selected
                             // 检查是否需要更新全选状态
-                            val allSelectedAfterChange = category.packages.all { selectedPackages[it.id] ?: false }
-                            if (isAllSelected != allSelectedAfterChange) {
-                                onSelectAll(allSelectedAfterChange)
+                            val allSelectedAfterChange = category.packages.all { p ->
+                                selectedPackages[p.id] == true
                             }
-                        }
+                            categorySelectAll[category.id] = allSelectedAfterChange
+                        },
+                        status = packageStatus[pkg.id] ?: InstallStatus.NOT_INSTALLED
                     )
                 }
             }
@@ -395,33 +486,57 @@ private fun CategoryCard(
 private fun PackageItem(
     packageItem: PackageItem,
     isSelected: Boolean,
-    onSelectionChange: (Boolean) -> Unit
+    onSelectionChange: (Boolean) -> Unit,
+    status: InstallStatus
 ) {
+    val isInstalled = status == InstallStatus.INSTALLED
+    val isChecking = status == InstallStatus.CHECKING
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onSelectionChange(!isSelected) }
+            .clickable(enabled = !isInstalled) { onSelectionChange(!isSelected) }
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Checkbox(
-            checked = isSelected,
-            onCheckedChange = onSelectionChange,
-            colors = CheckboxDefaults.colors(
-                checkedColor = Color(0xFF006400),
-                uncheckedColor = Color.Gray
+        if (isChecking) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(24.dp),
+                color = Color.White,
+                strokeWidth = 2.dp
             )
-        )
+        } else {
+            Checkbox(
+                checked = isSelected || isInstalled,
+                onCheckedChange = onSelectionChange,
+                enabled = !isInstalled,
+                colors = CheckboxDefaults.colors(
+                    checkedColor = Color(0xFF006400),
+                    uncheckedColor = Color.Gray,
+                    disabledCheckedColor = Color(0xFF006400).copy(alpha = 0.5f)
+                )
+            )
+        }
         
         Column(
             modifier = Modifier.padding(start = 12.dp)
         ) {
-            Text(
-                text = packageItem.name,
-                color = Color.White,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = packageItem.name,
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                if (isInstalled) {
+                    Text(
+                        text = " (已安装)",
+                        color = Color.Green.copy(alpha = 0.8f),
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(start = 4.dp)
+                    )
+                }
+            }
             if (packageItem.description.isNotEmpty()) {
                 Text(
                     text = packageItem.description,
@@ -432,4 +547,67 @@ private fun PackageItem(
             }
         }
     }
+}
+
+@RequiresApi(Build.VERSION_CODES.O)
+private suspend fun checkPackageInstalled(
+    terminalManager: TerminalManager,
+    sessionId: String,
+    pkg: PackageItem,
+    scope: CoroutineScope
+): Boolean {
+    val command: String = when (pkg.id) {
+        "rust" -> "command -v rustc"
+        "uv" -> "command -v uv"
+        "pnpm" -> "test -f \"$(npm prefix -g)/bin/pnpm\" && echo FOUND_PNPM"
+        "go" -> "command -v go"
+        else -> "dpkg -s ${pkg.command.split(" ").first()}"
+    }
+
+    val output = executeCommandAndGetOutput(terminalManager, sessionId, command, scope)
+    if (output == null) return false // 超时或错误
+
+    return when (pkg.id) {
+        "rust", "uv", "go" -> output.isNotBlank() && !output.contains("not found")
+        "pnpm" -> output.contains("FOUND_PNPM")
+        else -> output.contains("Status: install ok installed")
+    }
+}
+
+@RequiresApi(Build.VERSION_CODES.O)
+private suspend fun executeCommandAndGetOutput(
+    terminalManager: TerminalManager,
+    sessionId: String,
+    command: String,
+    scope: CoroutineScope
+): String? {
+    val deferred = CompletableDeferred<String>()
+    val output = StringBuilder()
+    val commandId = UUID.randomUUID().toString()
+    val collectorReady = CompletableDeferred<Unit>()
+
+    val job = scope.launch {
+        terminalManager.commandExecutionEvents
+            .filter { it.sessionId == sessionId && it.commandId == commandId }
+            .onStart { collectorReady.complete(Unit) }
+            .collect { event ->
+                output.append(event.outputChunk)
+                if (event.isCompleted) {
+                    if (!deferred.isCompleted) {
+                        deferred.complete(output.toString())
+                    }
+                }
+            }
+    }
+
+    collectorReady.await()
+    terminalManager.switchToSession(sessionId)
+    terminalManager.sendCommand(command, commandId)
+
+    val result = withTimeoutOrNull(15000L) { // 15s timeout
+        deferred.await()
+    }
+    
+    job.cancel()
+    return result
 } 

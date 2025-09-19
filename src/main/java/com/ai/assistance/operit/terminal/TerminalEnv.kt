@@ -22,7 +22,8 @@ class TerminalEnv(
     currentDirectoryState: State<String>,
     isFullscreenState: State<Boolean>,
     screenContentState: State<String>,
-    private val terminalManager: TerminalManager
+    private val terminalManager: TerminalManager,
+    val forceShowSetup: Boolean = false
 ) {
     val sessions by sessionsState
     val currentSessionId by currentSessionIdState
@@ -40,7 +41,9 @@ class TerminalEnv(
     fun onSendInput(inputText: String, isCommand: Boolean) {
         if (inputText.isNotBlank()) {
             if (isCommand) {
-                terminalManager.sendCommand(inputText)
+                terminalManager.coroutineScope.launch {
+                    terminalManager.sendCommand(inputText)
+                }
                 if (inputText == command) {
                     command = ""
                 }
@@ -52,7 +55,9 @@ class TerminalEnv(
 
     fun onSetup(commands: List<String>) {
         val fullCommand = commands.joinToString(separator = " && ")
-        terminalManager.sendCommand(fullCommand)
+        terminalManager.coroutineScope.launch {
+            terminalManager.sendCommand(fullCommand)
+        }
     }
 
     fun onInterrupt() = terminalManager.sendInterruptSignal()
@@ -72,7 +77,7 @@ class TerminalEnv(
 }
 
 @Composable
-fun rememberTerminalEnv(terminalManager: TerminalManager): TerminalEnv {
+fun rememberTerminalEnv(terminalManager: TerminalManager, forceShowSetup: Boolean = false): TerminalEnv {
     val sessionsState = terminalManager.sessions.collectAsState(initial = emptyList())
     val currentSessionIdState = terminalManager.currentSessionId.collectAsState(initial = null)
     val commandHistoryState = terminalManager.commandHistory.collectAsState(initial = SnapshotStateList<CommandHistoryItem>())
@@ -80,7 +85,7 @@ fun rememberTerminalEnv(terminalManager: TerminalManager): TerminalEnv {
     val isFullscreenState = terminalManager.isFullscreen.collectAsState(initial = false)
     val screenContentState = terminalManager.screenContent.collectAsState(initial = "")
 
-    return remember(terminalManager) {
+    return remember(terminalManager, forceShowSetup) {
         TerminalEnv(
             sessionsState = sessionsState,
             currentSessionIdState = currentSessionIdState,
@@ -88,7 +93,8 @@ fun rememberTerminalEnv(terminalManager: TerminalManager): TerminalEnv {
             currentDirectoryState = currentDirectoryState,
             isFullscreenState = isFullscreenState,
             screenContentState = screenContentState,
-            terminalManager = terminalManager
+            terminalManager = terminalManager,
+            forceShowSetup = forceShowSetup
         )
     }
 } 

@@ -8,6 +8,7 @@ import com.ai.assistance.operit.terminal.data.TerminalState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.util.UUID
 
 /**
@@ -23,25 +24,26 @@ class SessionManager(private val terminalManager: TerminalManager) {
      * 创建新会话
      */
     fun createNewSession(title: String? = null): TerminalSessionData {
-        val currentState = _state.value
-        val sessionCount = currentState.sessions.size + 1
-        val newSession = TerminalSessionData(
-            title = title ?: "Ubuntu $sessionCount"
-        )
-        newSession.commandHistory.add(
+        lateinit var newSession: TerminalSessionData
+        _state.update { currentState ->
+            val sessionCount = currentState.sessions.size + 1
+            newSession = TerminalSessionData(
+                title = title ?: "Ubuntu $sessionCount"
+            )
+            newSession.commandHistory.add(
                 com.ai.assistance.operit.terminal.data.CommandHistoryItem(
                     id = UUID.randomUUID().toString(),
                     prompt = "",
                     command = "Initializing environment...",
                     output = "",
                     isExecuting = false
+                )
             )
-        )
-        
-        _state.value = currentState.copy(
-            sessions = currentState.sessions + newSession,
-            currentSessionId = newSession.id
-        )
+            currentState.copy(
+                sessions = currentState.sessions + newSession,
+                currentSessionId = newSession.id
+            )
+        }
         
         Log.d("SessionManager", "Created new session: ${newSession.id}")
         return newSession
@@ -51,52 +53,53 @@ class SessionManager(private val terminalManager: TerminalManager) {
      * 切换到指定会话
      */
     fun switchToSession(sessionId: String): Boolean {
-        val currentState = _state.value
-        return if (currentState.sessions.any { it.id == sessionId }) {
-            _state.value = currentState.copy(currentSessionId = sessionId)
+        var switched = false
+        _state.update { currentState ->
+            if (currentState.sessions.any { it.id == sessionId }) {
+                switched = true
+                currentState.copy(currentSessionId = sessionId)
+            } else {
+                currentState
+            }
+        }
+        if (switched) {
             Log.d("SessionManager", "Switched to session: $sessionId")
-            true
         } else {
             Log.w("SessionManager", "Session not found: $sessionId")
-            false
         }
+        return switched
     }
     
     /**
      * 关闭会话
      */
     fun closeSession(sessionId: String) {
-        val currentState = _state.value
-        val sessionToClose = currentState.sessions.find { it.id == sessionId }
-        
-        sessionToClose?.let { session ->
-            try {
-                // 清理资源
-                session.readJob?.cancel()
-                session.sessionWriter?.close()
-                terminalManager.closeTerminalSession(session.id)
-            } catch (e: Exception) {
-                Log.e("SessionManager", "Error cleaning up session", e)
+        _state.update { currentState ->
+            val sessionToClose = currentState.sessions.find { it.id == sessionId }
+            
+            sessionToClose?.let { session ->
+                try {
+                    // 清理资源
+                    session.readJob?.cancel()
+                    session.sessionWriter?.close()
+                    terminalManager.closeTerminalSession(session.id)
+                } catch (e: Exception) {
+                    Log.e("SessionManager", "Error cleaning up session", e)
+                }
             }
+            
+            val updatedSessions = currentState.sessions.filter { it.id != sessionId }
+            val newCurrentSessionId = if (currentState.currentSessionId == sessionId) {
+                updatedSessions.firstOrNull()?.id
+            } else {
+                currentState.currentSessionId
+            }
+            
+            currentState.copy(
+                sessions = updatedSessions,
+                currentSessionId = newCurrentSessionId
+            )
         }
-        
-        val updatedSessions = currentState.sessions.filter { it.id != sessionId }
-        val newCurrentSessionId = if (currentState.currentSessionId == sessionId) {
-            updatedSessions.firstOrNull()?.id
-        } else {
-            currentState.currentSessionId
-        }
-        
-        _state.value = currentState.copy(
-            sessions = updatedSessions,
-            currentSessionId = newCurrentSessionId
-        )
-        
-        // 如果没有会话了，不自动创建新会话
-        // 让调用者决定何时创建新会话，确保会话能正确初始化
-        // if (updatedSessions.isEmpty()) {
-        //     createNewSession()
-        // }
         
         Log.d("SessionManager", "Closed session: $sessionId")
     }
@@ -105,16 +108,16 @@ class SessionManager(private val terminalManager: TerminalManager) {
      * 更新会话数据
      */
     fun updateSession(sessionId: String, updater: (TerminalSessionData) -> TerminalSessionData) {
-        val currentState = _state.value
-        val updatedSessions = currentState.sessions.map { session ->
-            if (session.id == sessionId) {
-                updater(session)
-            } else {
-                session
+        _state.update { currentState ->
+            val updatedSessions = currentState.sessions.map { session ->
+                if (session.id == sessionId) {
+                    updater(session)
+                } else {
+                    session
+                }
             }
+            currentState.copy(sessions = updatedSessions)
         }
-        
-        _state.value = currentState.copy(sessions = updatedSessions)
     }
     
     /**

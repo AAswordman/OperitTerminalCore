@@ -53,7 +53,9 @@ class TerminalService : Service() {
         }
 
         override fun sendCommand(command: String): String {
-            return terminalManager.sendCommand(command)
+            return runBlocking {
+                terminalManager.sendCommand(command)
+            }
         }
 
         override fun sendInterruptSignal() {

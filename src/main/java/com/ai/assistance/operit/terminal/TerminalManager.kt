@@ -41,6 +41,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.withLock
 
 @RequiresApi(Build.VERSION_CODES.O)
 class TerminalManager private constructor(
@@ -70,7 +71,9 @@ class TerminalManager private constructor(
             }
         },
         onCommandCompleted = { sessionId ->
-            processNextQueuedCommand(sessionId)
+            coroutineScope.launch {
+                processNextQueuedCommand(sessionId)
+            }
         }
     )
     
@@ -199,50 +202,65 @@ class TerminalManager private constructor(
     /**
      * 发送命令
      */
-    fun sendCommand(command: String, commandId: String? = null): String {
+    suspend fun sendCommand(command: String, commandId: String? = null): String {
         val actualCommandId = commandId ?: UUID.randomUUID().toString()
-        
-        val session = sessionManager.getCurrentSession()
-        if (session != null) {
-            // 检查是否有命令正在执行
+        val session = sessionManager.getCurrentSession() ?: return actualCommandId
+
+        session.commandMutex.withLock {
             if (session.currentExecutingCommand?.isExecuting == true) {
                 // 有命令正在执行，将新命令加入队列
                 session.commandQueue.add(QueuedCommand(actualCommandId, command))
                 Log.d(TAG, "Command queued: $command (id: $actualCommandId). Queue size: ${session.commandQueue.size}")
-                return actualCommandId
+            } else {
+                // 没有命令在执行，直接执行
+                executeCommandInternal(command, session, actualCommandId)
             }
         }
-        
-        // 没有命令在执行，直接执行
-        sendInput(command, isCommand = true, commandId = actualCommandId)
         return actualCommandId
     }
 
     /**
      * 处理队列中的下一个命令
      */
-    private fun processNextQueuedCommand(sessionId: String) {
+    private suspend fun processNextQueuedCommand(sessionId: String) {
         val session = sessionManager.getSession(sessionId) ?: return
-        
-        if (session.commandQueue.isNotEmpty()) {
-            val nextCommand = session.commandQueue.removeAt(0)
-            Log.d(TAG, "Processing next queued command: ${nextCommand.command} (id: ${nextCommand.id}). Queue size: ${session.commandQueue.size}")
-            
-            // 直接执行队列中的下一个命令
-            coroutineScope.launch(Dispatchers.IO) {
-                try {
-                    val fullInput = "${nextCommand.command}\n"
-                    session.sessionWriter?.write(fullInput)
-                    session.sessionWriter?.flush()
-                    Log.d(TAG, "Sent queued command: ${nextCommand.command}")
-                    
-                    handleCommandLogic(nextCommand.command, session, nextCommand.id)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error sending queued command", e)
-                    appendOutputToHistory(session.id, "Error sending queued command: ${e.message}")
-                    // 如果队列中的命令失败，继续处理下一个
-                    processNextQueuedCommand(sessionId)
-                }
+
+        session.commandMutex.withLock {
+            if (session.currentExecutingCommand?.isExecuting == true) {
+                Log.w(TAG, "processNextQueuedCommand called, but a command is still executing. This should not happen.")
+                return@withLock
+            }
+
+            if (session.commandQueue.isNotEmpty()) {
+                val nextCommand = session.commandQueue.removeAt(0)
+                Log.d(TAG, "Processing next queued command: ${nextCommand.command} (id: ${nextCommand.id}). Queue size: ${session.commandQueue.size}")
+                executeCommandInternal(nextCommand.command, session, nextCommand.id)
+            }
+        }
+    }
+
+    /**
+     * 内部执行命令的函数, 必须在 commandMutex 锁内部调用
+     */
+    private suspend fun executeCommandInternal(command: String, session: com.ai.assistance.operit.terminal.data.TerminalSessionData, commandId: String) {
+        if (command.trim() == "clear") {
+            handleClearCommand(session)
+            try {
+                session.sessionWriter?.write("clear\n")
+                session.sessionWriter?.flush()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending 'clear' command", e)
+            }
+        } else {
+            handleRegularCommand(command, session, commandId)
+            try {
+                val fullInput = "$command\n"
+                session.sessionWriter?.write(fullInput)
+                session.sessionWriter?.flush()
+                Log.d(TAG, "Sent command to PTY: $command")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending command", e)
+                appendOutputToHistory(session.id, "Error sending command: ${e.message}")
             }
         }
     }
@@ -250,21 +268,21 @@ class TerminalManager private constructor(
     /**
      * 发送输入
      */
-    fun sendInput(input: String, isCommand: Boolean = false, commandId: String? = null) {
+    fun sendInput(input: String) {
         coroutineScope.launch(Dispatchers.IO) {
             val session = sessionManager.getCurrentSession() ?: return@launch
             
             try {
-                val fullInput = if (isCommand) "$input\n" else input
-                session.sessionWriter?.write(fullInput)
+                session.sessionWriter?.write(input)
                 session.sessionWriter?.flush()
-                Log.d(TAG, "Sent input. isCommand=$isCommand, input='$fullInput'")
+                Log.d(TAG, "Sent input: '$input'")
 
-                if (isCommand) {
-                    require(commandId != null) { "commandId must be provided when isCommand is true" }
-                    handleCommandLogic(input, session, commandId)
+                // 如果用户提供了交互式输入，则重置等待状态
+                if (session.isWaitingForInteractiveInput) {
+                    sessionManager.updateSession(session.id) {
+                        it.copy(isWaitingForInteractiveInput = false)
+                    }
                 }
-
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending input", e)
                 appendOutputToHistory(session.id, "Error sending input: ${e.message}")
@@ -716,33 +734,6 @@ class TerminalManager private constructor(
         }
     }
 
-    private fun handleCommandLogic(command: String, session: com.ai.assistance.operit.terminal.data.TerminalSessionData, commandId: String) {
-        if (session.isWaitingForInteractiveInput) {
-            // Interactive mode: input is part of the previous command's output
-            Log.d(TAG, "Handling interactive input: $command")
-            sessionManager.updateSession(session.id) {
-                it.copy(
-                    isWaitingForInteractiveInput = false,
-                    lastInteractivePrompt = "",
-                    isInteractiveMode = false,
-                    interactivePrompt = ""
-                )
-            }
-        } else {
-            // Normal command or input for a persistent interactive session (like node)
-            if (session.isInteractiveMode) {
-                // In persistent interactive mode, we don't create a new history item.
-                // The input is just sent to the running process.
-                // The output will be handled by the OutputProcessor.
-                Log.d(TAG, "Sending input to interactive session: $command")
-            } else if (command.trim() == "clear") {
-                handleClearCommand(session)
-            } else {
-                handleRegularCommand(command, session, commandId)
-            }
-        }
-    }
-    
     private fun handleClearCommand(session: com.ai.assistance.operit.terminal.data.TerminalSessionData) {
         // Special handling for clear command: keep welcome message
         val welcomeItem = session.commandHistory.firstOrNull {

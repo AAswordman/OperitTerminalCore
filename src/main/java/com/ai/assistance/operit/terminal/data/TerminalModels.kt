@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.ai.assistance.operit.terminal.domain.AnsiParser
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.sync.Mutex
 import java.io.OutputStreamWriter
 import java.util.UUID
 
@@ -96,7 +97,8 @@ data class TerminalSessionData(
     @Transient val ansiParser: AnsiParser = AnsiParser(),
     @Transient var currentExecutingCommand: CommandHistoryItem? = null,
     @Transient var currentOutputLineCount: Int = 0,
-    @Transient val commandQueue: MutableList<QueuedCommand> = mutableListOf()
+    @Transient val commandQueue: MutableList<QueuedCommand> = mutableListOf(),
+    @Transient val commandMutex: Mutex = Mutex()
 ) {
     val isInitializing: Boolean
         get() = initState != SessionInitState.READY
