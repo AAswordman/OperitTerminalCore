@@ -546,7 +546,6 @@ class TerminalManager private constructor(
     private fun extractAssets() {
         try {
             val assets = listOf(
-                "proot-distro.zip",
                 UBUNTU_FILENAME
             )
             assets.forEach { assetName ->
@@ -652,23 +651,6 @@ class TerminalManager private constructor(
         }
         """.trimIndent()
 
-        val installProotDistro = """
-        install_proot_distro(){
-          proot_distro_path=`which proot-distro`
-          if [ -z "${'$'}proot_distro_path" ]; then
-            progress_echo "proot-distro ${'$'}L_NOT_INSTALLED, ${'$'}L_INSTALLING..."
-            cd ~
-            busybox unzip proot-distro.zip -d proot-distro
-            cd ~/proot-distro
-            bash ./install.sh
-            cd ~
-            rm -rf proot-distro.zip proot-distro
-          else
-            progress_echo "proot-distro ${'$'}L_INSTALLED"
-          fi
-        }
-        """.trimIndent()
-
         val loginUbuntu = """
         login_ubuntu(){
           # 使用 proot 直接进入解压的 Ubuntu 根文件系统。
@@ -703,12 +685,8 @@ class TerminalManager private constructor(
         $changeUbuntuNobleSource
         $installUbuntu
         $loginUbuntu
-        $installProotDistro
         clear_lines
         start_shell(){
-          install_proot_distro
-          sleep 1
-          bump_progress
           install_ubuntu
           sleep 1
           bump_progress
