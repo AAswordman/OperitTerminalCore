@@ -110,6 +110,12 @@ class OutputProcessor(
                     handleCarriageReturn(sessionId, bufferContent.substring(0, carriageReturnIndex), sessionManager)
                     session.rawBuffer.delete(0, carriageReturnIndex + 1)
                     continue
+                } else if (isProgressLine(remainingContent)) {
+                    // Handle case where buffer ends with a progress line without a CR
+                    Log.d(TAG, "Processing progress line from remaining buffer: '$bufferContent'")
+                    handleCarriageReturn(sessionId, bufferContent, sessionManager)
+                    session.rawBuffer.clear()
+                    continue // Re-check buffer in case more data came in
                 }
                 break // Exit loop, wait for more data.
             }
