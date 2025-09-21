@@ -56,7 +56,7 @@ class TerminalManager private constructor(
     private val binDir: File = File(usrDir, "bin")
     private val nativeLibDir: String = context.applicationInfo.nativeLibraryDir
     private val activeSessions = ConcurrentHashMap<String, TerminalSession>()
-    
+
     // 核心组件
     private val sessionManager = SessionManager(this)
     private val outputProcessor = OutputProcessor(
@@ -76,21 +76,21 @@ class TerminalManager private constructor(
             }
         }
     )
-    
+
     // 状态和事件流
     private val _commandExecutionEvents = MutableSharedFlow<CommandExecutionEvent>()
     val commandExecutionEvents: SharedFlow<CommandExecutionEvent> = _commandExecutionEvents.asSharedFlow()
-    
+
     private val _directoryChangeEvents = MutableSharedFlow<SessionDirectoryEvent>()
     val directoryChangeEvents: SharedFlow<SessionDirectoryEvent> = _directoryChangeEvents.asSharedFlow()
-    
+
     // 暴露会话管理器的状态
     val terminalState: StateFlow<TerminalState> = sessionManager.state
-    
+
     // 为了向后兼容，提供单独的状态流
     val sessions = terminalState.map { it.sessions }
     val currentSessionId = terminalState.map { it.currentSessionId }
-    val commandHistory = terminalState.map { 
+    val commandHistory = terminalState.map {
         it.currentSession?.commandHistory ?: androidx.compose.runtime.snapshots.SnapshotStateList<CommandHistoryItem>()
     }
     val currentDirectory = terminalState.map { it.currentSession?.currentDirectory ?: "$ " }
@@ -108,7 +108,7 @@ class TerminalManager private constructor(
                 INSTANCE ?: TerminalManager(context.applicationContext).also { INSTANCE = it }
             }
         }
-        
+
         private const val TAG = "TerminalManager"
         private const val UBUNTU_FILENAME = "ubuntu-noble-aarch64-pd-v4.18.0.tar.xz"
         private const val MAX_HISTORY_ITEMS = 500
@@ -127,18 +127,18 @@ class TerminalManager private constructor(
             }
         }
     }
-    
+
     /**
      * 创建新会话 - 同步等待初始化完成
      */
     suspend fun createNewSession(title: String? = null): com.ai.assistance.operit.terminal.data.TerminalSessionData {
         val newSession = sessionManager.createNewSession(title)
-        
+
         // 异步初始化会话
         val initJob = coroutineScope.launch {
             initializeSession(newSession.id)
         }
-        
+
         // 等待会话初始化完成
         val success = withTimeoutOrNull(30000) { // 30秒超时
             terminalState.first { state ->
@@ -146,25 +146,25 @@ class TerminalManager private constructor(
                 session?.initState == com.ai.assistance.operit.terminal.data.SessionInitState.READY
             }
         }
-        
+
         if (success == null) {
             Log.e(TAG, "Session initialization timeout for session: ${newSession.id}")
             // 初始化失败，移除会话
             sessionManager.closeSession(newSession.id)
             throw Exception("Session initialization timeout")
         }
-        
+
         Log.d(TAG, "Session ${newSession.id} initialized successfully")
         return sessionManager.getSession(newSession.id) ?: newSession
     }
-    
+
     /**
      * 切换到会话
      */
     fun switchToSession(sessionId: String) {
         sessionManager.switchToSession(sessionId)
     }
-    
+
     /**
      * 关闭会话
      */
@@ -271,7 +271,7 @@ class TerminalManager private constructor(
     fun sendInput(input: String) {
         coroutineScope.launch(Dispatchers.IO) {
             val session = sessionManager.getCurrentSession() ?: return@launch
-            
+
             try {
                 session.sessionWriter?.write(input)
                 session.sessionWriter?.flush()
@@ -309,7 +309,7 @@ class TerminalManager private constructor(
             }
         }
     }
-    
+
     private fun initializeSession(sessionId: String) {
         coroutineScope.launch {
             val success = initializeEnvironment()
@@ -327,9 +327,9 @@ class TerminalManager private constructor(
             try {
                 val terminalSession = startTerminalSession(sessionId)
                 val sessionWriter = terminalSession.stdin.writer()
-                
+
                 appendOutputToHistory(sessionId, "Session started.")
-                
+
                 // 发送初始命令来获取提示符
                 sessionWriter.write("echo 'TERMINAL_READY'\n")
                 sessionWriter.flush()
@@ -353,7 +353,7 @@ class TerminalManager private constructor(
                         appendOutputToHistory(sessionId, "Error reading from terminal: ${e.message}")
                     }
                 }
-                
+
                 // 更新会话信息
                 sessionManager.updateSession(sessionId) { session ->
                     session.copy(
@@ -428,7 +428,7 @@ class TerminalManager private constructor(
     @RequiresApi(Build.VERSION_CODES.O)
     private fun linkNativeLibs() {
         Log.d(TAG, "Linking native libraries from: $nativeLibDir")
-        
+
         val nativeLibDirFile = File(nativeLibDir)
         if (!nativeLibDirFile.exists() || !nativeLibDirFile.isDirectory) {
             Log.e(TAG, "Native library directory not found or is not a directory.")
@@ -439,33 +439,33 @@ class TerminalManager private constructor(
         nativeLibDirFile.listFiles()?.forEach { file ->
             Log.d(TAG, "  - ${file.name} (file ${file.length()} bytes)")
         }
-        
+
         val busybox = File(binDir, "busybox")
 
         // First, we need to link busybox itself so we can use it.
         val busyboxSo = File(nativeLibDir, "libbusybox.so")
         Log.d(TAG, "Checking busybox: libbusybox.so exists = ${busyboxSo.exists()}, busybox exists = ${busybox.exists()}")
-        
+
         if (!busyboxSo.exists()) {
             Log.e(TAG, "libbusybox.so not found, cannot create busybox link")
             return
         }
-        
+
         // Always ensure proper busybox link - remove any existing file/broken link first
         try {
             val link = busybox.toPath()
             val target = busyboxSo.toPath()
-            
+
             // Delete existing file/broken link if it exists to prevent FileAlreadyExistsException
             Files.deleteIfExists(link)
-            
+
             // CRITICAL: Set execute permission on the target .so file before creating symlink
             busyboxSo.setExecutable(true, false)
-            
+
             // Create the symbolic link
             Files.createSymbolicLink(link, target)
             Log.d(TAG, "Created busybox symbolic link using Java NIO")
-            
+
             // Verify the link was created successfully and is functional
             if (busybox.exists() && busybox.canExecute()) {
                 Log.d(TAG, "Verification: busybox link exists and is executable at ${busybox.absolutePath}")
@@ -490,29 +490,29 @@ class TerminalManager private constructor(
         libraries.forEach { (libName, linkName) ->
             val libFile = File(nativeLibDir, libName)
             val linkFile = File(binDir, linkName)
-            
+
             Log.d(TAG, "Checking $libName at ${libFile.absolutePath}, exists: ${libFile.exists()}")
-            
+
             if (!libFile.exists()) {
                 Log.w(TAG, "Native library not found: $libName")
                 return@forEach
             }
-            
+
             // Always ensure proper link - remove any existing file/broken link first
             try {
                 val link = linkFile.toPath()
                 val target = libFile.toPath()
-                
+
                 // Delete existing file/broken link if it exists to prevent FileAlreadyExistsException
                 Files.deleteIfExists(link)
-                
+
                 // CRITICAL: Set execute permission on the target .so file before creating symlink
                 libFile.setExecutable(true, false)
-                
+
                 // Create the symbolic link
                 Files.createSymbolicLink(link, target)
                 Log.d(TAG, "Created $linkName symbolic link using Java NIO")
-                
+
                 // Verify the link was created successfully and is executable
                 if (linkFile.exists() && linkFile.canExecute()) {
                     Log.d(TAG, "Verification: $linkName link exists and is executable at ${linkFile.absolutePath}")
@@ -524,7 +524,7 @@ class TerminalManager private constructor(
             }
         }
     }
-    
+
     @RequiresApi(Build.VERSION_CODES.O)
     @Throws(IOException::class)
     private fun createSymbolicLink(target: File, linkName: String, linkDir: File, force: Boolean) {
@@ -550,8 +550,8 @@ class TerminalManager private constructor(
                 UBUNTU_FILENAME
             )
             assets.forEach { assetName ->
-                 val assetFile = File(filesDir, assetName)
-                 if (!assetFile.exists()) {
+                val assetFile = File(filesDir, assetName)
+                if (!assetFile.exists()) {
                     context.assets.open(assetName).use { input ->
                         assetFile.outputStream().use { output ->
                             input.copyTo(output)
@@ -567,7 +567,7 @@ class TerminalManager private constructor(
             throw e
         }
     }
-    
+
     private fun generateStartScript(): String {
         val ubuntuName = UBUNTU_FILENAME.replace(Regex("-pd.*"), "")
         val tmpDir = File(filesDir, "tmp").absolutePath
@@ -629,7 +629,7 @@ class TerminalManager private constructor(
         EOF
         }
         """.trimIndent()
-        
+
         val installUbuntu = """
         install_ubuntu(){
           mkdir -p ${'$'}UBUNTU_PATH 2>/dev/null
@@ -668,10 +668,33 @@ class TerminalManager private constructor(
           fi
         }
         """.trimIndent()
-        
+
         val loginUbuntu = """
         login_ubuntu(){
-          exec ${'$'}BIN/bash ${'$'}BIN/proot-distro login --bind /storage/emulated/0:/sdcard/ ubuntu --isolated -- /bin/bash -c "echo LOGIN_SUCCESSFUL; exec /bin/bash -il"
+          # 使用 proot 直接进入解压的 Ubuntu 根文件系统。
+          # - 清理并设置 PATH，避免继承宿主 PATH 造成命令找不到或混用 busybox。
+          # - 绑定常见伪文件系统与外部存储，保障交互和软件包管理工作正常。
+          exec ${'$'}BIN/proot \
+            -0 \
+            -r "${'$'}UBUNTU_PATH" \
+            --link2symlink \
+            -b /dev \
+            -b /proc \
+            -b /sys \
+            -b /dev/pts \
+            -b "${'$'}TMPDIR":/dev/shm \
+            -b /proc/self/fd:/dev/fd \
+            -b /proc/self/fd/0:/dev/stdin \
+            -b /proc/self/fd/1:/dev/stdout \
+            -b /proc/self/fd/2:/dev/stderr \
+            -b /storage/emulated/0:/sdcard \
+            -w /root \
+            /usr/bin/env -i \
+              HOME=/root \
+              TERM=xterm-256color \
+              LANG=en_US.UTF-8 \
+              PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              /bin/bash -lc "echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; exec /bin/bash -il"
         }
         """.trimIndent()
 
@@ -693,11 +716,11 @@ class TerminalManager private constructor(
         }
         """.trimIndent()
     }
-    
+
     fun startTerminalSession(sessionId: String): TerminalSession {
         val bash = File(binDir, "bash").absolutePath
         val startScript = "source \$HOME/common.sh && start_shell"
-        
+
         val command = arrayOf(bash, "-c", startScript)
 
         val env = mutableMapOf<String, String>()
@@ -739,15 +762,15 @@ class TerminalManager private constructor(
         val welcomeItem = session.commandHistory.firstOrNull {
             it.prompt.isEmpty() && it.command.isEmpty() && it.output.contains("Operit")
         }
-        
+
         session.commandHistory.clear()
         welcomeItem?.let { session.commandHistory.add(it) }
     }
-    
+
     private fun handleRegularCommand(command: String, session: com.ai.assistance.operit.terminal.data.TerminalSessionData, commandId: String) {
         session.currentCommandOutputBuilder.clear()
         session.currentOutputLineCount = 0
-        
+
         val newCommandItem = CommandHistoryItem(
             id = commandId,
             prompt = session.currentDirectory,
@@ -755,11 +778,11 @@ class TerminalManager private constructor(
             output = "",
             isExecuting = true
         )
-        
+
         // Set the current executing command reference for efficient access
         session.currentExecutingCommand = newCommandItem
         session.commandHistory.add(newCommandItem)
-        
+
         // 发出命令开始执行事件
         coroutineScope.launch {
             _commandExecutionEvents.emit(CommandExecutionEvent(
@@ -770,7 +793,7 @@ class TerminalManager private constructor(
             ))
         }
     }
-    
+
     private suspend fun appendOutputToHistory(sessionId: String, output: String) {
         withContext(Dispatchers.Main) {
             sessionManager.updateSession(sessionId) { session ->
@@ -792,7 +815,7 @@ class TerminalManager private constructor(
                         currentHistory.addAll(outputLines.map { CommandHistoryItem(id = UUID.randomUUID().toString(), prompt = "", command = "", output = it, isExecuting = false) })
                     }
                 }
-                
+
                 session.copy(commandHistory = androidx.compose.runtime.mutableStateListOf<CommandHistoryItem>().apply { addAll(currentHistory) })
             }
         }
@@ -806,4 +829,4 @@ class TerminalManager private constructor(
         coroutineScope.cancel()
         Log.d(TAG, "All active sessions cleaned up.")
     }
-} 
+}
