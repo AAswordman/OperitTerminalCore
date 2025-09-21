@@ -671,16 +671,30 @@ class TerminalManager private constructor(
 
         val loginUbuntu = """
         login_ubuntu(){
-          # 直接使用 proot 进入我们解压的 Ubuntu 根文件系统，避免 proot-distro 分发未注册导致的登录失败。
-          # 绑定常见文件系统与外部存储，并进入 root 主目录启动交互式 bash。
+          # 使用 proot 直接进入解压的 Ubuntu 根文件系统。
+          # - 清理并设置 PATH，避免继承宿主 PATH 造成命令找不到或混用 busybox。
+          # - 绑定常见伪文件系统与外部存储，保障交互和软件包管理工作正常。
           exec ${'$'}BIN/proot \
             -0 \
             -r "${'$'}UBUNTU_PATH" \
             --link2symlink \
-            -b /dev -b /proc -b /sys \
+            -b /dev \
+            -b /proc \
+            -b /sys \
+            -b /dev/pts \
+            -b "${'$'}TMPDIR":/dev/shm \
+            -b /proc/self/fd:/dev/fd \
+            -b /proc/self/fd/0:/dev/stdin \
+            -b /proc/self/fd/1:/dev/stdout \
+            -b /proc/self/fd/2:/dev/stderr \
             -b /storage/emulated/0:/sdcard \
             -w /root \
-            /bin/bash -c "echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; exec /bin/bash -il"
+            /usr/bin/env -i \
+              HOME=/root \
+              TERM=xterm-256color \
+              LANG=en_US.UTF-8 \
+              PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              /bin/bash -lc "echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; exec /bin/bash -il"
         }
         """.trimIndent()
 
@@ -815,4 +829,4 @@ class TerminalManager private constructor(
         coroutineScope.cancel()
         Log.d(TAG, "All active sessions cleaned up.")
     }
-} 
+}
