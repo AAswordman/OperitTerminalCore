@@ -52,12 +52,12 @@ class UpdateChecker(private val context: Context) {
                 withContext(Dispatchers.Main) {
                     when (result) {
                         is UpdateResult.UpdateAvailable -> {
-                            Toast.makeText(context, "发现新版本: ${result.latestVersion}", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, context.getString(com.ai.assistance.operit.terminal.R.string.new_version_found, result.latestVersion), Toast.LENGTH_LONG).show()
                         }
                         is UpdateResult.UpToDate -> {
                         }
                         is UpdateResult.Error -> {
-                            Toast.makeText(context, "检查更新失败", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, context.getString(com.ai.assistance.operit.terminal.R.string.update_check_failed_short), Toast.LENGTH_SHORT).show()
                         }
                     }
                 }
@@ -69,7 +69,7 @@ class UpdateChecker(private val context: Context) {
             
             if (showToast) {
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "检查更新失败", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, context.getString(com.ai.assistance.operit.terminal.R.string.update_check_failed_short), Toast.LENGTH_SHORT).show()
                 }
             }
             
@@ -124,7 +124,7 @@ class UpdateChecker(private val context: Context) {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
         } catch (e: Exception) {
-            Toast.makeText(context, "无法打开浏览器", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(com.ai.assistance.operit.terminal.R.string.cannot_open_browser), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -134,7 +134,7 @@ class UpdateChecker(private val context: Context) {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
         } catch (e: Exception) {
-            Toast.makeText(context, "无法打开浏览器", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, context.getString(com.ai.assistance.operit.terminal.R.string.cannot_open_browser), Toast.LENGTH_SHORT).show()
         }
     }
 } 

@@ -117,15 +117,15 @@ class FtpServerManager(private val context: Context) {
     
     fun getFtpServerInfo(): String {
         return if (isFtpServerRunning()) {
-            """
-            FTP服务器正在运行
-            地址: ${getLocalIpAddress()}:$FTP_PORT
-            用户名: $FTP_USERNAME
-            密码: $FTP_PASSWORD
-            根目录: Ubuntu文件系统
-            """.trimIndent()
+            context.getString(
+                com.ai.assistance.operit.terminal.R.string.ftp_server_running_info,
+                getLocalIpAddress(),
+                FTP_PORT.toString(),
+                FTP_USERNAME,
+                FTP_PASSWORD
+            )
         } else {
-            "FTP服务器未运行"
+            context.getString(com.ai.assistance.operit.terminal.R.string.ftp_server_not_running)
         }
     }
     

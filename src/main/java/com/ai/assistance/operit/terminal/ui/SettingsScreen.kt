@@ -65,10 +65,10 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("设置", color = SettingsTheme.onSurfaceColor) },
+                title = { Text(context.getString(com.ai.assistance.operit.terminal.R.string.settings_title), color = SettingsTheme.onSurfaceColor) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = SettingsTheme.onSurfaceColor)
+                        Icon(Icons.Default.ArrowBack, contentDescription = context.getString(com.ai.assistance.operit.terminal.R.string.back), tint = SettingsTheme.onSurfaceColor)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -94,7 +94,7 @@ fun SettingsScreen(
                     modifier = Modifier.padding(16.dp)
                 ) {
                     Text(
-                        text = "FTP文件服务器",
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.ftp_server_title),
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = SettingsTheme.onSurfaceColor
@@ -127,7 +127,7 @@ fun SettingsScreen(
                                     Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
                                 }
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text(if (isManagingFtpServer) "停止中..." else "停止服务")
+                                Text(if (isManagingFtpServer) context.getString(com.ai.assistance.operit.terminal.R.string.ftp_server_stopping) else context.getString(com.ai.assistance.operit.terminal.R.string.ftp_server_stop))
                             }
                         } else {
                             Button(
@@ -146,7 +146,7 @@ fun SettingsScreen(
                                     Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
                                 }
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text(if (isManagingFtpServer) "启动中..." else "启动服务")
+                                Text(if (isManagingFtpServer) context.getString(com.ai.assistance.operit.terminal.R.string.ftp_server_starting) else context.getString(com.ai.assistance.operit.terminal.R.string.ftp_server_start))
                             }
                         }
                     }
@@ -154,13 +154,13 @@ fun SettingsScreen(
                     if (isFtpServerRunning) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "💡 提示：使用FTP客户端连接到上述地址即可访问Ubuntu文件系统",
+                            text = context.getString(com.ai.assistance.operit.terminal.R.string.ftp_server_tip),
                             color = SettingsTheme.primaryColor,
                             fontSize = 12.sp
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "📱 建议：开启小窗模式保持应用运行，确保FTP服务持续可用",
+                            text = context.getString(com.ai.assistance.operit.terminal.R.string.ftp_server_suggestion),
                             color = SettingsTheme.primaryColor,
                             fontSize = 12.sp
                         )
@@ -179,14 +179,14 @@ fun SettingsScreen(
                     modifier = Modifier.padding(16.dp)
                 ) {
                     Text(
-                        text = "存储管理",
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.storage_management_title),
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = SettingsTheme.onSurfaceColor
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Ubuntu环境大小: $cacheSize",
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.ubuntu_environment_size, cacheSize),
                         color = SettingsTheme.onSurfaceVariant,
                         fontSize = 14.sp
                     )
@@ -214,7 +214,7 @@ fun SettingsScreen(
                                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                             }
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(if (isCalculatingCache) "计算中..." else "刷新大小")
+                            Text(if (isCalculatingCache) context.getString(com.ai.assistance.operit.terminal.R.string.refresh_size_calculating) else context.getString(com.ai.assistance.operit.terminal.R.string.refresh_size))
                         }
                         
                         Button(
@@ -224,7 +224,7 @@ fun SettingsScreen(
                         ) {
                             Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("重置环境")
+                            Text(context.getString(com.ai.assistance.operit.terminal.R.string.reset_environment))
                         }
                     }
                 }
@@ -241,65 +241,65 @@ fun SettingsScreen(
                     modifier = Modifier.padding(16.dp)
                 ) {
                     Text(
-                        text = "项目地址",
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.project_address_title),
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = SettingsTheme.onSurfaceColor
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                                         Text(
-                         text = "AAswordman/OperitTerminal",
-                         color = SettingsTheme.onSurfaceVariant,
-                         fontSize = 14.sp
-                     )
-                     Spacer(modifier = Modifier.height(8.dp))
-                     Text(
-                         text = updateStatus,
-                         color = if (hasUpdateAvailable) SettingsTheme.primaryColor else SettingsTheme.onSurfaceVariant,
-                         fontSize = 12.sp
-                     )
-                     Spacer(modifier = Modifier.height(12.dp))
-                     
-                     Row(
-                         horizontalArrangement = Arrangement.spacedBy(8.dp)
-                     ) {
-                         OutlinedButton(
-                             onClick = { viewModel.openGitHubRepo() },
-                             enabled = true,
-                             modifier = Modifier.weight(1f),
-                             colors = ButtonDefaults.outlinedButtonColors(
-                                 contentColor = SettingsTheme.primaryColor
-                             ),
-                             border = androidx.compose.foundation.BorderStroke(1.dp, SettingsTheme.primaryColor)
-                         ) {
-                             Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(16.dp))
-                             Spacer(modifier = Modifier.width(4.dp))
-                             Text("访问项目")
-                         }
-                         
-                         Button(
-                             onClick = { 
-                                 if (hasUpdateAvailable) {
-                                     viewModel.openGitHubReleases()
-                                 } else {
-                                     viewModel.checkForUpdates()
-                                 }
-                             },
-                             enabled = true,
-                             colors = ButtonDefaults.buttonColors(
-                                 containerColor = if (hasUpdateAvailable) SettingsTheme.primaryColor else SettingsTheme.surfaceColor
-                             ),
-                             modifier = Modifier.weight(1f)
-                         ) {
-                             if (hasUpdateAvailable) {
-                                 Icon(Icons.Default.GetApp, contentDescription = null, modifier = Modifier.size(16.dp))
-                             } else {
-                                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                             }
-                             Spacer(modifier = Modifier.width(4.dp))
-                             Text(if (hasUpdateAvailable) "立即更新" else "检查更新")
-                         }
-                     }
+                    Text(
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.project_name),
+                        color = SettingsTheme.onSurfaceVariant,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = updateStatus,
+                        color = if (hasUpdateAvailable) SettingsTheme.primaryColor else SettingsTheme.onSurfaceVariant,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { viewModel.openGitHubRepo() },
+                            enabled = true,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = SettingsTheme.primaryColor
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, SettingsTheme.primaryColor)
+                        ) {
+                            Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(context.getString(com.ai.assistance.operit.terminal.R.string.visit_project))
+                        }
+                        
+                        Button(
+                            onClick = { 
+                                if (hasUpdateAvailable) {
+                                    viewModel.openGitHubReleases()
+                                } else {
+                                    viewModel.checkForUpdates()
+                                }
+                            },
+                            enabled = true,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (hasUpdateAvailable) SettingsTheme.primaryColor else SettingsTheme.surfaceColor
+                            ),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            if (hasUpdateAvailable) {
+                                Icon(Icons.Default.GetApp, contentDescription = null, modifier = Modifier.size(16.dp))
+                            } else {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(if (hasUpdateAvailable) context.getString(com.ai.assistance.operit.terminal.R.string.update_now) else context.getString(com.ai.assistance.operit.terminal.R.string.check_updates))
+                        }
+                    }
                 }
             }
             HorizontalDivider(color = SettingsTheme.surfaceColor)
@@ -310,27 +310,27 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showClearCacheDialog = false },
             title = { 
-                Text("⚠️ 危险操作", color = SettingsTheme.errorColor, fontWeight = FontWeight.Bold) 
+                Text(context.getString(com.ai.assistance.operit.terminal.R.string.reset_dialog_title), color = SettingsTheme.errorColor, fontWeight = FontWeight.Bold) 
             },
             text = { 
                 Column {
                     Text(
-                        "此操作将完全删除Ubuntu虚拟环境，包括：",
+                        context.getString(com.ai.assistance.operit.terminal.R.string.reset_dialog_description),
                         color = SettingsTheme.onSurfaceColor,
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("• 所有已安装的软件包", color = SettingsTheme.onSurfaceColor)
-                    Text("• 用户数据和配置文件", color = SettingsTheme.onSurfaceColor) 
-                    Text("• 系统文件和环境设置", color = SettingsTheme.onSurfaceColor)
+                    Text(context.getString(com.ai.assistance.operit.terminal.R.string.reset_dialog_item1), color = SettingsTheme.onSurfaceColor)
+                    Text(context.getString(com.ai.assistance.operit.terminal.R.string.reset_dialog_item2), color = SettingsTheme.onSurfaceColor) 
+                    Text(context.getString(com.ai.assistance.operit.terminal.R.string.reset_dialog_item3), color = SettingsTheme.onSurfaceColor)
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "操作后需要重新初始化Ubuntu环境，这可能需要几分钟时间。",
-                                                    color = SettingsTheme.errorColor
+                        context.getString(com.ai.assistance.operit.terminal.R.string.reset_dialog_warning),
+                        color = SettingsTheme.errorColor
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "FTP服务器也将被停止。确定要继续吗？",
+                        context.getString(com.ai.assistance.operit.terminal.R.string.reset_dialog_ftp_warning),
                         color = SettingsTheme.errorColor,
                         fontWeight = FontWeight.Bold
                     )
@@ -344,7 +344,7 @@ fun SettingsScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = SettingsTheme.errorColor)
                 ) {
-                    Text("确定重置", color = SettingsTheme.onSurfaceColor)
+                    Text(context.getString(com.ai.assistance.operit.terminal.R.string.reset_confirm), color = SettingsTheme.onSurfaceColor)
                 }
             },
             dismissButton = {
@@ -355,7 +355,7 @@ fun SettingsScreen(
                     ),
                     border = androidx.compose.foundation.BorderStroke(1.dp, SettingsTheme.onSurfaceVariant)
                 ) {
-                    Text("取消", color = SettingsTheme.onSurfaceVariant)
+                    Text(context.getString(com.ai.assistance.operit.terminal.R.string.dialog_cancel), color = SettingsTheme.onSurfaceVariant)
                 }
             },
             containerColor = SettingsTheme.surfaceColor

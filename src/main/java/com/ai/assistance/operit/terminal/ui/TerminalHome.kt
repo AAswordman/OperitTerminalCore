@@ -33,6 +33,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
@@ -145,7 +146,8 @@ fun TerminalHome(
 
     // 删除确认弹窗
     if (showDeleteConfirmDialog && sessionToDelete != null) {
-        val sessionTitle = env.sessions.find { it.id == sessionToDelete }?.title ?: "未知会话"
+        val context = LocalContext.current
+        val sessionTitle = env.sessions.find { it.id == sessionToDelete }?.title ?: context.getString(com.ai.assistance.operit.terminal.R.string.unknown_session)
 
         AlertDialog(
             onDismissRequest = {
@@ -154,13 +156,13 @@ fun TerminalHome(
             },
             title = {
                 Text(
-                    text = "确认删除会话",
+                    text = context.getString(com.ai.assistance.operit.terminal.R.string.confirm_delete_session),
                     color = Color.White
                 )
             },
             text = {
                 Text(
-                    text = "确定要删除会话 \"$sessionTitle\" 吗？\n\n此操作不可撤销，会话中的所有数据将永久丢失。",
+                    text = context.getString(com.ai.assistance.operit.terminal.R.string.delete_session_message, sessionTitle),
                     color = Color.Gray
                 )
             },
@@ -175,7 +177,7 @@ fun TerminalHome(
                     }
                 ) {
                     Text(
-                        text = "删除",
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.delete),
                         color = Color.Red
                     )
                 }
@@ -188,7 +190,7 @@ fun TerminalHome(
                     }
                 ) {
                     Text(
-                        text = "取消",
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.cancel),
                         color = Color.White
                     )
                 }
@@ -397,6 +399,7 @@ private fun TerminalContent(
 
                     // Show a progress indicator for executing commands
                     if (historyItem.isExecuting) {
+                        val context = LocalContext.current
                         Row(
                             modifier = Modifier.padding(top = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -406,7 +409,7 @@ private fun TerminalContent(
                                 strokeWidth = 2.dp
                             )
                             Text(
-                                text = "Executing...",
+                                text = context.getString(com.ai.assistance.operit.terminal.R.string.executing),
                                 color = Color.Gray,
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 12.sp,
@@ -520,9 +523,10 @@ private fun SessionTabBar(
                 onClick = onNewSession,
                 modifier = Modifier.size(32.dp)
             ) {
+                val context = LocalContext.current
                 Icon(
                     imageVector = Icons.Default.Add,
-                    contentDescription = "新建会话",
+                    contentDescription = context.getString(com.ai.assistance.operit.terminal.R.string.new_session),
                     tint = Color.White,
                     modifier = Modifier.size(16.dp)
                 )
@@ -561,13 +565,14 @@ private fun SessionTab(
 
             // 关闭按钮（只有多个会话时才显示）
             onClose?.let { closeAction ->
+                val context = LocalContext.current
                 IconButton(
                     onClick = closeAction,
                     modifier = Modifier.size(16.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "关闭会话",
+                        contentDescription = context.getString(com.ai.assistance.operit.terminal.R.string.close_session),
                         tint = Color.Gray,
                         modifier = Modifier.size(12.dp)
                     )
@@ -586,6 +591,7 @@ private fun TerminalToolbar(
     onNavigateToSetup: () -> Unit,
     onNavigateToSettings: () -> Unit
 ) {
+    val context = LocalContext.current
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = Color(0xFF1A1A1A),
@@ -617,7 +623,7 @@ private fun TerminalToolbar(
                         fontWeight = FontWeight.Medium
                     )
                     Text(
-                        text = "中断",
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.interrupt),
                         color = Color.Gray,
                         fontFamily = FontFamily.Default,
                         fontSize = fontSize * 0.9f
@@ -646,7 +652,7 @@ private fun TerminalToolbar(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "环境配置",
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.environment_setup),
                         color = Color.White,
                         fontFamily = FontFamily.Default,
                         fontSize = fontSize,
@@ -658,7 +664,7 @@ private fun TerminalToolbar(
             // 设置按钮
             Icon(
                 imageVector = Icons.Default.Settings,
-                contentDescription = "设置",
+                contentDescription = context.getString(com.ai.assistance.operit.terminal.R.string.settings),
                 tint = Color.Gray,
                 modifier = Modifier
                     .clickable { onNavigateToSettings() }

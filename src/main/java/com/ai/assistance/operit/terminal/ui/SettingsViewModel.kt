@@ -23,10 +23,10 @@ class SettingsViewModel(
     // 用于跟踪缓存计算任务的Job
     private var cacheSizeCalculationJob: Job? = null
 
-    private val _cacheSize = MutableStateFlow("点击刷新计算")
+    private val _cacheSize = MutableStateFlow(application.getString(com.ai.assistance.operit.terminal.R.string.cache_size_default))
     val cacheSize = _cacheSize.asStateFlow()
 
-    private val _updateStatus = MutableStateFlow("点击检查更新")
+    private val _updateStatus = MutableStateFlow(application.getString(com.ai.assistance.operit.terminal.R.string.update_status_default))
     val updateStatus = _updateStatus.asStateFlow()
     
     private val _isCalculatingCache = MutableStateFlow(false)
@@ -36,7 +36,7 @@ class SettingsViewModel(
     val isClearingCache = _isClearingCache.asStateFlow()
 
     // FTP服务器相关状态
-    private val _ftpServerStatus = MutableStateFlow("FTP服务器未运行")
+    private val _ftpServerStatus = MutableStateFlow(application.getString(com.ai.assistance.operit.terminal.R.string.ftp_server_not_running))
     val ftpServerStatus = _ftpServerStatus.asStateFlow()
     
     private val _isFtpServerRunning = MutableStateFlow(false)
@@ -61,19 +61,19 @@ class SettingsViewModel(
         
         cacheSizeCalculationJob = viewModelScope.launch {
             _isCalculatingCache.value = true
-            _cacheSize.value = "计算中..."
+            _cacheSize.value = getApplication<Application>().getString(com.ai.assistance.operit.terminal.R.string.cache_calculating)
             try {
                 // 调用新的 getCacheSize，并传入一个更新UI的回调
                 val size = cacheManager.getCacheSize { currentSize ->
                     // 在回调中，实时更新UI状态
-                    _cacheSize.value = "计算中... (${cacheManager.formatSize(currentSize)})"
+                    _cacheSize.value = "${getApplication<Application>().getString(com.ai.assistance.operit.terminal.R.string.cache_calculating)} (${cacheManager.formatSize(currentSize)})"
                 }
                 _cacheSize.value = cacheManager.formatSize(size)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) {
-                    _cacheSize.value = "计算已取消"
+                    _cacheSize.value = getApplication<Application>().getString(com.ai.assistance.operit.terminal.R.string.cache_calculation_cancelled)
                 } else {
-                    _cacheSize.value = "计算失败"
+                    _cacheSize.value = getApplication<Application>().getString(com.ai.assistance.operit.terminal.R.string.cache_calculation_failed)
                 }
             } finally {
                 _isCalculatingCache.value = false
@@ -97,7 +97,7 @@ class SettingsViewModel(
                 }
             }
             
-            _cacheSize.value = "正在重置环境..."
+            _cacheSize.value = getApplication<Application>().getString(com.ai.assistance.operit.terminal.R.string.environment_resetting)
             try {
                 // 在清理缓存前停止FTP服务器
                 if (ftpServerManager.isFtpServerRunning()) {
@@ -106,9 +106,9 @@ class SettingsViewModel(
                 }
                 
                 cacheManager.clearCache(terminalManager)
-                _cacheSize.value = "环境已重置 (需要重启应用)"
+                _cacheSize.value = getApplication<Application>().getString(com.ai.assistance.operit.terminal.R.string.environment_reset_complete)
             } catch (e: Exception) {
-                _cacheSize.value = "重置失败: ${e.message}"
+                _cacheSize.value = getApplication<Application>().getString(com.ai.assistance.operit.terminal.R.string.environment_reset_failed, e.message ?: "")
             } finally {
                 _isClearingCache.value = false
             }
@@ -117,18 +117,18 @@ class SettingsViewModel(
 
     fun checkForUpdates() {
         viewModelScope.launch {
-            _updateStatus.value = "检查更新中..."
+            _updateStatus.value = getApplication<Application>().getString(com.ai.assistance.operit.terminal.R.string.checking_updates)
             when (val result = updateChecker.checkForUpdates(showToast = true)) {
                 is UpdateChecker.UpdateResult.UpdateAvailable -> {
-                    _updateStatus.value = "发现新版本: ${result.latestVersion} (当前: ${result.currentVersion})"
+                    _updateStatus.value = getApplication<Application>().getString(com.ai.assistance.operit.terminal.R.string.update_available, result.latestVersion, result.currentVersion)
                     _hasUpdateAvailable.value = true
                 }
                 is UpdateChecker.UpdateResult.UpToDate -> {
-                    _updateStatus.value = "已是最新版本 (${result.currentVersion})"
+                    _updateStatus.value = getApplication<Application>().getString(com.ai.assistance.operit.terminal.R.string.up_to_date, result.currentVersion)
                     _hasUpdateAvailable.value = false
                 }
                 is UpdateChecker.UpdateResult.Error -> {
-                    _updateStatus.value = "检查失败: ${result.message}"
+                    _updateStatus.value = getApplication<Application>().getString(com.ai.assistance.operit.terminal.R.string.update_check_failed, result.message)
                     _hasUpdateAvailable.value = false
                 }
             }
@@ -146,17 +146,17 @@ class SettingsViewModel(
     fun startFtpServer() {
         viewModelScope.launch {
             _isManagingFtpServer.value = true
-            _ftpServerStatus.value = "正在启动FTP服务器..."
+            _ftpServerStatus.value = getApplication<Application>().getString(com.ai.assistance.operit.terminal.R.string.ftp_server_starting)
             try {
                 val success = ftpServerManager.startFtpServer()
                 if (success) {
                     _isFtpServerRunning.value = true
                     _ftpServerStatus.value = ftpServerManager.getFtpServerInfo()
                 } else {
-                    _ftpServerStatus.value = "启动失败 (请确保Ubuntu环境已初始化)"
+                    _ftpServerStatus.value = getApplication<Application>().getString(com.ai.assistance.operit.terminal.R.string.ftp_server_start_failed_env)
                 }
             } catch (e: Exception) {
-                _ftpServerStatus.value = "启动失败: ${e.message}"
+                _ftpServerStatus.value = getApplication<Application>().getString(com.ai.assistance.operit.terminal.R.string.ftp_server_start_failed, e.message ?: "")
             } finally {
                 _isManagingFtpServer.value = false
             }
@@ -166,17 +166,17 @@ class SettingsViewModel(
     fun stopFtpServer() {
         viewModelScope.launch {
             _isManagingFtpServer.value = true
-            _ftpServerStatus.value = "正在停止FTP服务器..."
+            _ftpServerStatus.value = getApplication<Application>().getString(com.ai.assistance.operit.terminal.R.string.ftp_server_stopping_progress)
             try {
                 val success = ftpServerManager.stopFtpServer()
                 if (success) {
                     _isFtpServerRunning.value = false
-                    _ftpServerStatus.value = "FTP服务器已停止"
+                    _ftpServerStatus.value = getApplication<Application>().getString(com.ai.assistance.operit.terminal.R.string.ftp_server_stopped)
                 } else {
-                    _ftpServerStatus.value = "停止失败"
+                    _ftpServerStatus.value = getApplication<Application>().getString(com.ai.assistance.operit.terminal.R.string.ftp_server_stop_failed)
                 }
             } catch (e: Exception) {
-                _ftpServerStatus.value = "停止失败: ${e.message}"
+                _ftpServerStatus.value = getApplication<Application>().getString(com.ai.assistance.operit.terminal.R.string.ftp_server_stop_failed_with_error, e.message ?: "")
             } finally {
                 _isManagingFtpServer.value = false
             }

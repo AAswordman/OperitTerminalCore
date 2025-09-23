@@ -60,53 +60,57 @@ fun SetupScreen(
     onBack: () -> Unit,
     onSetup: (List<String>) -> Unit
 ) {
-    val packageCategories = remember {
-        listOf(
-            PackageCategory(
-                id = "nodejs",
-                name = "Node.js 环境",
-                description = "Node.js 和前端开发环境",
-                packages = listOf(
-                    PackageItem("nodejs", "Node.js", "nodejs", "JavaScript 运行时"),
-                    PackageItem("pnpm", "PNPM", "typescript", "快速的包管理器和 TypeScript")
-                )
-            ),
-            PackageCategory(
-                id = "python",
-                name = "Python 环境",
-                description = "Python 开发环境",
-                packages = listOf(
-                    PackageItem("python-is-python3", "Python 链接", "python-is-python3", "将python命令链接到python3"),
-                    PackageItem("python3-venv", "虚拟环境", "python3-venv", "Python 虚拟环境支持"),
-                    PackageItem("python3-pip", "Pip", "python3-pip", "Python 包管理器"),
-                    PackageItem("uv", "uv", "pipx install uv", "一个用 Rust 编写的极速 Python 包安装器")
-                )
-            ),
-            PackageCategory(
-                id = "java", 
-                name = "Java 环境",
-                description = "Java 开发环境",
-                packages = listOf(
-                    PackageItem("openjdk-17", "OpenJDK 17", "openjdk-17-jdk", "Java 17 开发环境")
-                )
-            ),
-            PackageCategory(
-                id = "rust",
-                name = "Rust (Cargo) 环境",
-                description = "Rust 开发环境和包管理器",
-                packages = listOf(
-                    PackageItem("rust", "Rust & Cargo", "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y", "通过 rustup 安装 Rust 工具链")
-                )
-            ),
-            PackageCategory(
-                id = "go",
-                name = "Go 环境",
-                description = "Go 语言开发环境",
-                packages = listOf(
-                    PackageItem("go", "Go", "golang-go", "Go 编程语言")
+    val context = LocalContext.current
+    
+    val packageCategories by remember {
+        derivedStateOf {
+            listOf(
+                PackageCategory(
+                    id = "nodejs",
+                    name = context.getString(com.ai.assistance.operit.terminal.R.string.category_nodejs_name),
+                    description = context.getString(com.ai.assistance.operit.terminal.R.string.category_nodejs_desc),
+                    packages = listOf(
+                        PackageItem("nodejs", context.getString(com.ai.assistance.operit.terminal.R.string.package_nodejs_name), "nodejs", context.getString(com.ai.assistance.operit.terminal.R.string.package_nodejs_desc)),
+                        PackageItem("pnpm", context.getString(com.ai.assistance.operit.terminal.R.string.package_pnpm_name), "typescript", context.getString(com.ai.assistance.operit.terminal.R.string.package_pnpm_desc))
+                    )
+                ),
+                PackageCategory(
+                    id = "python",
+                    name = context.getString(com.ai.assistance.operit.terminal.R.string.category_python_name),
+                    description = context.getString(com.ai.assistance.operit.terminal.R.string.category_python_desc),
+                    packages = listOf(
+                        PackageItem("python-is-python3", context.getString(com.ai.assistance.operit.terminal.R.string.package_python_link_name), "python-is-python3", context.getString(com.ai.assistance.operit.terminal.R.string.package_python_link_desc)),
+                        PackageItem("python3-venv", context.getString(com.ai.assistance.operit.terminal.R.string.package_python_venv_name), "python3-venv", context.getString(com.ai.assistance.operit.terminal.R.string.package_python_venv_desc)),
+                        PackageItem("python3-pip", context.getString(com.ai.assistance.operit.terminal.R.string.package_python_pip_name), "python3-pip", context.getString(com.ai.assistance.operit.terminal.R.string.package_python_pip_desc)),
+                        PackageItem("uv", context.getString(com.ai.assistance.operit.terminal.R.string.package_uv_name), "pipx install uv", context.getString(com.ai.assistance.operit.terminal.R.string.package_uv_desc))
+                    )
+                ),
+                PackageCategory(
+                    id = "java", 
+                    name = context.getString(com.ai.assistance.operit.terminal.R.string.category_java_name),
+                    description = context.getString(com.ai.assistance.operit.terminal.R.string.category_java_desc),
+                    packages = listOf(
+                        PackageItem("openjdk-17", context.getString(com.ai.assistance.operit.terminal.R.string.package_openjdk_name), "openjdk-17-jdk", context.getString(com.ai.assistance.operit.terminal.R.string.package_openjdk_desc))
+                    )
+                ),
+                PackageCategory(
+                    id = "rust",
+                    name = context.getString(com.ai.assistance.operit.terminal.R.string.category_rust_name),
+                    description = context.getString(com.ai.assistance.operit.terminal.R.string.category_rust_desc),
+                    packages = listOf(
+                        PackageItem("rust", context.getString(com.ai.assistance.operit.terminal.R.string.package_rust_name), "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y", context.getString(com.ai.assistance.operit.terminal.R.string.package_rust_desc))
+                    )
+                ),
+                PackageCategory(
+                    id = "go",
+                    name = context.getString(com.ai.assistance.operit.terminal.R.string.category_go_name),
+                    description = context.getString(com.ai.assistance.operit.terminal.R.string.category_go_desc),
+                    packages = listOf(
+                        PackageItem("go", context.getString(com.ai.assistance.operit.terminal.R.string.package_go_name), "golang-go", context.getString(com.ai.assistance.operit.terminal.R.string.package_go_desc))
+                    )
                 )
             )
-        )
+        }
     }
 
     // 跟踪每个分类的展开状态
@@ -120,7 +124,6 @@ fun SetupScreen(
     
     // 新增：跟踪包的安装状态
     val packageStatus = remember { mutableStateMapOf<String, InstallStatus>() }
-    val context = LocalContext.current
     val terminalManager = remember(context) { TerminalManager.getInstance(context) }
     val coroutineScope = rememberCoroutineScope()
     var checkSessionId by remember { mutableStateOf<String?>(null) }
@@ -186,8 +189,8 @@ fun SetupScreen(
     if (showSetupDialog) {
         AlertDialog(
             onDismissRequest = { showSetupDialog = false },
-            title = { Text("温馨提示") },
-            text = { Text("即将开始环境配置，这可能需要一些时间。请尽量保持应用在前台或小窗运行以确保配置顺利进行。\n\n如果配置意外中断，不必担心。下次回到本页面再次开始配置时，会自动从上次的进度继续。") },
+            title = { Text(context.getString(com.ai.assistance.operit.terminal.R.string.setup_dialog_title)) },
+            text = { Text(context.getString(com.ai.assistance.operit.terminal.R.string.setup_dialog_message)) },
             confirmButton = {
                 Button(
                     onClick = {
@@ -202,7 +205,7 @@ fun SetupScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF006400))
                 ) {
-                    Text("我明白了", color = Color.White)
+                    Text(context.getString(com.ai.assistance.operit.terminal.R.string.dialog_confirm), color = Color.White)
                 }
             },
             dismissButton = {
@@ -210,7 +213,7 @@ fun SetupScreen(
                     onClick = { showSetupDialog = false },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A4A4A))
                 ) {
-                    Text("取消", color = Color.White)
+                    Text(context.getString(com.ai.assistance.operit.terminal.R.string.dialog_cancel), color = Color.White)
                 }
             },
             containerColor = Color(0xFF2D2D2D),
@@ -227,7 +230,7 @@ fun SetupScreen(
     ) {
         // 标题
         Text(
-            text = "环境配置",
+            text = context.getString(com.ai.assistance.operit.terminal.R.string.setup_title),
             color = Color.White,
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold,
@@ -235,7 +238,7 @@ fun SetupScreen(
         )
         
         Text(
-            text = "选择需要安装的开发环境和工具（支持并行安装）",
+            text = context.getString(com.ai.assistance.operit.terminal.R.string.setup_subtitle),
             color = Color.Gray,
             fontSize = 14.sp,
             modifier = Modifier.padding(bottom = 24.dp)
@@ -270,7 +273,7 @@ fun SetupScreen(
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4A4A4A))
             ) {
-                Text("跳过", color = Color.White)
+                Text(context.getString(com.ai.assistance.operit.terminal.R.string.skip), color = Color.White)
             }
             
             Button(
@@ -371,7 +374,7 @@ fun SetupScreen(
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF006400))
             ) {
-                Text("开始配置", color = Color.White)
+                Text(context.getString(com.ai.assistance.operit.terminal.R.string.start_setup), color = Color.White)
             }
         }
     }
@@ -386,6 +389,8 @@ private fun CategoryCard(
     categorySelectAll: MutableMap<String, Boolean>,
     packageStatus: Map<String, InstallStatus>
 ) {
+    val context = LocalContext.current
+    
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF2D2D2D)),
@@ -402,23 +407,24 @@ private fun CategoryCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.Top) {
+                    // 标题 - 第一行
+                    Text(
+                        text = category.name,
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    // Operit必须标签 - 第二行
+                    if (category.id == "nodejs" || category.id == "python") {
                         Text(
-                            text = category.name,
-                            color = Color.White,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold
+                            text = "(${context.getString(com.ai.assistance.operit.terminal.R.string.operit_required)})",
+                            color = Color(0xFFFFA500), // Orange color
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 2.dp)
                         )
-                        if (category.id == "nodejs" || category.id == "python") {
-                            Text(
-                                text = "(Operit 必须)",
-                                color = Color(0xFFFFA500), // Orange color
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(start = 8.dp)
-                            )
-                        }
                     }
+                    // 描述 - 第三行
                     Text(
                         text = category.description,
                         color = Color.Gray,
@@ -448,7 +454,7 @@ private fun CategoryCard(
                         )
                     )
                     Text(
-                        text = "全选",
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.select_all),
                         color = Color.White,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(end = 8.dp)
@@ -458,7 +464,7 @@ private fun CategoryCard(
                 // 展开/收起图标
                 Icon(
                     imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = if (isExpanded) "收起" else "展开",
+                    contentDescription = if (isExpanded) context.getString(com.ai.assistance.operit.terminal.R.string.collapse) else context.getString(com.ai.assistance.operit.terminal.R.string.expand),
                     tint = Color.White
                 )
             }
@@ -494,6 +500,7 @@ private fun PackageItem(
     onSelectionChange: (Boolean) -> Unit,
     status: InstallStatus
 ) {
+    val context = LocalContext.current
     val isInstalled = status == InstallStatus.INSTALLED
     val isChecking = status == InstallStatus.CHECKING
 
@@ -535,7 +542,7 @@ private fun PackageItem(
                 )
                 if (isInstalled) {
                     Text(
-                        text = " (已安装)",
+                        text = " (${context.getString(com.ai.assistance.operit.terminal.R.string.installed)})",
                         color = Color.Green.copy(alpha = 0.8f),
                         fontSize = 12.sp,
                         modifier = Modifier.padding(start = 4.dp)
