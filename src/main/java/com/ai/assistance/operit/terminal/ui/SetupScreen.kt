@@ -78,8 +78,7 @@ fun SetupScreen(
                 packages = listOf(
                     PackageItem("python-is-python3", "Python 链接", "python-is-python3", "将python命令链接到python3"),
                     PackageItem("python3-venv", "虚拟环境", "python3-venv", "Python 虚拟环境支持"),
-                    PackageItem("python3-pip", "Pip", "python3-pip", "Python 包管理器"),
-                    PackageItem("uv", "uv", "pipx install uv", "一个用 Rust 编写的极速 Python 包安装器")
+                    PackageItem("python3-pip", "Pip", "python3-pip", "Python 包管理器")
                 )
             ),
             PackageCategory(
@@ -303,7 +302,7 @@ fun SetupScreen(
                         category.packages.forEach { pkg ->
                             if (selectedPackages[pkg.id] == true && packageStatus[pkg.id] != InstallStatus.INSTALLED) {
                                 // 根据分类和包ID判断包管理器
-                                if (pkg.id == "rust" || pkg.id == "uv") {
+                                if (pkg.id == "rust") {
                                     selectedCustomCommands.add(pkg.command)
                                 } else if (category.id == "nodejs" && pkg.id != "nodejs") {
                                     selectedNpmPackages.add(pkg.command)
@@ -312,11 +311,6 @@ fun SetupScreen(
                                 }
                             }
                         }
-                    }
-
-                    // 添加 pipx 作为 uv 的依赖
-                    if (selectedPackages.getOrDefault("uv", false) && packageStatus["uv"] != InstallStatus.INSTALLED) {
-                        selectedAptPackages.add("pipx")
                     }
 
                     // 首先安装所有依赖包
@@ -341,21 +335,20 @@ fun SetupScreen(
                     // 然后运行自定义命令（如安装 rust, uv 等）
                     if (selectedCustomCommands.isNotEmpty()) {
                         commands.addAll(selectedCustomCommands)
-
-                        // 如果安装了 uv，则需要确保 pipx 路径可用
-                        if (selectedPackages.getOrDefault("uv", false)) {
-                            commands.add("pipx ensurepath")
-                            commands.add("source ~/.profile")
-                        }
                     }
                     
-                    // 使用 apt-fast 安装 npm，然后并行安装 NPM 包
+                    // 使用 corepack 来安装和管理 pnpm
                     if (selectedNpmPackages.isNotEmpty()) {
                         commands.add("apt-fast install -y npm")
-                        // 更换为淘宝源
+                        // 更换为淘宝源 (对 corepack 下载 pnpm 生效)
                         commands.add("npm config set registry https://registry.npmmirror.com/")
-                        // 安装pnpm
-                        commands.add("npm install -g pnpm")
+                        // 使用 corepack 安装和管理 pnpm, 这是 Node.js v16.9+ 的推荐方式
+                        commands.add("corepack enable")
+                        commands.add("corepack prepare pnpm@latest --activate")
+                        
+                        // 为 pnpm 本身也设置淘宝源
+                        commands.add("pnpm config set registry https://registry.npmmirror.com/")
+
                         // 使用 pnpm 安装其他包
                         commands.add("pnpm add -g ${selectedNpmPackages.joinToString(" ")}")
                     }
@@ -558,7 +551,6 @@ private suspend fun checkPackageInstalled(
 ): Boolean {
     val command: String = when (pkg.id) {
         "rust" -> "command -v rustc"
-        "uv" -> "command -v uv"
         "pnpm" -> "test -f \"$(npm prefix -g)/bin/pnpm\" && echo FOUND_PNPM"
         "go" -> "command -v go"
         else -> "dpkg -s ${pkg.command.split(" ").first()}"
@@ -568,7 +560,7 @@ private suspend fun checkPackageInstalled(
     if (output == null) return false // 超时或错误
 
     return when (pkg.id) {
-        "rust", "uv", "go" -> output.isNotBlank() && !output.contains("not found")
+        "rust", "go" -> output.isNotBlank() && !output.contains("not found")
         "pnpm" -> output.contains("FOUND_PNPM")
         else -> output.contains("Status: install ok installed")
     }
