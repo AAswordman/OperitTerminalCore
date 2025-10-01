@@ -220,6 +220,26 @@ class TerminalManager private constructor(
     }
 
     /**
+     * 向指定会话发送命令（不切换当前会话）
+     */
+    suspend fun sendCommandToSession(sessionId: String, command: String, commandId: String? = null): String {
+        val actualCommandId = commandId ?: UUID.randomUUID().toString()
+        val session = sessionManager.getSession(sessionId) ?: return actualCommandId
+
+        session.commandMutex.withLock {
+            if (session.currentExecutingCommand?.isExecuting == true) {
+                // 有命令正在执行，将新命令加入队列
+                session.commandQueue.add(QueuedCommand(actualCommandId, command))
+                Log.d(TAG, "Command queued for session $sessionId: $command (id: $actualCommandId). Queue size: ${session.commandQueue.size}")
+            } else {
+                // 没有命令在执行，直接执行
+                executeCommandInternal(command, session, actualCommandId)
+            }
+        }
+        return actualCommandId
+    }
+
+    /**
      * 处理队列中的下一个命令
      */
     private suspend fun processNextQueuedCommand(sessionId: String) {
@@ -656,6 +676,8 @@ class TerminalManager private constructor(
           # 使用 proot 直接进入解压的 Ubuntu 根文件系统。
           # - 清理并设置 PATH，避免继承宿主 PATH 造成命令找不到或混用 busybox。
           # - 绑定常见伪文件系统与外部存储，保障交互和软件包管理工作正常。
+          # 在 proot 环境中创建 /storage/emulated 目录
+          mkdir -p "${'$'}UBUNTU_PATH/storage/emulated" 2>/dev/null
           exec ${'$'}BIN/proot \
             -0 \
             -r "${'$'}UBUNTU_PATH" \
@@ -670,6 +692,7 @@ class TerminalManager private constructor(
             -b /proc/self/fd/1:/dev/stdout \
             -b /proc/self/fd/2:/dev/stderr \
             -b /storage/emulated/0:/sdcard \
+            -b /storage/emulated/0:/storage/emulated/0 \
             -w /root \
             /usr/bin/env -i \
               HOME=/root \

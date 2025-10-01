@@ -70,7 +70,7 @@ fun SetupScreen(
                     name = context.getString(com.ai.assistance.operit.terminal.R.string.category_nodejs_name),
                     description = context.getString(com.ai.assistance.operit.terminal.R.string.category_nodejs_desc),
                     packages = listOf(
-                        PackageItem("nodejs", context.getString(com.ai.assistance.operit.terminal.R.string.package_nodejs_name), "nodejs", context.getString(com.ai.assistance.operit.terminal.R.string.package_nodejs_desc)),
+                        PackageItem("nodejs", context.getString(com.ai.assistance.operit.terminal.R.string.package_nodejs_name), "curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && apt install -y nodejs", context.getString(com.ai.assistance.operit.terminal.R.string.package_nodejs_desc)),
                         PackageItem("pnpm", context.getString(com.ai.assistance.operit.terminal.R.string.package_pnpm_name), "typescript", context.getString(com.ai.assistance.operit.terminal.R.string.package_pnpm_desc))
                     )
                 ),
@@ -284,18 +284,11 @@ fun SetupScreen(
                     commands.add("dpkg --configure -a")
                     commands.add("apt install -f -y")
 
-                    // 删除残留的锁文件，防止apt-fast安装或使用失败
-                    commands.add("rm -f /tmp/apt-fast.lock")
-
-                    // 安装 apt-fast 以实现多线程下载
+                    // 更新软件源
                     commands.add("apt update -y")
-                    commands.add("DEBIAN_FRONTEND=noninteractive apt install -y software-properties-common")
-                    commands.add("add-apt-repository ppa:apt-fast/stable -y")
-                    commands.add("apt update -y")
-                    commands.add("DEBIAN_FRONTEND=noninteractive apt install -y apt-fast")
 
-                    // 使用 apt-fast 进行系统升级
-                    commands.add("apt-fast upgrade -y")
+                    // 系统升级
+                    commands.add("apt upgrade -y")
                     
                     // 为 pip/pipx 设置国内镜像
                     commands.add("export PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple")
@@ -309,7 +302,7 @@ fun SetupScreen(
                         category.packages.forEach { pkg ->
                             if (selectedPackages[pkg.id] == true && packageStatus[pkg.id] != InstallStatus.INSTALLED) {
                                 // 根据分类和包ID判断包管理器
-                                if (pkg.id == "rust" || pkg.id == "uv") {
+                                if (pkg.id == "rust" || pkg.id == "uv" || pkg.id == "nodejs") {
                                     selectedCustomCommands.add(pkg.command)
                                 } else if (category.id == "nodejs" && pkg.id != "nodejs") {
                                     selectedNpmPackages.add(pkg.command)
@@ -334,17 +327,20 @@ fun SetupScreen(
                             allAptDeps.add("curl")
                             allAptDeps.add("build-essential")
                         }
+                        if (selectedPackages.getOrDefault("nodejs", false)) {
+                            allAptDeps.add("curl")
+                        }
                     }
                     
                     // 添加选中的 apt 包
                     allAptDeps.addAll(selectedAptPackages)
                     
-                    // 使用 apt-fast 安装所有 apt 包和依赖
+                    // 使用 apt 安装所有 apt 包和依赖
                     if (allAptDeps.isNotEmpty()) {
-                        commands.add("apt-fast install -y ${allAptDeps.joinToString(" ")}")
+                        commands.add("apt install -y ${allAptDeps.joinToString(" ")}")
                     }
                     
-                    // 然后运行自定义命令（如安装 rust, uv 等）
+                    // 然后运行自定义命令（如安装 rust, uv, nodejs 等）
                     if (selectedCustomCommands.isNotEmpty()) {
                         commands.addAll(selectedCustomCommands)
 
@@ -355,9 +351,8 @@ fun SetupScreen(
                         }
                     }
                     
-                    // 使用 apt-fast 安装 npm，然后并行安装 NPM 包
+                    // 安装 NPM 包（如果 nodejs 已经安装或被选中）
                     if (selectedNpmPackages.isNotEmpty()) {
-                        commands.add("apt-fast install -y npm")
                         // 更换为淘宝源
                         commands.add("npm config set registry https://registry.npmmirror.com/")
                         // 清理 npm 缓存
@@ -571,6 +566,7 @@ private suspend fun checkPackageInstalled(
     val command: String = when (pkg.id) {
         "rust" -> "command -v rustc"
         "uv" -> "command -v uv"
+        "nodejs" -> "node -v 2>/dev/null"
         "pnpm" -> "test -f \"$(npm prefix -g)/bin/pnpm\" && echo FOUND_PNPM"
         "go" -> "command -v go"
         else -> "dpkg -s ${pkg.command.split(" ").first()}"
@@ -580,6 +576,13 @@ private suspend fun checkPackageInstalled(
     if (output == null) return false // 超时或错误
 
     return when (pkg.id) {
+        "nodejs" -> {
+            // 检查 Node.js 版本是否 >= 24
+            if (output.isBlank() || output.contains("not found")) return false
+            val versionMatch = Regex("""v(\d+)\..*""").find(output.trim())
+            val majorVersion = versionMatch?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
+            majorVersion >= 24
+        }
         "rust", "uv", "go" -> output.isNotBlank() && !output.contains("not found")
         "pnpm" -> output.contains("FOUND_PNPM")
         else -> output.contains("Status: install ok installed")
