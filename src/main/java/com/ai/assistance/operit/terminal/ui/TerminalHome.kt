@@ -463,9 +463,7 @@ private fun TerminalContent(
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = {
-                        if (command.isNotBlank()) {
-                            onSendCommand(command)
-                        }
+                        onSendCommand(command)
                     })
                 )
             }

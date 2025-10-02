@@ -39,17 +39,18 @@ class TerminalEnv(
     }
 
     fun onSendInput(inputText: String, isCommand: Boolean) {
-        if (inputText.isNotBlank()) {
-            if (isCommand) {
-                terminalManager.coroutineScope.launch {
-                    terminalManager.sendCommand(inputText)
-                }
-                if (inputText == command) {
-                    command = ""
-                }
-            } else {
-                terminalManager.sendInput(inputText)
+        // 允许空输入（用于交互式场景发送回车）
+        if (isCommand) {
+            // 命令模式：也允许空命令（用于 SSH 等交互场景）
+            terminalManager.coroutineScope.launch {
+                terminalManager.sendCommand(inputText)
             }
+            if (inputText == command) {
+                command = ""
+            }
+        } else {
+            // 输入模式：允许空输入（例如 ssh-keygen 直接回车使用默认路径）
+            terminalManager.sendInput(inputText)
         }
     }
 

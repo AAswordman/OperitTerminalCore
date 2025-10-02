@@ -81,6 +81,7 @@ data class TerminalSessionData(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
     val terminalSession: com.ai.assistance.operit.terminal.TerminalSession? = null,
+    val pty: com.ai.assistance.operit.terminal.Pty? = null, // PTY 对象，用于获取终端模式
     val sessionWriter: OutputStreamWriter? = null,
     val currentDirectory: String = "$ ",
     val commandHistory: SnapshotStateList<CommandHistoryItem> = mutableStateListOf(),

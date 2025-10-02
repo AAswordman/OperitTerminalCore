@@ -99,6 +99,71 @@ class Pty(
         private external fun createSubprocess(cmdArray: Array<String>, envArray: Array<String>, workingDir: String): IntArray
 
         private external fun waitFor(pid: Int): Int
+        
+        /**
+         * 获取终端标志位
+         * bit 0: ICANON - canonical mode (line-buffered input)
+         * bit 1: ECHO - echo input characters
+         * bit 2: ISIG - generate signals for special characters
+         * bit 3: IEXTEN - enable extended input processing
+         */
+        private external fun getTerminalFlags(fd: Int): Int
+        
+        /**
+         * 获取可读字节数（用于检测是否有输出等待读取）
+         */
+        private external fun getAvailableBytes(fd: Int): Int
+    }
+    
+    /**
+     * 获取 PTY 模式信息
+     */
+    fun getPtyMode(): PtyMode {
+        val flags = Companion.getTerminalFlags(ptyMaster)
+        val availableBytes = Companion.getAvailableBytes(ptyMaster)
+        
+        return PtyMode(
+            isCanonicalMode = (flags and 0x01) != 0,
+            isEchoEnabled = (flags and 0x02) != 0,
+            isSignalEnabled = (flags and 0x04) != 0,
+            isExtendedEnabled = (flags and 0x08) != 0,
+            availableBytes = availableBytes
+        )
+    }
+}
+
+/**
+ * PTY 模式信息
+ * 用于检测终端是否处于交互式输入状态
+ */
+data class PtyMode(
+    val isCanonicalMode: Boolean,  // true = 行缓冲模式（正常命令），false = 字符模式（交互式输入）
+    val isEchoEnabled: Boolean,     // 是否回显输入
+    val isSignalEnabled: Boolean,   // 是否启用信号处理
+    val isExtendedEnabled: Boolean, // 是否启用扩展处理
+    val availableBytes: Int         // 可读字节数
+) {
+    /**
+     * 判断是否正在等待交互式输入
+     * 
+     * 两种场景：
+     * 1. 非规范模式（Node.js REPL, Python REPL）：禁用 ICANON，字符模式输入
+     * 2. 规范模式但等待输入（apt upgrade, sudo）：保持 ICANON，但输出已停止
+     */
+    fun isWaitingForInput(): Boolean {
+        // 场景 1: 非规范模式 = REPL（Node/Python）
+        if (!isCanonicalMode && availableBytes == 0) {
+            return true
+        }
+        
+        // 场景 2: 规范模式但输出已停止 = 等待确认（apt/sudo）
+        // 条件：缓冲区为空（输出已停止）
+        if (availableBytes == 0) {
+            // 需要由上层结合命令状态判断（是否有命令正在执行）
+            return true
+        }
+        
+        return false
     }
 }
 

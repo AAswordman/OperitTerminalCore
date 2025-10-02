@@ -86,7 +86,7 @@ class OutputProcessor(
                     Log.d(TAG, "Processing CR line: '$line'")
                     handleCarriageReturn(sessionId, line, sessionManager)
                 }
-            } else if (newlineIndex != -1) {
+            } else             if (newlineIndex != -1) {
                 // We have a newline without a preceding carriage return.
                 val line = bufferContent.substring(0, newlineIndex)
                 session.rawBuffer.delete(0, newlineIndex + 1)
@@ -96,7 +96,14 @@ class OutputProcessor(
                 // No full line-terminator found in the buffer.
                 // Check if the remaining buffer is a prompt.
                 val remainingContent = stripAnsi(bufferContent)
-                if (isPrompt(remainingContent) || isPersistentInteractivePrompt(remainingContent) || isInteractivePrompt(remainingContent)) {
+                
+                // 首先检查是否是普通 shell 提示符
+                val isShellPrompt = isPrompt(remainingContent)
+                
+                // 然后使用 PTY 模式检测是否在等待输入
+                val isWaitingInput = isInteractivePrompt(remainingContent, sessionId, sessionManager)
+                
+                if (isShellPrompt || isWaitingInput) {
                     Log.d(TAG, "Processing remaining buffer as interactive/shell prompt: '$bufferContent'")
                     // Since this is not a newline-terminated line, the justHandledCarriageReturn
                     // state from a previous CR is not relevant here. We reset it to ensure
@@ -302,14 +309,9 @@ class OutputProcessor(
             return
         }
 
-        // 检测持久性交互提示符 (e.g., node >)
-        if (isPersistentInteractivePrompt(cleanLine)) {
-            handlePersistentInteractivePrompt(sessionId, cleanLine, sessionManager)
-            return
-        }
-
-        // 检测临时性交互提示符 (e.g., [y/n])
-        if (isInteractivePrompt(cleanLine)) {
+        // 使用 PTY 模式检测是否正在等待交互式输入
+        // 不区分 REPL 和临时交互，统一处理
+        if (isInteractivePrompt(cleanLine, sessionId, sessionManager)) {
             handleInteractivePrompt(sessionId, cleanLine, sessionManager)
             return
         }
@@ -424,41 +426,35 @@ class OutputProcessor(
     }
 
     /**
-     * 检测是否是临时性交互提示符 (例如 y/n)
+     * 使用 PTY 模式检测是否正在等待交互式输入
+     * PTY 层面通过检测 availableBytes 和 terminal flags 来判断
      */
-    fun isInteractivePrompt(line: String): Boolean {
-        val cleanLine = line.trim().lowercase()
-        val interactivePatterns = listOf(
-            ".*\\[y/n\\].*",
-            ".*\\[y/n/.*\\].*",
-            ".*\\(y/n\\).*",
-            ".*\\(yes/no\\).*",
-            ".*continue\\?.*",
-            ".*proceed\\?.*",
-            ".*do you want.*",
-            ".*are you sure.*",
-            ".*confirm.*\\?.*",
-            ".*press.*to continue.*",
-            ".*\\[.*y.*n.*\\].*"
-        )
-
-        return interactivePatterns.any { pattern ->
-            cleanLine.matches(Regex(pattern))
+    fun isInteractivePrompt(line: String, sessionId: String, sessionManager: SessionManager): Boolean {
+        val session = sessionManager.getSession(sessionId) ?: return false
+        val pty = session.pty ?: return false
+        
+        // 只在有命令执行时才检测（避免误判普通 shell 提示符）
+        if (session.currentExecutingCommand?.isExecuting != true) {
+            return false
+        }
+        
+        try {
+            val ptyMode = pty.getPtyMode()
+            val isWaiting = ptyMode.isWaitingForInput()
+            
+            if (isWaiting) {
+                val mode = if (ptyMode.isCanonicalMode) "canonical" else "non-canonical"
+                Log.d(TAG, "Detected interactive prompt ($mode mode, available=${ptyMode.availableBytes}): $line")
+            }
+            
+            return isWaiting
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking PTY mode", e)
+            return false
         }
     }
 
-    /**
-     * 检测是否是持久性交互提示符 (例如 Node.js REPL)
-     */
-    private fun isPersistentInteractivePrompt(line: String): Boolean {
-        val trimmed = line.trim()
-        return trimmed == ">" ||
-                trimmed.startsWith("> ") ||
-                trimmed == "..." ||
-                trimmed.startsWith("... ") ||
-                trimmed == ">>>" ||
-                trimmed.startsWith(">>> ")
-    }
+
 
     private fun handleInteractivePrompt(
         sessionId: String,
@@ -466,12 +462,13 @@ class OutputProcessor(
         sessionManager: SessionManager
     ) {
         Log.d(TAG, "Detected interactive prompt: $cleanLine")
+        val session = sessionManager.getSession(sessionId) ?: return
+        
         sessionManager.updateSession(sessionId) { session ->
             session.copy(
                 isWaitingForInteractiveInput = true,
                 lastInteractivePrompt = cleanLine,
-                // Do not set isInteractiveMode to true for temporary prompts
-                // isInteractiveMode = true, 
+                isInteractiveMode = true, // 统一标记为交互模式
                 interactivePrompt = cleanLine
             )
         }
@@ -482,44 +479,7 @@ class OutputProcessor(
         }
     }
 
-    private fun handlePersistentInteractivePrompt(
-        sessionId: String,
-        cleanLine: String,
-        sessionManager: SessionManager
-    ) {
-        Log.d(TAG, "Detected persistent interactive prompt: $cleanLine")
-        val session = sessionManager.getSession(sessionId) ?: return
-        val lastCommand = session.currentExecutingCommand?.command?.trim() ?: ""
 
-        // List of commands that start a REPL
-        val replCommands = listOf("node", "python", "irb", "js", "bash", "sh")
-
-        // Check if the prompt is a shell continuation prompt (PS2)
-        // This happens for multi-line commands that are not REPLs.
-        val isContinuationPrompt = cleanLine.trim() == ">" && replCommands.none { lastCommand.startsWith(it) }
-
-        if (isContinuationPrompt) {
-            Log.d(TAG, "Identified as shell continuation prompt. Not finishing command.")
-            // Don't finish the command. Just update the output to show the prompt.
-            updateCommandOutput(sessionId, cleanLine, sessionManager)
-            sessionManager.updateSession(sessionId) {
-                it.copy(
-                    isWaitingForInteractiveInput = true,
-                    lastInteractivePrompt = cleanLine.trim()
-                )
-            }
-        } else {
-            Log.d(TAG, "Identified as REPL prompt. Finishing previous command.")
-            // This is a real interactive prompt (like Node.js), finish the command that started it.
-            finishCurrentCommand(sessionId, sessionManager)
-            sessionManager.updateSession(sessionId) {
-                it.copy(
-                    isInteractiveMode = true,
-                    interactivePrompt = cleanLine.trim()
-                )
-            }
-        }
-    }
 
     private fun isCommandEcho(cleanLine: String, session: TerminalSessionData): Boolean {
         val lastExecutingItem = session.currentExecutingCommand

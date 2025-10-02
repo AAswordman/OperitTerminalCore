@@ -16,6 +16,7 @@
 
 #define TAG "PtyJNI"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, TAG, __VA_ARGS__)
 
 JNIEXPORT jintArray JNICALL
 Java_com_ai_assistance_operit_terminal_Pty_00024Companion_createSubprocess(JNIEnv *env, jobject thiz,
@@ -109,4 +110,50 @@ Java_com_ai_assistance_operit_terminal_Pty_00024Companion_waitFor(JNIEnv *env, j
         return WEXITSTATUS(status);
     }
     return -1;
+}
+
+/**
+ * 获取 PTY 的终端属性
+ * 返回值：
+ *  bit 0: ICANON - canonical mode (line-buffered input)
+ *  bit 1: ECHO - echo input characters
+ *  bit 2: ISIG - generate signals for special characters
+ *  bit 3: IEXTEN - enable extended input processing
+ */
+JNIEXPORT jint JNICALL
+Java_com_ai_assistance_operit_terminal_Pty_00024Companion_getTerminalFlags(JNIEnv *env, jobject thiz, jint fd) {
+    struct termios tt;
+    if (tcgetattr(fd, &tt) != 0) {
+        LOGE("tcgetattr failed for fd %d", fd);
+        return -1;
+    }
+    
+    jint flags = 0;
+    if (tt.c_lflag & ICANON) flags |= 0x01;
+    if (tt.c_lflag & ECHO)   flags |= 0x02;
+    if (tt.c_lflag & ISIG)   flags |= 0x04;
+    if (tt.c_lflag & IEXTEN) flags |= 0x08;
+    
+    LOGD("Terminal flags for fd %d: ICANON=%d, ECHO=%d, ISIG=%d, IEXTEN=%d",
+         fd,
+         (flags & 0x01) != 0,
+         (flags & 0x02) != 0,
+         (flags & 0x04) != 0,
+         (flags & 0x08) != 0);
+    
+    return flags;
+}
+
+/**
+ * 检查 PTY 是否有未读数据（用于检测程序是否在等待输入）
+ * 返回值：可读字节数，-1 表示错误
+ */
+JNIEXPORT jint JNICALL
+Java_com_ai_assistance_operit_terminal_Pty_00024Companion_getAvailableBytes(JNIEnv *env, jobject thiz, jint fd) {
+    int available = 0;
+    if (ioctl(fd, FIONREAD, &available) != 0) {
+        LOGE("ioctl FIONREAD failed for fd %d", fd);
+        return -1;
+    }
+    return available;
 } 

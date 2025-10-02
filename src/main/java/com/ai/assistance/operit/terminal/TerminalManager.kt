@@ -206,6 +206,13 @@ class TerminalManager private constructor(
         val actualCommandId = commandId ?: UUID.randomUUID().toString()
         val session = sessionManager.getCurrentSession() ?: return actualCommandId
 
+        // 如果会话在交互模式，直接发送输入（不创建命令历史）
+        if (session.isInteractiveMode) {
+            Log.d(TAG, "Session in interactive mode, sending as input: $command")
+            sendInput(command + "\n")
+            return actualCommandId
+        }
+
         session.commandMutex.withLock {
             if (session.currentExecutingCommand?.isExecuting == true) {
                 // 有命令正在执行，将新命令加入队列
@@ -225,6 +232,18 @@ class TerminalManager private constructor(
     suspend fun sendCommandToSession(sessionId: String, command: String, commandId: String? = null): String {
         val actualCommandId = commandId ?: UUID.randomUUID().toString()
         val session = sessionManager.getSession(sessionId) ?: return actualCommandId
+
+        // 如果会话在交互模式，直接发送输入（不创建命令历史）
+        if (session.isInteractiveMode) {
+            Log.d(TAG, "Session $sessionId in interactive mode, sending as input: $command")
+            try {
+                session.sessionWriter?.write(command + "\n")
+                session.sessionWriter?.flush()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending input to session $sessionId", e)
+            }
+            return actualCommandId
+        }
 
         session.commandMutex.withLock {
             if (session.currentExecutingCommand?.isExecuting == true) {
@@ -345,7 +364,7 @@ class TerminalManager private constructor(
     private fun startSession(sessionId: String) {
         coroutineScope.launch(Dispatchers.IO) {
             try {
-                val terminalSession = startTerminalSession(sessionId)
+                val (terminalSession, pty) = startTerminalSession(sessionId)
                 val sessionWriter = terminalSession.stdin.writer()
 
                 appendOutputToHistory(sessionId, "Session started.")
@@ -378,6 +397,7 @@ class TerminalManager private constructor(
                 sessionManager.updateSession(sessionId) { session ->
                     session.copy(
                         terminalSession = terminalSession,
+                        pty = pty,
                         sessionWriter = sessionWriter,
                         readJob = readJob
                     )
@@ -718,7 +738,7 @@ class TerminalManager private constructor(
         """.trimIndent()
     }
 
-    fun startTerminalSession(sessionId: String): TerminalSession {
+    fun startTerminalSession(sessionId: String): Pair<TerminalSession, Pty> {
         val bash = File(binDir, "bash").absolutePath
         val startScript = "source \$HOME/common.sh && start_shell"
 
@@ -747,7 +767,7 @@ class TerminalManager private constructor(
             stdin = pty.stdin
         )
         activeSessions[sessionId] = session
-        return session
+        return Pair(session, pty)
     }
 
     fun closeTerminalSession(sessionId: String) {
