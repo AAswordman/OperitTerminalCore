@@ -300,7 +300,7 @@ object AnsiUtils {
                 is AnsiSequence.CSI -> {
                     when (seq.command) {
                         'K' -> return true // 清除行
-                        'G', 'D', 'C' -> return true // 光标移动
+                        'A', 'B', 'C', 'D', 'G' -> return true // 光标移动
                         's', 'u' -> return true // 保存/恢复光标 (ANSI.SYS)
                         else -> {}
                     }
