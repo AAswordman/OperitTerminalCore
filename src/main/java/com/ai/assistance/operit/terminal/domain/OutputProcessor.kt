@@ -6,6 +6,7 @@ import com.ai.assistance.operit.terminal.SessionDirectoryEvent
 import com.ai.assistance.operit.terminal.data.CommandHistoryItem
 import com.ai.assistance.operit.terminal.data.SessionInitState
 import com.ai.assistance.operit.terminal.data.TerminalSessionData
+import com.ai.assistance.operit.terminal.domain.ansi.AnsiUtils
 import java.util.UUID
 
 /**
@@ -94,14 +95,25 @@ class OutputProcessor(
                 processLine(sessionId, line, sessionManager)
             } else {
                 // No full line-terminator found in the buffer.
-                // Check if the remaining buffer is a prompt.
-                val remainingContent = stripAnsi(bufferContent)
                 
-                // 首先检查是否是普通 shell 提示符
-                val isShellPrompt = isPrompt(remainingContent)
+                // 首先检查是否是进度行（优先级最高，避免被误判为提示符）
+                if (AnsiUtils.isProgressLine(bufferContent)) {
+                    Log.d(TAG, "Detected progress line in buffer: '$bufferContent'")
+                    val cleanContent = AnsiUtils.stripAnsi(bufferContent)
+                    Log.d(TAG, "Stripped progress line: '$cleanContent'")
+                    handleCarriageReturn(sessionId, bufferContent, sessionManager)
+                    session.rawBuffer.clear()
+                    continue // Re-check buffer in case more data came in
+                }
                 
-                // 然后使用 PTY 模式检测是否在等待输入
-                val isWaitingInput = isInteractivePrompt(remainingContent, sessionId, sessionManager)
+                // 然后检查是否是提示符
+                val cleanContent = AnsiUtils.stripAnsi(bufferContent)
+                
+                // 检查是否是普通 shell 提示符
+                val isShellPrompt = isPrompt(cleanContent)
+                
+                // 使用 PTY 模式检测是否在等待输入
+                val isWaitingInput = isInteractivePrompt(cleanContent, sessionId, sessionManager)
                 
                 if (isShellPrompt || isWaitingInput) {
                     Log.d(TAG, "Processing remaining buffer as interactive/shell prompt: '$bufferContent'")
@@ -111,18 +123,6 @@ class OutputProcessor(
                     state.justHandledCarriageReturn = false
                     processLine(sessionId, bufferContent, sessionManager)
                     session.rawBuffer.clear()
-                } else if (carriageReturnIndex != -1) {
-                    // Handle case where buffer ends with a progress line and CR
-                    Log.d(TAG, "Processing CR line from remaining buffer: '$bufferContent'")
-                    handleCarriageReturn(sessionId, bufferContent.substring(0, carriageReturnIndex), sessionManager)
-                    session.rawBuffer.delete(0, carriageReturnIndex + 1)
-                    continue
-                } else if (isProgressLine(remainingContent)) {
-                    // Handle case where buffer ends with a progress line without a CR
-                    Log.d(TAG, "Processing progress line from remaining buffer: '$bufferContent'")
-                    handleCarriageReturn(sessionId, bufferContent, sessionManager)
-                    session.rawBuffer.clear()
-                    continue // Re-check buffer in case more data came in
                 }
                 break // Exit loop, wait for more data.
             }
@@ -130,7 +130,7 @@ class OutputProcessor(
     }
 
     private fun handleCarriageReturn(sessionId: String, line: String, sessionManager: SessionManager) {
-        val cleanLine = stripAnsi(line)
+        val cleanLine = AnsiUtils.stripAnsi(line)
         val session = sessionManager.getSession(sessionId) ?: return
         if (session.initState != SessionInitState.READY) {
             processLine(sessionId, line, sessionManager)
@@ -165,7 +165,7 @@ class OutputProcessor(
                     // A newline is received after a carriage return. This finalizes the line that was being updated.
                     state.justHandledCarriageReturn = false // Reset state immediately
 
-                    val cleanLine = stripAnsi(line)
+                    val cleanLine = AnsiUtils.stripAnsi(line)
 
                     // If the line following the CR is not empty, it means we need to overwrite the
                     // current line's content before finalizing with a newline. This happens with
@@ -255,7 +255,7 @@ class OutputProcessor(
         line: String,
         sessionManager: SessionManager
     ) {
-        if (stripAnsi(line).trim() == "TERMINAL_READY") {
+        if (AnsiUtils.stripAnsi(line).trim() == "TERMINAL_READY") {
             Log.d(TAG, "TERMINAL_READY marker found.")
             sessionManager.updateSession(sessionId) { session ->
                 session.copy(initState = SessionInitState.AWAITING_FIRST_PROMPT)
@@ -268,7 +268,7 @@ class OutputProcessor(
         line: String,
         sessionManager: SessionManager
     ) {
-        val cleanLine = stripAnsi(line)
+        val cleanLine = AnsiUtils.stripAnsi(line)
         if (handlePrompt(sessionId, cleanLine, sessionManager)) {
             Log.d(TAG, "First prompt detected. Session is now ready.")
             sessionManager.updateSession(sessionId) { session ->
@@ -282,7 +282,7 @@ class OutputProcessor(
         line: String,
         sessionManager: SessionManager
     ) {
-        val cleanLine = stripAnsi(line)
+        val cleanLine = AnsiUtils.stripAnsi(line)
         Log.d(TAG, "Stripped line: '$cleanLine'")
 
         // 跳过TERMINAL_READY信号
@@ -299,7 +299,7 @@ class OutputProcessor(
         }
 
         // 检查是否为进度更新行
-        if (isProgressLine(cleanLine)) {
+        if (AnsiUtils.isProgressLine(line)) {
             updateProgressOutput(sessionId, cleanLine, sessionManager)
             return
         }
@@ -655,46 +655,6 @@ class OutputProcessor(
 
             lastItem.setOutput(lines.joinToString("\n"))
         }
-    }
-
-    private fun isProgressLine(line: String): Boolean {
-        val cleanLine = line.trim()
-        val lowerCleanLine = cleanLine.lowercase()
-        return cleanLine.contains("%") ||
-               cleanLine.contains("█") ||
-               cleanLine.contains("▓") ||
-               cleanLine.contains("░") ||
-               cleanLine.contains("▌") ||
-               cleanLine.contains("▎") ||
-               cleanLine.contains("▍") ||
-               cleanLine.contains("▋") ||
-               cleanLine.contains("▊") ||
-               cleanLine.contains("▉") ||
-               cleanLine.matches(Regex(".*\\d+/\\d+.*")) ||
-               cleanLine.matches(Regex(".*\\[.*[#=.\\s].*\\].*")) ||
-               lowerCleanLine.contains("...") ||
-               lowerCleanLine.contains("downloading") ||
-               lowerCleanLine.contains("installing") ||
-               lowerCleanLine.contains("progress") ||
-               lowerCleanLine.contains("loading") ||
-               lowerCleanLine.contains("unpacking") ||
-               lowerCleanLine.contains("setting up")
-    }
-
-    /**
-     * 去除ANSI转义序列
-     */
-    private fun stripAnsi(text: String): String {
-        // This regex is intended to remove:
-        // - CSI (Control Sequence Introducer) sequences: \x1B[...
-        // - OSC (Operating System Command) sequences: \x1B]...\u0007 (BEL) or \x1B]...\x1B\\ (ST)
-        // This version is more robust against malformed sequences than a simple non-greedy match.
-        val ansiRegex = Regex(
-            "\\x1B\\[[0-?]*[ -/]*[@-~]|" + // CSI sequences
-            "\\x1B][^\\u0007\\x1B]*" +      // OSC sequences content (avoids crossing boundaries)
-            "(?:\\u0007|\\x1B\\\\)"        // OSC terminators (BEL or ST)
-        )
-        return ansiRegex.replace(text, "")
     }
 
     /**

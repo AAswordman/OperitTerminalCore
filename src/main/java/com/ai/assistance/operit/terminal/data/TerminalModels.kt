@@ -5,7 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
-import com.ai.assistance.operit.terminal.domain.AnsiParser
+import com.ai.assistance.operit.terminal.domain.ansi.AnsiTerminalEmulator
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.sync.Mutex
 import java.io.OutputStreamWriter
@@ -95,7 +95,7 @@ data class TerminalSessionData(
     val readJob: Job? = null,
     val isFullscreen: Boolean = false,
     val screenContent: String = "",
-    @Transient val ansiParser: AnsiParser = AnsiParser(),
+    @Transient val ansiParser: AnsiTerminalEmulator = AnsiTerminalEmulator(),
     @Transient var currentExecutingCommand: CommandHistoryItem? = null,
     @Transient var currentOutputLineCount: Int = 0,
     @Transient val commandQueue: MutableList<QueuedCommand> = mutableListOf(),
