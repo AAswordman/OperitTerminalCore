@@ -290,8 +290,14 @@ fun SetupScreen(
                     // 系统升级
                     commands.add("apt upgrade -y")
                     
-                    // 为 pip/pipx 设置国内镜像
-                    commands.add("export PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple")
+                    // 为 pip/pipx 设置国内镜像（永久配置）
+                    commands.add("mkdir -p ~/.config/pip")
+                    commands.add("echo '[global]' > ~/.config/pip/pip.conf")
+                    commands.add("echo 'index-url = https://pypi.tuna.tsinghua.edu.cn/simple' >> ~/.config/pip/pip.conf")
+                    
+                    // 为 uv/uvx 设置国内镜像（永久配置）
+                    commands.add("mkdir -p ~/.config/uv")
+                    commands.add("echo 'index-url = \"https://pypi.tuna.tsinghua.edu.cn/simple\"' > ~/.config/uv/uv.toml")
                     
                     // 收集选中的包
                     val selectedAptPackages = mutableListOf<String>()
