@@ -45,6 +45,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ai.assistance.operit.terminal.data.CommandHistoryItem
 import com.ai.assistance.operit.terminal.data.TerminalSessionData
+import com.ai.assistance.operit.terminal.view.canvas.CanvasTerminalOutput
+import com.ai.assistance.operit.terminal.view.canvas.CanvasTerminalScreen
 import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
@@ -55,6 +57,7 @@ import com.ai.assistance.operit.terminal.view.SyntaxColors
 import com.ai.assistance.operit.terminal.view.SyntaxHighlightingVisualTransformation
 import com.ai.assistance.operit.terminal.view.highlight
 import androidx.compose.material.icons.filled.Settings
+import com.ai.assistance.operit.terminal.view.canvas.CanvasTerminalScreen
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
@@ -86,13 +89,9 @@ fun TerminalHome(
     val basePadding = 8.dp
     val padding = basePadding * scaleFactor
 
-    // 自动滚动到底部
-    LaunchedEffect(env.commandHistory.size, env.commandHistory.lastOrNull()?.output) {
-        if (env.commandHistory.isNotEmpty()) {
-            coroutineScope.launch {
-                listState.animateScrollToItem(index = env.commandHistory.size)
-            }
-        }
+    // 获取当前 session 的 PTY
+    val currentPty = remember(env.currentSessionId, env.sessions) {
+        env.sessions.find { it.id == env.currentSessionId }?.pty
     }
 
     Column(
@@ -113,34 +112,69 @@ fun TerminalHome(
         )
 
         if (env.isFullscreen) {
-            FullscreenContent(
-                screenContent = env.screenContent,
-                fontSize = fontSize,
-                lineHeight = lineHeight,
-                padding = padding,
-                onSendInput = { env.onSendInput(it, false) },
-                onGesture = { zoom ->
-                    scaleFactor = max(0.5f, min(3f, scaleFactor * zoom))
-                }
+            CanvasTerminalScreen(
+                emulator = env.terminalEmulator,
+                modifier = Modifier.fillMaxSize(),
+                pty = currentPty,
+                onInput = { env.onSendInput(it, false) }
             )
         } else {
-            TerminalContent(
-                commandHistory = env.commandHistory,
-                currentDirectory = env.currentDirectory,
-                command = env.command,
-                onCommandChange = env::onCommandChange,
-                onSendCommand = { env.onSendInput(it, true) },
-                onInterrupt = env::onInterrupt,
-                listState = listState,
-                fontSize = fontSize,
-                lineHeight = lineHeight,
-                padding = padding,
-                onGesture = { zoom ->
-                    scaleFactor = max(0.5f, min(3f, scaleFactor * zoom))
-                },
-                onNavigateToSetup = onNavigateToSetup,
-                onNavigateToSettings = onNavigateToSettings
-            )
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Canvas输出区域（占满剩余空间）
+                CanvasTerminalOutput(
+                    emulator = env.terminalEmulator,
+                    modifier = Modifier.weight(1f),
+                    pty = currentPty
+                )
+                
+                // 终端工具栏
+                TerminalToolbar(
+                    onInterrupt = env::onInterrupt,
+                    onSendCommand = { env.onSendInput(it, true) },
+                    fontSize = fontSize * 0.8f,
+                    padding = padding,
+                    onNavigateToSetup = onNavigateToSetup,
+                    onNavigateToSettings = onNavigateToSettings
+                )
+                
+                // 当前输入行
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(padding),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        modifier = Modifier.padding(end = padding * 0.5f),
+                        color = Color(0xFF006400), // DarkGreen
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = getTruncatedPrompt(env.currentDirectory.ifEmpty { "$ " }),
+                            color = Color.White,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = fontSize,
+                            modifier = Modifier.padding(horizontal = padding * 0.5f, vertical = padding * 0.1f)
+                        )
+                    }
+                    BasicTextField(
+                        value = env.command,
+                        onValueChange = env::onCommandChange,
+                        modifier = Modifier.weight(1f),
+                        textStyle = TextStyle(
+                            color = SyntaxColors.commandDefault,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = fontSize
+                        ),
+                        cursorBrush = SolidColor(Color.Green),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(onSend = {
+                            env.onSendInput(env.command, true)
+                        })
+                    )
+                }
+            }
         }
     }
 
@@ -199,275 +233,6 @@ fun TerminalHome(
             titleContentColor = Color.White,
             textContentColor = Color.Gray
         )
-    }
-}
-
-@Composable
-private fun FullscreenContent(
-    screenContent: String,
-    fontSize: androidx.compose.ui.unit.TextUnit,
-    lineHeight: Float,
-    padding: androidx.compose.ui.unit.Dp,
-    onSendInput: (String) -> Unit,
-    onGesture: (zoom: Float) -> Unit
-) {
-    var textFieldValue by remember { mutableStateOf("") }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                    do {
-                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                        if (event.changes.size >= 2) {
-                            val zoom = event.calculateZoom()
-                            if (abs(zoom - 1f) > 0.01f) {
-                                onGesture(zoom)
-                                event.changes.forEach { it.consume() }
-                            }
-                        }
-                    } while (event.changes.any { it.pressed })
-                }
-            }
-            .padding(padding)
-    ) {
-        // This text displays the actual terminal content from the PTY
-        SelectionContainer {
-            Text(
-                text = screenContent,
-                color = Color.White,
-                fontFamily = FontFamily.Monospace,
-                fontSize = fontSize,
-                lineHeight = fontSize * lineHeight,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
-        // This is an invisible text field that captures all keyboard input
-        BasicTextField(
-            value = textFieldValue,
-            onValueChange = {
-                // This is a simplified approach. A more robust solution
-                // would compare the old and new text to determine what was
-                // typed (e.g., handling backspace, pasting text).
-                val typedText = if (it.length > textFieldValue.length) {
-                    it.substring(textFieldValue.length)
-                } else {
-                    // Handle backspace. The ASCII backspace character is 8.
-                    // Another common one is DEL (127). Vim uses BS.
-                    "\u0008"
-                }
-                onSendInput(typedText)
-
-                // We keep the text field's internal state, but it could also be cleared.
-                // For vim, it's better to keep it to handle multi-character sequences,
-                // but for raw input, clearing it after sending might be an option.
-                textFieldValue = it
-            },
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            textStyle = TextStyle(
-                // Make the text transparent so it's not visible
-                color = Color.Transparent,
-                fontFamily = FontFamily.Monospace,
-                fontSize = fontSize
-            ),
-            cursorBrush = SolidColor(Color.Transparent), // Hide the cursor
-            keyboardOptions = KeyboardOptions.Default.copy(
-                // No specific action, we want raw input
-                imeAction = ImeAction.None
-            )
-        )
-    }
-}
-
-@Composable
-private fun TerminalContent(
-    commandHistory: SnapshotStateList<CommandHistoryItem>,
-    currentDirectory: String,
-    command: String,
-    onCommandChange: (String) -> Unit,
-    onSendCommand: (String) -> Unit,
-    onInterrupt: () -> Unit,
-    listState: androidx.compose.foundation.lazy.LazyListState,
-    fontSize: androidx.compose.ui.unit.TextUnit,
-    lineHeight: Float,
-    padding: androidx.compose.ui.unit.Dp,
-    onGesture: (zoom: Float) -> Unit,
-    onNavigateToSetup: () -> Unit,
-    onNavigateToSettings: () -> Unit
-) {
-    // 终端内容
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                    do {
-                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-
-                        // 只在有多个手指时处理缩放
-                        if (event.changes.size >= 2) {
-                            val zoom = event.calculateZoom()
-                            if (abs(zoom - 1f) > 0.01f) {
-                                onGesture(zoom)
-                                // 消费事件以防止传递给LazyColumn
-                                event.changes.forEach { it.consume() }
-                            }
-                        }
-                    } while (event.changes.any { it.pressed })
-                }
-            }
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize()
-        ) {
-            // 历史输出 - 占满全屏
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(padding)
-            ) {
-                items(commandHistory, key = { it.id }) { historyItem ->
-                    SelectionContainer {
-                        Column {
-                            if (historyItem.prompt.isNotBlank() || historyItem.command.isNotBlank()) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    // Prompt as a label
-                                    if (historyItem.prompt.isNotBlank()) {
-                                        Surface(
-                                            modifier = Modifier.padding(end = padding * 0.5f),
-                                            color = Color(0xFF006400), // DarkGreen
-                                            shape = RoundedCornerShape(4.dp)
-                                        ) {
-                                            Text(
-                                                text = getTruncatedPrompt(historyItem.prompt),
-                                                color = Color.White,
-                                                fontFamily = FontFamily.Monospace,
-                                                fontSize = fontSize,
-                                                modifier = Modifier.padding(horizontal = padding * 0.5f, vertical = padding * 0.1f)
-                                            )
-                                        }
-                                    }
-                                    // Command
-                                    Text(
-                                        text = highlight(historyItem.command, isCommand = true),
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = fontSize,
-                                        lineHeight = fontSize * lineHeight
-                                    )
-                                }
-                                // Spacer
-                                Spacer(modifier = Modifier.height(padding * 0.25f))
-                            }
-
-                            // 渲染已完成的输出页面
-                            historyItem.outputPages.forEach { page ->
-                                if (page.isNotEmpty()) {
-                                    Text(
-                                        text = highlight(page),
-                                        color = Color.White,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = fontSize,
-                                        lineHeight = fontSize * lineHeight,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(bottom = 0.dp) // 页面之间没有内边距
-                                    )
-                                }
-                            }
-
-                            // 渲染当前实时输出页面
-                            if (historyItem.output.isNotEmpty()) {
-                                Text(
-                                    text = highlight(historyItem.output),
-                                    color = Color.White,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = fontSize,
-                                    lineHeight = fontSize * lineHeight,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(bottom = padding * 0.5f) // 所有输出末尾的内边距
-                                )
-                            }
-                        }
-                    }
-
-                    // Show a progress indicator for executing commands
-                    if (historyItem.isExecuting) {
-                        val context = LocalContext.current
-                        Row(
-                            modifier = Modifier.padding(top = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp
-                            )
-                            Text(
-                                text = context.getString(com.ai.assistance.operit.terminal.R.string.executing),
-                                color = Color.Gray,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 12.sp,
-                                modifier = Modifier.padding(start = 8.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 终端工具栏
-            TerminalToolbar(
-                onInterrupt = onInterrupt,
-                onSendCommand = onSendCommand,
-                fontSize = fontSize * 0.8f,
-                padding = padding,
-                onNavigateToSetup = onNavigateToSetup,
-                onNavigateToSettings = onNavigateToSettings
-            )
-
-            // 当前输入行
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(padding),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    modifier = Modifier.padding(end = padding * 0.5f),
-                    color = Color(0xFF006400), // DarkGreen
-                    shape = RoundedCornerShape(4.dp)
-                ) {
-                    Text(
-                        text = getTruncatedPrompt(currentDirectory.ifEmpty { "$ " }),
-                        color = Color.White,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = fontSize,
-                        modifier = Modifier.padding(horizontal = padding * 0.5f, vertical = padding * 0.1f)
-                    )
-                }
-                BasicTextField(
-                    value = command,
-                    onValueChange = onCommandChange,
-                    modifier = Modifier.weight(1f),
-                    textStyle = TextStyle(
-                        color = SyntaxColors.commandDefault,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = fontSize
-                    ),
-                    cursorBrush = SolidColor(Color.Green),
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = {
-                        onSendCommand(command)
-                    })
-                )
-            }
-        }
     }
 }
 

@@ -30,15 +30,6 @@ class SessionManager(private val terminalManager: TerminalManager) {
             newSession = TerminalSessionData(
                 title = title ?: "Ubuntu $sessionCount"
             )
-            newSession.commandHistory.add(
-                com.ai.assistance.operit.terminal.data.CommandHistoryItem(
-                    id = UUID.randomUUID().toString(),
-                    prompt = "",
-                    command = "Initializing environment...",
-                    output = "",
-                    isExecuting = false
-                )
-            )
             currentState.copy(
                 sessions = currentState.sessions + newSession,
                 currentSessionId = newSession.id

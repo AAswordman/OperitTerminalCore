@@ -8,8 +8,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshots.SnapshotStateList
-import com.ai.assistance.operit.terminal.data.CommandHistoryItem
 import com.ai.assistance.operit.terminal.data.TerminalSessionData
 import kotlinx.coroutines.launch
 import android.util.Log
@@ -18,19 +16,17 @@ import android.util.Log
 class TerminalEnv(
     sessionsState: State<List<TerminalSessionData>>,
     currentSessionIdState: State<String?>,
-    commandHistoryState: State<SnapshotStateList<CommandHistoryItem>>,
     currentDirectoryState: State<String>,
     isFullscreenState: State<Boolean>,
-    screenContentState: State<String>,
+    terminalEmulatorState: State<com.ai.assistance.operit.terminal.domain.ansi.AnsiTerminalEmulator>,
     private val terminalManager: TerminalManager,
     val forceShowSetup: Boolean = false
 ) {
     val sessions by sessionsState
     val currentSessionId by currentSessionIdState
-    val commandHistory by commandHistoryState
     val currentDirectory by currentDirectoryState
     val isFullscreen by isFullscreenState
-    val screenContent by screenContentState
+    val terminalEmulator by terminalEmulatorState
 
     var command by mutableStateOf("")
 
@@ -81,19 +77,17 @@ class TerminalEnv(
 fun rememberTerminalEnv(terminalManager: TerminalManager, forceShowSetup: Boolean = false): TerminalEnv {
     val sessionsState = terminalManager.sessions.collectAsState(initial = emptyList())
     val currentSessionIdState = terminalManager.currentSessionId.collectAsState(initial = null)
-    val commandHistoryState = terminalManager.commandHistory.collectAsState(initial = SnapshotStateList<CommandHistoryItem>())
     val currentDirectoryState = terminalManager.currentDirectory.collectAsState(initial = "$ ")
     val isFullscreenState = terminalManager.isFullscreen.collectAsState(initial = false)
-    val screenContentState = terminalManager.screenContent.collectAsState(initial = "")
+    val terminalEmulatorState = terminalManager.terminalEmulator.collectAsState(initial = com.ai.assistance.operit.terminal.domain.ansi.AnsiTerminalEmulator())
 
     return remember(terminalManager, forceShowSetup) {
         TerminalEnv(
             sessionsState = sessionsState,
             currentSessionIdState = currentSessionIdState,
-            commandHistoryState = commandHistoryState,
             currentDirectoryState = currentDirectoryState,
             isFullscreenState = isFullscreenState,
-            screenContentState = screenContentState,
+            terminalEmulatorState = terminalEmulatorState,
             terminalManager = terminalManager,
             forceShowSetup = forceShowSetup
         )

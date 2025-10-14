@@ -156,4 +156,29 @@ Java_com_ai_assistance_operit_terminal_Pty_00024Companion_getAvailableBytes(JNIE
         return -1;
     }
     return available;
+}
+
+/**
+ * 设置 PTY 窗口大小
+ * 参数：
+ *   fd - PTY master 文件描述符
+ *   rows - 行数
+ *   cols - 列数
+ * 返回值：0 表示成功，-1 表示失败
+ */
+JNIEXPORT jint JNICALL
+Java_com_ai_assistance_operit_terminal_Pty_setPtyWindowSize(JNIEnv *env, jobject thiz, jint fd, jint rows, jint cols) {
+    struct winsize ws;
+    ws.ws_row = rows;
+    ws.ws_col = cols;
+    ws.ws_xpixel = 0;
+    ws.ws_ypixel = 0;
+    
+    if (ioctl(fd, TIOCSWINSZ, &ws) != 0) {
+        LOGE("ioctl TIOCSWINSZ failed for fd %d: rows=%d, cols=%d", fd, rows, cols);
+        return -1;
+    }
+    
+    LOGD("PTY window size set to %dx%d for fd %d", rows, cols, fd);
+    return 0;
 } 

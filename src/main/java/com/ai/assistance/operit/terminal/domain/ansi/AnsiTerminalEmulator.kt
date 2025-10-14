@@ -86,6 +86,9 @@ class AnsiTerminalEmulator(
     private var scrollTop = 0
     private var scrollBottom = screenHeight - 1
     
+    // 观察者模式：监听终端变化
+    private val changeListeners = mutableListOf<() -> Unit>()
+    
     /**
      * 解析并执行 ANSI 序列
      */
@@ -106,6 +109,9 @@ class AnsiTerminalEmulator(
                 null -> break
             }
         }
+        
+        // 通知监听器内容已改变
+        notifyChange()
     }
     
     /**
@@ -664,5 +670,30 @@ class AnsiTerminalEmulator(
         cursorX = cursorX.coerceIn(0, screenWidth - 1)
         cursorY = cursorY.coerceIn(0, screenHeight - 1)
         scrollBottom = screenHeight - 1
+        
+        notifyChange()
+    }
+    
+    // === 观察者模式方法 ===
+    
+    /**
+     * 添加变化监听器
+     */
+    fun addChangeListener(listener: () -> Unit) {
+        changeListeners.add(listener)
+    }
+    
+    /**
+     * 移除变化监听器
+     */
+    fun removeChangeListener(listener: () -> Unit) {
+        changeListeners.remove(listener)
+    }
+    
+    /**
+     * 通知所有监听器终端内容已改变
+     */
+    private fun notifyChange() {
+        changeListeners.forEach { it() }
     }
 } 

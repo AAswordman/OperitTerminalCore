@@ -84,8 +84,7 @@ data class TerminalSessionData(
     val pty: com.ai.assistance.operit.terminal.Pty? = null, // PTY 对象，用于获取终端模式
     val sessionWriter: OutputStreamWriter? = null,
     val currentDirectory: String = "$ ",
-    val commandHistory: SnapshotStateList<CommandHistoryItem> = mutableStateListOf(),
-    @Transient val currentCommandOutputBuilder: StringBuilder = StringBuilder(),
+    @Transient val currentCommandOutput: StringBuilder = StringBuilder(),
     @Transient val rawBuffer: StringBuilder = StringBuilder(),
     val isWaitingForInteractiveInput: Boolean = false,
     val lastInteractivePrompt: String = "",
@@ -94,7 +93,6 @@ data class TerminalSessionData(
     val initState: SessionInitState = SessionInitState.INITIALIZING,
     val readJob: Job? = null,
     val isFullscreen: Boolean = false,
-    val screenContent: String = "",
     @Transient val ansiParser: AnsiTerminalEmulator = AnsiTerminalEmulator(),
     @Transient var currentExecutingCommand: CommandHistoryItem? = null,
     @Transient var currentOutputLineCount: Int = 0,

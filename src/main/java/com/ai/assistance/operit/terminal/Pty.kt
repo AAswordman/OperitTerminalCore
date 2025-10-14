@@ -130,6 +130,25 @@ class Pty(
             availableBytes = availableBytes
         )
     }
+    
+    /**
+     * 设置 PTY 窗口大小
+     * @param rows 行数
+     * @param cols 列数
+     * @return true 表示成功，false 表示失败
+     */
+    fun setWindowSize(rows: Int, cols: Int): Boolean {
+        val result = setPtyWindowSize(ptyMaster, rows, cols)
+        if (result == 0) {
+            Log.d("Pty", "PTY window size updated to ${rows}x${cols}")
+            return true
+        } else {
+            Log.e("Pty", "Failed to set PTY window size to ${rows}x${cols}")
+            return false
+        }
+    }
+    
+    private external fun setPtyWindowSize(fd: Int, rows: Int, cols: Int): Int
 }
 
 /**

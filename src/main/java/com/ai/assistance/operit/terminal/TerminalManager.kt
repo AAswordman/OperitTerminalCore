@@ -90,14 +90,11 @@ class TerminalManager private constructor(
     // 为了向后兼容，提供单独的状态流
     val sessions = terminalState.map { it.sessions }
     val currentSessionId = terminalState.map { it.currentSessionId }
-    val commandHistory = terminalState.map {
-        it.currentSession?.commandHistory ?: androidx.compose.runtime.snapshots.SnapshotStateList<CommandHistoryItem>()
-    }
     val currentDirectory = terminalState.map { it.currentSession?.currentDirectory ?: "$ " }
     val isInteractiveMode = terminalState.map { it.currentSession?.isInteractiveMode ?: false }
     val interactivePrompt = terminalState.map { it.currentSession?.interactivePrompt ?: "" }
     val isFullscreen = terminalState.map { it.currentSession?.isFullscreen ?: false }
-    val screenContent = terminalState.map { it.currentSession?.screenContent ?: "" }
+    val terminalEmulator = terminalState.map { it.currentSession?.ansiParser ?: com.ai.assistance.operit.terminal.domain.ansi.AnsiTerminalEmulator() }
 
     companion object {
         @Volatile
@@ -283,7 +280,6 @@ class TerminalManager private constructor(
      */
     private suspend fun executeCommandInternal(command: String, session: com.ai.assistance.operit.terminal.data.TerminalSessionData, commandId: String) {
         if (command.trim() == "clear") {
-            handleClearCommand(session)
             try {
                 session.sessionWriter?.write("clear\n")
                 session.sessionWriter?.flush()
@@ -299,7 +295,6 @@ class TerminalManager private constructor(
                 Log.d(TAG, "Sent command to PTY: $command")
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending command", e)
-                appendOutputToHistory(session.id, "Error sending command: ${e.message}")
             }
         }
     }
@@ -324,7 +319,6 @@ class TerminalManager private constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending input", e)
-                appendOutputToHistory(session.id, "Error sending input: ${e.message}")
             }
         }
     }
@@ -344,7 +338,6 @@ class TerminalManager private constructor(
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending interrupt signal", e)
                 val currentSession = sessionManager.getCurrentSession()
-                appendOutputToHistory(currentSession?.id ?: "N/A", "Error sending interrupt signal: ${e.message}")
             }
         }
     }
@@ -353,10 +346,8 @@ class TerminalManager private constructor(
         coroutineScope.launch {
             val success = initializeEnvironment()
             if (success) {
-                appendOutputToHistory(sessionId, "Environment initialized. Starting session...")
                 startSession(sessionId)
             } else {
-                appendOutputToHistory(sessionId, "FATAL: Environment initialization failed. Check logs.")
             }
         }
     }
@@ -367,7 +358,6 @@ class TerminalManager private constructor(
                 val (terminalSession, pty) = startTerminalSession(sessionId)
                 val sessionWriter = terminalSession.stdin.writer()
 
-                appendOutputToHistory(sessionId, "Session started.")
 
                 // 发送初始命令来获取提示符
                 sessionWriter.write("echo 'TERMINAL_READY'\n")
@@ -389,7 +379,6 @@ class TerminalManager private constructor(
                         Log.i(TAG, "Read job interrupted for session $sessionId.")
                     } catch (e: Exception) {
                         Log.e(TAG, "Error in read job for session $sessionId", e)
-                        appendOutputToHistory(sessionId, "Error reading from terminal: ${e.message}")
                     }
                 }
 
@@ -404,7 +393,6 @@ class TerminalManager private constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error starting session", e)
-                appendOutputToHistory(sessionId, "Error starting terminal session: ${e.message}")
             }
         }
     }
@@ -778,18 +766,8 @@ class TerminalManager private constructor(
         }
     }
 
-    private fun handleClearCommand(session: com.ai.assistance.operit.terminal.data.TerminalSessionData) {
-        // Special handling for clear command: keep welcome message
-        val welcomeItem = session.commandHistory.firstOrNull {
-            it.prompt.isEmpty() && it.command.isEmpty() && it.output.contains("Operit")
-        }
-
-        session.commandHistory.clear()
-        welcomeItem?.let { session.commandHistory.add(it) }
-    }
-
     private fun handleRegularCommand(command: String, session: com.ai.assistance.operit.terminal.data.TerminalSessionData, commandId: String) {
-        session.currentCommandOutputBuilder.clear()
+        session.currentCommandOutput.clear()
         session.currentOutputLineCount = 0
 
         val newCommandItem = CommandHistoryItem(
@@ -802,7 +780,6 @@ class TerminalManager private constructor(
 
         // Set the current executing command reference for efficient access
         session.currentExecutingCommand = newCommandItem
-        session.commandHistory.add(newCommandItem)
 
         // 发出命令开始执行事件
         coroutineScope.launch {
@@ -812,33 +789,6 @@ class TerminalManager private constructor(
                 outputChunk = "",
                 isCompleted = false
             ))
-        }
-    }
-
-    private suspend fun appendOutputToHistory(sessionId: String, output: String) {
-        withContext(Dispatchers.Main) {
-            sessionManager.updateSession(sessionId) { session ->
-                val currentHistory = session.commandHistory.toMutableList()
-                val outputLines = output.split("\n")
-
-                if (currentHistory.isEmpty()) {
-                    currentHistory.addAll(outputLines.map { CommandHistoryItem(id = UUID.randomUUID().toString(), prompt = "", command = "", output = it, isExecuting = false) })
-                } else {
-                    val lastItem = currentHistory.last()
-                    val firstNewLine = outputLines.first()
-
-                    if (lastItem.output.endsWith("\u001B[?2004l")) {
-                        lastItem.setOutput(lastItem.output + firstNewLine)
-                        if (outputLines.size > 1) {
-                            currentHistory.addAll(outputLines.drop(1).map { CommandHistoryItem(id = UUID.randomUUID().toString(), prompt = "", command = "", output = it, isExecuting = false) })
-                        }
-                    } else {
-                        currentHistory.addAll(outputLines.map { CommandHistoryItem(id = UUID.randomUUID().toString(), prompt = "", command = "", output = it, isExecuting = false) })
-                    }
-                }
-
-                session.copy(commandHistory = androidx.compose.runtime.mutableStateListOf<CommandHistoryItem>().apply { addAll(currentHistory) })
-            }
         }
     }
 
