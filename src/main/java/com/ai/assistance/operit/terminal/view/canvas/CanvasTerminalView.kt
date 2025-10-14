@@ -91,6 +91,10 @@ class CanvasTerminalView @JvmOverloads constructor(
     // 输入回调
     private var inputCallback: ((String) -> Unit)? = null
     
+    // 缓存终端尺寸，避免重复调用
+    private var cachedRows = 0
+    private var cachedCols = 0
+    
     // 文本选择ActionMode
     private var actionMode: ActionMode? = null
     
@@ -716,6 +720,14 @@ class CanvasTerminalView @JvmOverloads constructor(
         // 计算终端尺寸（行和列）
         val cols = (width / textMetrics.charWidth).toInt().coerceAtLeast(1)
         val rows = (height / textMetrics.charHeight).toInt().coerceAtLeast(1)
+        
+        // 只有当尺寸真正发生变化时才更新
+        if (rows == cachedRows && cols == cachedCols) {
+            return
+        }
+        
+        cachedRows = rows
+        cachedCols = cols
         
         // 更新模拟器尺寸
         emulator?.resize(cols, rows)
