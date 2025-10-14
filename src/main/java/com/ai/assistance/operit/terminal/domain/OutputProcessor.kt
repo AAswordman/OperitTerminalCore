@@ -147,10 +147,14 @@ class OutputProcessor(
             processLine(sessionId, line, sessionManager)
             return
         }
+        // 只有在清理后的内容非空时才处理为进度更新
+        // 空内容（如 ANSI 控制序列）不应影响下一行的处理
         if (cleanLine.isNotEmpty()) {
             updateProgressOutput(sessionId, cleanLine, sessionManager)
+            sessionStates[sessionId]?.justHandledCarriageReturn = true
         }
-        sessionStates[sessionId]?.justHandledCarriageReturn = true
+        // 如果是空内容（纯 ANSI 控制序列），不设置 justHandledCarriageReturn
+        // 这样下一行会被正常处理，而不是被当作进度更新
     }
 
     private fun processLine(
