@@ -7,6 +7,10 @@ import com.ai.assistance.operit.terminal.utils.CacheManager
 import com.ai.assistance.operit.terminal.utils.UpdateChecker
 import com.ai.assistance.operit.terminal.utils.FtpServerManager
 import com.ai.assistance.operit.terminal.TerminalManager
+import com.ai.assistance.operit.terminal.data.MirrorSource
+import com.ai.assistance.operit.terminal.data.PackageManagerType
+import com.ai.assistance.operit.terminal.data.SourceConfig
+import com.ai.assistance.operit.terminal.utils.SourceManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -18,7 +22,8 @@ class SettingsViewModel(
 ) : AndroidViewModel(application) {
     private val cacheManager = CacheManager(application)
     private val updateChecker = UpdateChecker(application)
-    private val ftpServerManager = FtpServerManager(application)
+    private val ftpServerManager = FtpServerManager.getInstance(application)
+    private val sourceManager = SourceManager(application)
 
     // 用于跟踪缓存计算任务的Job
     private var cacheSizeCalculationJob: Job? = null
@@ -48,11 +53,84 @@ class SettingsViewModel(
     // 更新相关状态
     private val _hasUpdateAvailable = MutableStateFlow(false)
     val hasUpdateAvailable = _hasUpdateAvailable.asStateFlow()
+    
+    // 源管理相关状态
+    private val _sourceConfigs = MutableStateFlow<Map<PackageManagerType, SourceConfig>>(emptyMap())
+    val sourceConfigs = _sourceConfigs.asStateFlow()
 
     // 自动检测更新，但不自动计算缓存大小
     init {
         checkForUpdates()
         updateFtpServerStatus()
+        loadSourceConfigs()
+    }
+
+    private fun loadSourceConfigs() {
+        _sourceConfigs.value = mapOf(
+            PackageManagerType.APT to SourceConfig(
+                PackageManagerType.APT,
+                sourceManager.getSelectedSourceId(PackageManagerType.APT),
+                sourceManager.aptSources
+            ),
+            PackageManagerType.PIP to SourceConfig(
+                PackageManagerType.PIP,
+                sourceManager.getSelectedSourceId(PackageManagerType.PIP),
+                sourceManager.pipSources
+            ),
+            PackageManagerType.NPM to SourceConfig(
+                PackageManagerType.NPM,
+                sourceManager.getSelectedSourceId(PackageManagerType.NPM),
+                sourceManager.npmSources
+            )
+        )
+    }
+
+    fun updateSource(pm: PackageManagerType, sourceId: String) {
+        viewModelScope.launch {
+            // 1. 保存设置
+            sourceManager.setSelectedSourceId(pm, sourceId)
+            
+            // 2. 重新加载配置以更新UI
+            loadSourceConfigs()
+
+            // 3. 应用更改
+            val source = when (pm) {
+                PackageManagerType.APT -> sourceManager.aptSources.find { it.id == sourceId }
+                PackageManagerType.PIP -> sourceManager.pipSources.find { it.id == sourceId }
+                PackageManagerType.NPM -> sourceManager.npmSources.find { it.id == sourceId }
+            }
+            source?.let {
+                val command = when (pm) {
+                    PackageManagerType.APT -> sourceManager.getAptSourceChangeCommand(it)
+                    PackageManagerType.PIP -> sourceManager.getPipSourceChangeCommand(it)
+                    PackageManagerType.NPM -> sourceManager.getNpmSourceChangeCommand(it)
+                }
+                // 在默认会话中执行命令
+                terminalManager?.sendCommandToSession("default", command)
+            }
+        }
+    }
+    
+    fun addCustomSource(pm: PackageManagerType, name: String, url: String, isHttps: Boolean) {
+        // 生成唯一ID：使用时间戳 + URL的哈希
+        val id = "custom_${pm.name.lowercase()}_${System.currentTimeMillis()}"
+        val source = MirrorSource(id, name, url, isHttps)
+        sourceManager.saveCustomSource(pm, source)
+        loadSourceConfigs()
+    }
+    
+    fun deleteCustomSource(pm: PackageManagerType, sourceId: String) {
+        sourceManager.deleteCustomSource(pm, sourceId)
+        // 如果删除的是当前选中的源，切换到第一个内置源
+        if (sourceManager.getSelectedSourceId(pm) == sourceId) {
+            val firstBuiltInSource = when (pm) {
+                PackageManagerType.APT -> "tuna_apt"
+                PackageManagerType.PIP -> "tuna_pip"
+                PackageManagerType.NPM -> "taobao_npm"
+            }
+            updateSource(pm, firstBuiltInSource)
+        }
+        loadSourceConfigs()
     }
 
     fun getCacheSize() {

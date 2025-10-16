@@ -18,13 +18,22 @@ import java.io.File
 import java.net.NetworkInterface
 import java.util.*
 
-class FtpServerManager(private val context: Context) {
+class FtpServerManager private constructor(private val context: Context) {
     
     companion object {
         private const val TAG = "FtpServerManager"
         private const val FTP_PORT = 2127
         private const val FTP_USERNAME = "ubuntu"
         private const val FTP_PASSWORD = "ubuntu123"
+        
+        @Volatile
+        private var instance: FtpServerManager? = null
+        
+        fun getInstance(context: Context): FtpServerManager {
+            return instance ?: synchronized(this) {
+                instance ?: FtpServerManager(context.applicationContext).also { instance = it }
+            }
+        }
     }
     
     private var ftpServer: FtpServer? = null

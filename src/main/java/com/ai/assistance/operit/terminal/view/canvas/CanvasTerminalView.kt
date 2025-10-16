@@ -533,10 +533,16 @@ class CanvasTerminalView @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val handled = gestureHandler.onTouchEvent(event)
         
-        // 单击时请求焦点（输入法由双击触发）
+        // 单击时请求焦点并显示输入法（全屏模式下）
         if (event.action == MotionEvent.ACTION_DOWN) {
             if (!hasFocus()) {
                 requestFocus()
+            }
+            // 全屏模式下，单击即显示输入法
+            if (isFullscreenMode && !selectionManager.hasSelection()) {
+                postDelayed({
+                    showSoftKeyboard()
+                }, 100) // 延迟100ms确保焦点已获取
             }
         }
         

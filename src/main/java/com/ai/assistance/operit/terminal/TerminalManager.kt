@@ -42,6 +42,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.withLock
+import com.ai.assistance.operit.terminal.data.PackageManagerType
+import com.ai.assistance.operit.terminal.utils.SourceManager
 
 @RequiresApi(Build.VERSION_CODES.O)
 class TerminalManager private constructor(
@@ -76,6 +78,7 @@ class TerminalManager private constructor(
             }
         }
     )
+    private val sourceManager = SourceManager(context)
 
     // 状态和事件流
     private val _commandExecutionEvents = MutableSharedFlow<CommandExecutionEvent>()
@@ -358,7 +361,6 @@ class TerminalManager private constructor(
                 val (terminalSession, pty) = startTerminalSession(sessionId)
                 val sessionWriter = terminalSession.stdin.writer()
 
-
                 // 发送初始命令来获取提示符
                 sessionWriter.write("echo 'TERMINAL_READY'\n")
                 sessionWriter.flush()
@@ -604,6 +606,11 @@ class TerminalManager private constructor(
         val prootDistroPath = "$usrDir/var/lib/proot-distro"
         val ubuntuPath = "$prootDistroPath/installed-rootfs/ubuntu"
 
+        // 获取当前选择的源
+        val aptSource = sourceManager.getSelectedSource(PackageManagerType.APT)
+        val pipSource = sourceManager.getSelectedSource(PackageManagerType.PIP)
+        val npmSource = sourceManager.getSelectedSource(PackageManagerType.NPM)
+
         val common = """
         export TMPDIR=$tmpDir
         export BIN=$binDir
@@ -634,29 +641,6 @@ class TerminalManager private constructor(
         }
         """.trimIndent()
 
-        val changeUbuntuNobleSource = """
-        change_ubuntu_source(){
-          cat <<EOF > ${'$'}UBUNTU_PATH/etc/apt/sources.list
-        # 默认注释了源码镜像以提高 apt update 速度，如有需要可自行取消注释
-        # Defaultly commented out source mirrors to speed up apt update, uncomment if needed
-        deb http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/ noble main restricted universe multiverse
-        # deb-src https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/ noble main restricted universe multiverse
-        deb http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/ noble-updates main restricted universe multiverse
-        # deb-src https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/ noble-updates main restricted universe multiverse
-        deb http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/ noble-backports main restricted universe multiverse
-        # deb-src https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/ noble-backports main restricted universe multiverse
-        # 以下安全更新软件源包含了官方源与镜像站配置，如有需要可自行修改注释切换
-        # The following security update software sources include both official and mirror configurations, modify comments to switch if needed
-        # deb http://ports.ubuntu.com/ubuntu-ports/ noble-security main restricted universe multiverse
-        # deb-src http://ports.ubuntu.com/ubuntu-ports/ noble-security main restricted universe multiverse
-        # 预发布软件源，不建议启用
-        # The following pre-release software sources are not recommended to be enabled
-        # deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/ noble-proposed main restricted universe multiverse
-        # # deb-src https://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports/ noble-proposed main restricted universe multiverse
-        EOF
-        }
-        """.trimIndent()
-
         val installUbuntu = """
         install_ubuntu(){
           mkdir -p ${'$'}UBUNTU_PATH 2>/dev/null
@@ -674,8 +658,31 @@ class TerminalManager private constructor(
             VERSION=`cat ${'$'}UBUNTU_PATH/etc/issue.net 2>/dev/null`
             progress_echo "Ubuntu ${'$'}L_INSTALLED -> ${'$'}VERSION"
           fi
-          change_ubuntu_source
           echo 'nameserver 8.8.8.8' > ${'$'}UBUNTU_PATH/etc/resolv.conf
+        }
+        """.trimIndent()
+        
+        val configureSources = """
+        configure_sources(){
+          # 配置APT源
+          cat <<'EOF' > ${'$'}UBUNTU_PATH/etc/apt/sources.list
+        # From Operit Settings - ${aptSource.name}
+        deb ${aptSource.url} noble main restricted universe multiverse
+        deb ${aptSource.url} noble-updates main restricted universe multiverse
+        deb ${aptSource.url} noble-backports main restricted universe multiverse
+        EOF
+          
+          # 配置Pip/Uv源
+          mkdir -p ${'$'}UBUNTU_PATH/root/.config/pip 2>/dev/null
+          echo '[global]' > ${'$'}UBUNTU_PATH/root/.config/pip/pip.conf
+          echo 'index-url = ${pipSource.url}' >> ${'$'}UBUNTU_PATH/root/.config/pip/pip.conf
+          
+          mkdir -p ${'$'}UBUNTU_PATH/root/.config/uv 2>/dev/null
+          echo 'index-url = "${pipSource.url}"' > ${'$'}UBUNTU_PATH/root/.config/uv/uv.toml
+          
+          # 配置NPM源
+          mkdir -p ${'$'}UBUNTU_PATH/root 2>/dev/null
+          echo 'registry=${npmSource.url}' > ${'$'}UBUNTU_PATH/root/.npmrc
         }
         """.trimIndent()
 
@@ -713,12 +720,13 @@ class TerminalManager private constructor(
 
         return """
         $common
-        $changeUbuntuNobleSource
         $installUbuntu
+        $configureSources
         $loginUbuntu
         clear_lines
         start_shell(){
           install_ubuntu
+          configure_sources
           sleep 1
           bump_progress
           login_ubuntu

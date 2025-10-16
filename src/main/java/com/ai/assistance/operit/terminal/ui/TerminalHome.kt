@@ -48,6 +48,10 @@ import com.ai.assistance.operit.terminal.data.TerminalSessionData
 import com.ai.assistance.operit.terminal.view.canvas.CanvasTerminalOutput
 import com.ai.assistance.operit.terminal.view.canvas.CanvasTerminalScreen
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.abs
@@ -112,12 +116,26 @@ fun TerminalHome(
         )
 
         if (env.isFullscreen) {
-            CanvasTerminalScreen(
-                emulator = env.terminalEmulator,
-                modifier = Modifier.fillMaxSize(),
-                pty = currentPty,
-                onInput = { env.onSendInput(it, false) }
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .imePadding() // 让整个列随软键盘上移
+            ) {
+                // 终端输出区域
+                CanvasTerminalScreen(
+                    emulator = env.terminalEmulator,
+                    modifier = Modifier.weight(1f),
+                    pty = currentPty,
+                    onInput = { env.onSendInput(it, false) }
+                )
+                
+                // 虚拟键盘 - 会随 imePadding 一起上移
+                VirtualKeyboard(
+                    onKeyPress = { key -> env.onSendInput(key, false) },
+                    fontSize = fontSize * 0.7f,
+                    padding = padding * 0.5f
+                )
+            }
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
                 // Canvas输出区域（占满剩余空间）
@@ -433,6 +451,86 @@ private fun TerminalToolbar(
                     .clickable { onNavigateToSettings() }
                     .padding(start = padding)
                     .size(padding * 2.5f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun VirtualKeyboard(
+    onKeyPress: (String) -> Unit,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    padding: androidx.compose.ui.unit.Dp
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = Color(0xFF1A1A1A),
+        shadowElevation = 4.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = padding, vertical = padding * 0.5f),
+            verticalArrangement = Arrangement.spacedBy(padding * 0.5f)
+        ) {
+            // 第一行：ESC, /, —, HOME, ↑, END, PGUP
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(padding * 0.5f)
+            ) {
+                KeyButton("ESC", "\u001b", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
+                KeyButton("/", "/", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
+                KeyButton("—", "-", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
+                KeyButton("HOME", "\u001b[H", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
+                KeyButton("↑", "\u001b[A", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
+                KeyButton("END", "\u001b[F", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
+                KeyButton("PGUP", "\u001b[5~", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
+            }
+            
+            // 第二行：Tab, CTRL, ALT, ←, ↓, →, PGDN
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(padding * 0.5f)
+            ) {
+                KeyButton("⇆", "\t", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
+                KeyButton("CTRL", "\u0003", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
+                KeyButton("ALT", "\u001b", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
+                KeyButton("←", "\u001b[D", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
+                KeyButton("↓", "\u001b[B", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
+                KeyButton("→", "\u001b[C", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
+                KeyButton("PGDN", "\u001b[6~", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun KeyButton(
+    label: String,
+    key: String,
+    fontSize: androidx.compose.ui.unit.TextUnit,
+    padding: androidx.compose.ui.unit.Dp,
+    onKeyPress: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .clickable { onKeyPress(key) },
+        color = Color(0xFF3A3A3A),
+        shape = RoundedCornerShape(4.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .padding(horizontal = padding * 0.5f, vertical = padding * 0.8f),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label,
+                color = Color.White,
+                fontFamily = FontFamily.Monospace,
+                fontSize = fontSize,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1
             )
         }
     }

@@ -2,6 +2,7 @@ plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
     id("kotlin-parcelize")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 android {
@@ -90,6 +91,9 @@ dependencies {
     implementation(libs.coroutines.core)
     implementation(libs.coroutines.android)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+    
+    // Kotlin Serialization
+    implementation(libs.kotlinx.serialization)
     
     // FTP服务器依赖
     implementation("org.apache.ftpserver:ftpserver-core:1.2.0")

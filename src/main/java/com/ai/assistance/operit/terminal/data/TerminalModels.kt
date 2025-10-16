@@ -8,6 +8,7 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.ai.assistance.operit.terminal.domain.ansi.AnsiTerminalEmulator
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.serialization.Serializable
 import java.io.OutputStreamWriter
 import java.util.UUID
 
@@ -116,4 +117,33 @@ data class TerminalState(
         get() = currentSessionId?.let { sessionId ->
             sessions.find { it.id == sessionId }
         }
-} 
+}
+
+/**
+ * 包管理器类型
+ */
+enum class PackageManagerType(val displayName: String) {
+    APT("APT"),
+    PIP("Pip/Uv"),
+    NPM("NPM")
+}
+
+/**
+ * 镜像源信息
+ */
+@Serializable
+data class MirrorSource(
+    val id: String,
+    val name: String,
+    val url: String,
+    val isHttps: Boolean = false
+)
+
+/**
+ * 源配置
+ */
+data class SourceConfig(
+    val packageManager: PackageManagerType,
+    val selectedSourceId: String,
+    val sources: List<MirrorSource>
+) 

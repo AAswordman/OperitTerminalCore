@@ -12,6 +12,12 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GetApp
+import androidx.compose.material.icons.filled.Source
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,6 +28,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ai.assistance.operit.terminal.data.PackageManagerType
+import com.ai.assistance.operit.terminal.data.SourceConfig
 
 // 三色系主题配置
 object SettingsTheme {
@@ -60,6 +68,10 @@ fun SettingsScreen(
     // 更新相关状态
     val hasUpdateAvailable by viewModel.hasUpdateAvailable.collectAsState()
     
+    // 源管理相关状态
+    val sourceConfigs by viewModel.sourceConfigs.collectAsState()
+    var showSourceDialogFor by remember { mutableStateOf<PackageManagerType?>(null) }
+    
     var showClearCacheDialog by remember { mutableStateOf(false) }
 
     Scaffold(
@@ -73,7 +85,8 @@ fun SettingsScreen(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = SettingsTheme.surfaceColor
-                )
+                ),
+                windowInsets = WindowInsets(0, 0, 0, 0)
             )
         },
         containerColor = SettingsTheme.backgroundColor
@@ -82,6 +95,7 @@ fun SettingsScreen(
             modifier = Modifier
                 .padding(paddingValues)
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
         ) {
             // FTP服务器管理区域
             Card(
@@ -302,6 +316,34 @@ fun SettingsScreen(
                     }
                 }
             }
+            
+            // 源管理区域
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = SettingsTheme.surfaceColor)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "软件源管理",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = SettingsTheme.onSurfaceColor
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    sourceConfigs.forEach { (pm, config) ->
+                        SettingsItem(
+                            title = pm.displayName,
+                            subtitle = "当前源: ${config.sources.find { it.id == config.selectedSourceId }?.name ?: "N/A"}",
+                            onClick = { showSourceDialogFor = pm },
+                            icon = Icons.Default.Source
+                        )
+                        HorizontalDivider(color = SettingsTheme.backgroundColor)
+                    }
+                }
+            }
             HorizontalDivider(color = SettingsTheme.surfaceColor)
         }
     }
@@ -361,6 +403,28 @@ fun SettingsScreen(
             containerColor = SettingsTheme.surfaceColor
         )
     }
+    
+    // 源选择弹窗
+    showSourceDialogFor?.let { pm ->
+        val config = sourceConfigs[pm]
+        if (config != null) {
+            SourceSelectionDialog(
+                packageManager = pm,
+                config = config,
+                onDismiss = { showSourceDialogFor = null },
+                onSourceSelected = { sourceId ->
+                    viewModel.updateSource(pm, sourceId)
+                    showSourceDialogFor = null
+                },
+                onAddCustomSource = { name, url, isHttps ->
+                    viewModel.addCustomSource(pm, name, url, isHttps)
+                },
+                onDeleteCustomSource = { sourceId ->
+                    viewModel.deleteCustomSource(pm, sourceId)
+                }
+            )
+        }
+    }
 }
 
 @Composable
@@ -388,4 +452,168 @@ private fun SettingsItem(
             tint = SettingsTheme.primaryColor
         )
     }
+}
+
+@Composable
+private fun SourceSelectionDialog(
+    packageManager: PackageManagerType,
+    config: SourceConfig,
+    onDismiss: () -> Unit,
+    onSourceSelected: (String) -> Unit,
+    onAddCustomSource: (name: String, url: String, isHttps: Boolean) -> Unit,
+    onDeleteCustomSource: (String) -> Unit
+) {
+    var selectedId by remember { mutableStateOf(config.selectedSourceId) }
+    var showAddCustomDialog by remember { mutableStateOf(false) }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("选择 ${packageManager.displayName} 源", color = SettingsTheme.onSurfaceColor)
+                IconButton(onClick = { showAddCustomDialog = true }) {
+                    Icon(Icons.Default.Add, "添加自定义源", tint = SettingsTheme.primaryColor)
+                }
+            }
+        },
+        text = {
+            LazyColumn {
+                items(config.sources) { source ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedId = source.id }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = selectedId == source.id,
+                            onClick = { selectedId = source.id },
+                            colors = RadioButtonDefaults.colors(selectedColor = SettingsTheme.primaryColor)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(source.name, color = SettingsTheme.onSurfaceColor)
+                            Text(
+                                source.url, 
+                                color = SettingsTheme.onSurfaceVariant,
+                                fontSize = 12.sp,
+                                maxLines = 1
+                            )
+                        }
+                        // 只有自定义源才显示删除按钮
+                        if (source.id.startsWith("custom_")) {
+                            IconButton(onClick = { onDeleteCustomSource(source.id) }) {
+                                Icon(Icons.Default.Delete, "删除", tint = SettingsTheme.errorColor)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSourceSelected(selectedId) },
+                colors = ButtonDefaults.buttonColors(containerColor = SettingsTheme.primaryColor)
+            ) {
+                Text("确认")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+        containerColor = SettingsTheme.surfaceColor
+    )
+    
+    // 添加自定义源弹窗
+    if (showAddCustomDialog) {
+        AddCustomSourceDialog(
+            packageManager = packageManager,
+            onDismiss = { showAddCustomDialog = false },
+            onConfirm = { name, url, isHttps ->
+                onAddCustomSource(name, url, isHttps)
+                showAddCustomDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+private fun AddCustomSourceDialog(
+    packageManager: PackageManagerType,
+    onDismiss: () -> Unit,
+    onConfirm: (name: String, url: String, isHttps: Boolean) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var url by remember { mutableStateOf("") }
+    var isHttps by remember { mutableStateOf(true) }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("添加自定义 ${packageManager.displayName} 源", color = SettingsTheme.onSurfaceColor) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("源名称") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = SettingsTheme.primaryColor,
+                        focusedLabelColor = SettingsTheme.primaryColor
+                    )
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    label = { Text("源地址") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = SettingsTheme.primaryColor,
+                        focusedLabelColor = SettingsTheme.primaryColor
+                    )
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = isHttps,
+                        onCheckedChange = { isHttps = it },
+                        colors = CheckboxDefaults.colors(checkedColor = SettingsTheme.primaryColor)
+                    )
+                    Text("HTTPS", color = SettingsTheme.onSurfaceColor)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { 
+                    if (name.isNotBlank() && url.isNotBlank()) {
+                        onConfirm(name, url, isHttps)
+                    }
+                },
+                enabled = name.isNotBlank() && url.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = SettingsTheme.primaryColor)
+            ) {
+                Text("添加")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        },
+        containerColor = SettingsTheme.surfaceColor
+    )
 } 
