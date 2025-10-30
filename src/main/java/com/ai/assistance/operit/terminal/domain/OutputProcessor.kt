@@ -234,6 +234,7 @@ class OutputProcessor(
         sessionManager: SessionManager
     ) {
         val cleanLine = AnsiUtils.stripAnsi(line)
+        Log.d(TAG, "handleAwaitingFirstPromptState: checking line: '$cleanLine'")
         if (handlePrompt(sessionId, cleanLine, sessionManager)) {
             Log.d(TAG, "First prompt detected. Session is now ready.")
             sessionManager.updateSession(sessionId) { session ->
@@ -242,6 +243,8 @@ class OutputProcessor(
             
             // 发送欢迎语到 Canvas
             sendWelcomeMessage(sessionId, sessionManager)
+        } else {
+            Log.d(TAG, "Not a prompt, continuing to wait...")
         }
     }
 

@@ -1,9 +1,7 @@
 package com.ai.assistance.operit.terminal
 
 import android.content.Context
-import android.os.Build
 import android.util.Log
-import androidx.annotation.RequiresApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -43,9 +41,16 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.withLock
 import com.ai.assistance.operit.terminal.data.PackageManagerType
+import com.ai.assistance.operit.terminal.data.SessionInitState
 import com.ai.assistance.operit.terminal.utils.SourceManager
+import com.ai.assistance.operit.terminal.utils.SSHConfigManager
+import com.ai.assistance.operit.terminal.filesystem.FileSystemProvider
+import com.ai.assistance.operit.terminal.filesystem.LocalFileSystemProvider
+import com.ai.assistance.operit.terminal.provider.TerminalProvider
+import com.ai.assistance.operit.terminal.provider.TerminalType
+import com.ai.assistance.operit.terminal.provider.LocalTerminalProvider
+import com.ai.assistance.operit.terminal.provider.SSHTerminalProvider
 
-@RequiresApi(Build.VERSION_CODES.O)
 class TerminalManager private constructor(
     private val context: Context
 ) {
@@ -79,6 +84,8 @@ class TerminalManager private constructor(
         }
     )
     private val sourceManager = SourceManager(context)
+    private val sshConfigManager = SSHConfigManager(context)
+    private val terminalProviders = ConcurrentHashMap<String, TerminalProvider>()
 
     // 状态和事件流
     private val _commandExecutionEvents = MutableSharedFlow<CommandExecutionEvent>()
@@ -120,7 +127,15 @@ class TerminalManager private constructor(
         coroutineScope.launch {
             try {
                 Log.d(TAG, "Creating default session...")
-                createNewSession("default")
+                // 自动检测：如果有SSH配置则创建SSH会话，否则创建本地会话
+                val sshConfig = sshConfigManager.getConfig()
+                if (sshConfig != null) {
+                    Log.d(TAG, "Found SSH config, creating SSH session")
+                    createNewSession("SSH")
+                } else {
+                    Log.d(TAG, "No SSH config, creating local session")
+                    createNewSession("Local")
+                }
                 Log.d(TAG, "Default session created successfully")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to create default session", e)
@@ -130,9 +145,21 @@ class TerminalManager private constructor(
 
     /**
      * 创建新会话 - 同步等待初始化完成
+     * 自动检测终端类型：如果配置了SSH则使用SSH，否则使用本地终端
+     * 
+     * @param title 会话标题
      */
-    suspend fun createNewSession(title: String? = null): com.ai.assistance.operit.terminal.data.TerminalSessionData {
-        val newSession = sessionManager.createNewSession(title)
+    suspend fun createNewSession(
+        title: String? = null
+    ): com.ai.assistance.operit.terminal.data.TerminalSessionData {
+        // 自动检测终端类型
+        val terminalType = if (sshConfigManager.getConfig() != null) {
+            TerminalType.SSH
+        } else {
+            TerminalType.LOCAL
+        }
+        
+        val newSession = sessionManager.createNewSession(title, terminalType)
 
         // 异步初始化会话
         val initJob = coroutineScope.launch {
@@ -172,7 +199,6 @@ class TerminalManager private constructor(
         sessionManager.closeSession(sessionId)
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     private fun createBusyboxSymlinks() {
         val links = listOf(
             "awk", "ash", "basename", "bzip2", "curl", "cp", "chmod", "cut", "cat", "du", "dd",
@@ -347,10 +373,27 @@ class TerminalManager private constructor(
 
     private fun initializeSession(sessionId: String) {
         coroutineScope.launch {
-            val success = initializeEnvironment()
-            if (success) {
-                startSession(sessionId)
+            // 自动检测终端类型
+            val terminalType = if (sshConfigManager.getConfig() != null) {
+                TerminalType.SSH
             } else {
+                TerminalType.LOCAL
+            }
+            
+            when (terminalType) {
+                TerminalType.LOCAL -> {
+                    val success = initializeEnvironment()
+                    if (success) {
+                        startSession(sessionId)
+                    }
+                }
+                TerminalType.SSH -> {
+                    // SSH不需要初始化本地环境
+                    startSession(sessionId)
+                }
+                else -> {
+                    Log.e(TAG, "Unsupported terminal type: $terminalType")
+                }
             }
         }
     }
@@ -358,12 +401,39 @@ class TerminalManager private constructor(
     private fun startSession(sessionId: String) {
         coroutineScope.launch(Dispatchers.IO) {
             try {
-                val (terminalSession, pty) = startTerminalSession(sessionId)
+                // 自动检测终端类型：检查 SSH 配置是否存在且已启用
+                val terminalType = if (sshConfigManager.getConfig() != null && sshConfigManager.isEnabled()) {
+                    TerminalType.SSH
+                } else {
+                    TerminalType.LOCAL
+                }
+                
+                Log.d(TAG, "Starting session with terminal type: $terminalType")
+                
+                // 创建并连接终端提供者
+                val provider = createTerminalProvider()
+                provider.connect().getOrThrow()
+                
+                // 存储provider以便后续使用
+                terminalProviders[sessionId] = provider
+                
+                // 启动终端会话
+                val result = provider.startSession(sessionId)
+                val (terminalSession, pty) = result.getOrThrow()
                 val sessionWriter = terminalSession.stdin.writer()
 
-                // 发送初始命令来获取提示符
-                sessionWriter.write("echo 'TERMINAL_READY'\n")
-                sessionWriter.flush()
+                // 根据终端类型设置初始化状态
+                if (terminalType == TerminalType.SSH) {
+                    // SSH 会话直接进入等待提示符状态
+                    Log.d(TAG, "SSH session, setting state to AWAITING_FIRST_PROMPT")
+                    sessionManager.updateSession(sessionId) { session ->
+                        session.copy(initState = SessionInitState.AWAITING_FIRST_PROMPT)
+                    }
+                } else {
+                    // 本地终端发送初始命令
+                    sessionWriter.write("echo 'TERMINAL_READY'\n")
+                    sessionWriter.flush()
+                }
 
                 // 启动读取协程
                 val readJob = launch {
@@ -395,11 +465,26 @@ class TerminalManager private constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error starting session", e)
+                // 清理失败的provider
+                terminalProviders.remove(sessionId)
             }
         }
     }
+    
+    /**
+     * 创建终端提供者 - 自动检测使用本地还是SSH
+     */
+    private suspend fun createTerminalProvider(): TerminalProvider {
+        val sshConfig = sshConfigManager.getConfig()
+        return if (sshConfig != null && sshConfigManager.isEnabled()) {
+            Log.d(TAG, "Creating SSH terminal provider")
+            SSHTerminalProvider(sshConfig, this)
+        } else {
+            Log.d(TAG, "Creating local terminal provider")
+            LocalTerminalProvider(context)
+        }
+    }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     suspend fun initializeEnvironment(): Boolean {
         if (isEnvInitialized) return true
 
@@ -455,7 +540,6 @@ class TerminalManager private constructor(
         File(filesDir, "tmp").mkdirs()
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     private fun linkNativeLibs() {
         Log.d(TAG, "Linking native libraries from: $nativeLibDir")
 
@@ -555,7 +639,6 @@ class TerminalManager private constructor(
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.O)
     @Throws(IOException::class)
     private fun createSymbolicLink(target: File, linkName: String, linkDir: File, force: Boolean) {
         val linkFile = File(linkDir, linkName)
@@ -808,5 +891,22 @@ class TerminalManager private constructor(
         sessionManager.cleanup()
         coroutineScope.cancel()
         Log.d(TAG, "All active sessions cleaned up.")
+    }
+
+    /**
+     * 获取当前会话的文件系统提供者
+     * 
+     * 根据当前会话类型返回对应的提供者（本地或SSH）
+     */
+    fun getFileSystemProvider(): FileSystemProvider {
+        val currentSession = sessionManager.getCurrentSession()
+        val sessionId = currentSession?.id
+        
+        return if (sessionId != null && terminalProviders.containsKey(sessionId)) {
+            terminalProviders[sessionId]!!.getFileSystemProvider()
+        } else {
+            // 默认返回本地文件系统提供者
+            LocalFileSystemProvider(context)
+        }
     }
 }

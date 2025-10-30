@@ -9,13 +9,21 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 
-class Pty(
+open class Pty(
     val process: Process,
-    val masterFd: FileDescriptor,
-    private val ptyMaster: Int
+    val masterFd: FileDescriptor?,
+    private val ptyMaster: Int,
+    val stdout: InputStream,
+    val stdin: OutputStream
 ) {
-    val stdout: InputStream = FileInputStream(masterFd)
-    val stdin: OutputStream = FileOutputStream(masterFd)
+    // 为本地终端提供的便利构造函数
+    constructor(process: Process, masterFd: FileDescriptor, ptyMaster: Int) : this(
+        process = process,
+        masterFd = masterFd,
+        ptyMaster = ptyMaster,
+        stdout = FileInputStream(masterFd),
+        stdin = FileOutputStream(masterFd)
+    )
 
     fun waitFor(): Int {
         return process.waitFor()
@@ -118,7 +126,18 @@ class Pty(
     /**
      * 获取 PTY 模式信息
      */
-    fun getPtyMode(): PtyMode {
+    open fun getPtyMode(): PtyMode {
+        if (ptyMaster <= 0) {
+            // SSH 等远程终端返回默认模式
+            return PtyMode(
+                isCanonicalMode = true,
+                isEchoEnabled = true,
+                isSignalEnabled = true,
+                isExtendedEnabled = true,
+                availableBytes = 0
+            )
+        }
+        
         val flags = Companion.getTerminalFlags(ptyMaster)
         val availableBytes = Companion.getAvailableBytes(ptyMaster)
         
@@ -137,7 +156,12 @@ class Pty(
      * @param cols 列数
      * @return true 表示成功，false 表示失败
      */
-    fun setWindowSize(rows: Int, cols: Int): Boolean {
+    open fun setWindowSize(rows: Int, cols: Int): Boolean {
+        if (ptyMaster <= 0) {
+            // SSH 等远程终端由子类实现
+            return false
+        }
+        
         val result = setPtyWindowSize(ptyMaster, rows, cols)
         if (result == 0) {
             Log.d("Pty", "PTY window size updated to ${rows}x${cols}")
