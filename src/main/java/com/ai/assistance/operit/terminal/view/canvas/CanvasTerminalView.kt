@@ -85,10 +85,8 @@ class CanvasTerminalView @JvmOverloads constructor(
             updateFontSize()
         }
     
-    // 滚动偏移 (使用volatile确保可见性)
-    @Volatile
+    // 滚动偏移
     private var scrollOffsetY = 0f
-    private val scrollLock = Any()
     
     // 输入回调
     private var inputCallback: ((String) -> Unit)? = null
@@ -127,27 +125,8 @@ class CanvasTerminalView @JvmOverloads constructor(
             },
             onScroll = { _, distanceY ->
                 if (!selectionManager.hasSelection()) {
-                    synchronized(scrollLock) {
-                        scrollOffsetY += distanceY
-                        
-                        // 限制滚动范围
-                        val buffer = if (isFullscreenMode) {
-                            emulator?.getScreenContent()
-                        } else {
-                            emulator?.getFullContent()
-                        }
-                        
-                        buffer?.let {
-                            val totalHeight = it.size * textMetrics.charHeight
-                            val visibleHeight = height.toFloat()
-                            val maxScroll = (totalHeight - visibleHeight).coerceAtLeast(0f)
-                            
-                            scrollOffsetY = scrollOffsetY.coerceIn(0f, maxScroll)
-                        } ?: run {
-                            scrollOffsetY = scrollOffsetY.coerceAtLeast(0f)
-                        }
-                    }
-                    
+                    scrollOffsetY += distanceY
+                    scrollOffsetY = scrollOffsetY.coerceAtLeast(0f)
                     requestRender()
                 }
             },
@@ -183,12 +162,6 @@ class CanvasTerminalView @JvmOverloads constructor(
         // 添加新的监听器
         emulatorChangeListener = {
             isDirty = true
-            // 非全屏模式下，内容变化时自动滚动到底部
-            if (!isFullscreenMode) {
-                post {
-                    scrollToBottom()
-                }
-            }
             requestRender()
         }
         emulator.addChangeListener(emulatorChangeListener!!)
@@ -221,34 +194,6 @@ class CanvasTerminalView @JvmOverloads constructor(
         // 非全屏模式下禁用焦点和输入法
         isFocusable = isFullscreen
         isFocusableInTouchMode = isFullscreen
-        
-        // 非全屏模式下，滚动到底部显示最新内容
-        if (!isFullscreen) {
-            post {
-                scrollToBottom()
-            }
-        }
-    }
-    
-    /**
-     * 滚动到底部（显示最新内容）
-     */
-    private fun scrollToBottom() {
-        val buffer = emulator?.getFullContent() ?: return
-        val charHeight = textMetrics.charHeight
-        
-        // 计算总高度和可见高度
-        val totalHeight = buffer.size * charHeight
-        val visibleHeight = height.toFloat()
-        
-        // 如果总高度大于可见高度，滚动到底部
-        if (totalHeight > visibleHeight) {
-            scrollOffsetY = totalHeight - visibleHeight
-        } else {
-            scrollOffsetY = 0f
-        }
-        
-        requestRender()
     }
     
     /**
@@ -274,27 +219,8 @@ class CanvasTerminalView @JvmOverloads constructor(
             },
             onScroll = { _, distanceY ->
                 if (!selectionManager.hasSelection()) {
-                    synchronized(scrollLock) {
-                        scrollOffsetY += distanceY
-                        
-                        // 限制滚动范围
-                        val buffer = if (isFullscreenMode) {
-                            emulator?.getScreenContent()
-                        } else {
-                            emulator?.getFullContent()
-                        }
-                        
-                        buffer?.let {
-                            val totalHeight = it.size * textMetrics.charHeight
-                            val visibleHeight = height.toFloat()
-                            val maxScroll = (totalHeight - visibleHeight).coerceAtLeast(0f)
-                            
-                            scrollOffsetY = scrollOffsetY.coerceIn(0f, maxScroll)
-                        } ?: run {
-                            scrollOffsetY = scrollOffsetY.coerceAtLeast(0f)
-                        }
-                    }
-                    
+                    scrollOffsetY += distanceY
+                    scrollOffsetY = scrollOffsetY.coerceAtLeast(0f)
                     requestRender()
                 }
             },
@@ -440,13 +366,7 @@ class CanvasTerminalView @JvmOverloads constructor(
     // === 核心渲染方法 ===
     
     private fun drawTerminal(canvas: Canvas) {
-        // 在非全屏模式下，使用完整内容（包含历史记录）
-        // 在全屏模式下，只使用当前屏幕内容
-        val buffer = if (isFullscreenMode) {
-            emulator?.getScreenContent() ?: return
-        } else {
-            emulator?.getFullContent() ?: return
-        }
+        val buffer = emulator?.getScreenContent() ?: return
         
         // 清空背景
         canvas.drawColor(config.backgroundColor)
@@ -455,12 +375,9 @@ class CanvasTerminalView @JvmOverloads constructor(
         val charHeight = textMetrics.charHeight
         val baseline = textMetrics.charBaseline
         
-        // 获取当前滚动偏移（同步）
-        val currentScrollOffset = synchronized(scrollLock) { scrollOffsetY }
-        
         // 计算可见区域
-        val visibleRows = (canvas.height / charHeight).toInt() + 2 // 多绘制一行防止边缘空白
-        val startRow = (currentScrollOffset / charHeight).toInt()
+        val visibleRows = (canvas.height / charHeight).toInt() + 1
+        val startRow = (scrollOffsetY / charHeight).toInt()
         val endRow = min(startRow + visibleRows, buffer.size)
         
         // 绘制每一行
@@ -468,8 +385,7 @@ class CanvasTerminalView @JvmOverloads constructor(
             if (row >= buffer.size) break
             
             val line = buffer[row]
-            // 使用绝对位置 - 滚动偏移，避免抖动
-            val y = row * charHeight - currentScrollOffset
+            val y = (row - startRow) * charHeight - (scrollOffsetY % charHeight)
             
             // 绘制该行的所有字符
             drawLine(canvas, line, row, 0f, y, charWidth, charHeight, baseline)
@@ -480,8 +396,8 @@ class CanvasTerminalView @JvmOverloads constructor(
             drawSelection(canvas, charWidth, charHeight)
         }
         
-        // 绘制光标（只在全屏模式下显示）
-        if (isFullscreenMode && emulator?.isCursorVisible() == true) {
+        // 绘制光标
+        if (emulator?.isCursorVisible() == true) {
             drawCursor(canvas, charWidth, charHeight)
         }
     }
@@ -585,14 +501,8 @@ class CanvasTerminalView @JvmOverloads constructor(
         val cursorX = emulator?.getCursorX() ?: 0
         val cursorY = emulator?.getCursorY() ?: 0
         
-        // 在非全屏模式下，光标位置需要加上历史缓冲区的行数
-        val scrollbackLines = if (isFullscreenMode) 0 else (emulator?.getScrollbackLineCount() ?: 0)
-        val actualCursorY = cursorY + scrollbackLines
-        
-        val currentScrollOffset = synchronized(scrollLock) { scrollOffsetY }
-        
         val x = cursorX * charWidth
-        val y = actualCursorY * charHeight - currentScrollOffset
+        val y = cursorY * charHeight - scrollOffsetY
         
         // 绘制光标方块
         canvas.drawRect(x, y, x + charWidth, y + charHeight, cursorPaint)
@@ -601,10 +511,8 @@ class CanvasTerminalView @JvmOverloads constructor(
     private fun drawSelection(canvas: Canvas, charWidth: Float, charHeight: Float) {
         val selection = selectionManager.selection?.normalize() ?: return
         
-        val currentScrollOffset = synchronized(scrollLock) { scrollOffsetY }
-        
         for (row in selection.startRow..selection.endRow) {
-            val y = row * charHeight - currentScrollOffset
+            val y = row * charHeight - scrollOffsetY
             
             val startCol = if (row == selection.startRow) selection.startCol else 0
             val endCol = if (row == selection.endRow) {
@@ -656,8 +564,7 @@ class CanvasTerminalView @JvmOverloads constructor(
      * 屏幕坐标转换为终端坐标
      */
     private fun screenToTerminalCoords(x: Float, y: Float): Pair<Int, Int> {
-        val currentScrollOffset = synchronized(scrollLock) { scrollOffsetY }
-        val row = ((y + currentScrollOffset) / textMetrics.charHeight).toInt()
+        val row = ((y + scrollOffsetY) / textMetrics.charHeight).toInt()
         val col = (x / textMetrics.charWidth).toInt()
         return Pair(row, col)
     }
