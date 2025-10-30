@@ -21,6 +21,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ai.assistance.operit.terminal.TerminalManager
+import com.ai.assistance.operit.terminal.data.PackageManagerType
+import com.ai.assistance.operit.terminal.utils.SourceManager
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -61,6 +63,7 @@ fun SetupScreen(
     onSetup: (List<String>) -> Unit
 ) {
     val context = LocalContext.current
+    val sourceManager = remember { SourceManager(context) }
     
     val packageCategories by remember {
         derivedStateOf {
@@ -98,7 +101,7 @@ fun SetupScreen(
                     name = context.getString(com.ai.assistance.operit.terminal.R.string.category_rust_name),
                     description = context.getString(com.ai.assistance.operit.terminal.R.string.category_rust_desc),
                     packages = listOf(
-                        PackageItem("rust", context.getString(com.ai.assistance.operit.terminal.R.string.package_rust_name), "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y", context.getString(com.ai.assistance.operit.terminal.R.string.package_rust_desc))
+                        PackageItem("rust", context.getString(com.ai.assistance.operit.terminal.R.string.package_rust_name), "RUST_INSTALL_COMMAND", context.getString(com.ai.assistance.operit.terminal.R.string.package_rust_desc))
                     )
                 ),
                 PackageCategory(
@@ -308,7 +311,13 @@ fun SetupScreen(
                         category.packages.forEach { pkg ->
                             if (selectedPackages[pkg.id] == true && packageStatus[pkg.id] != InstallStatus.INSTALLED) {
                                 // 根据分类和包ID判断包管理器
-                                if (pkg.id == "rust" || pkg.id == "uv" || pkg.id == "nodejs") {
+                                if (pkg.id == "rust") {
+                                    // 获取当前选择的Rust镜像源
+                                    val rustSource = sourceManager.getSelectedSource(PackageManagerType.RUST)
+                                    val rustEnvCommand = sourceManager.getRustSourceEnvCommand(rustSource)
+                                    // 添加环境变量设置和安装命令
+                                    selectedCustomCommands.add("$rustEnvCommand && curl -v --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y")
+                                } else if (pkg.id == "uv" || pkg.id == "nodejs") {
                                     selectedCustomCommands.add(pkg.command)
                                 } else if (category.id == "nodejs" && pkg.id != "nodejs") {
                                     selectedNpmPackages.add(pkg.command)

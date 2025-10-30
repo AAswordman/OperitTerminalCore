@@ -610,6 +610,7 @@ class TerminalManager private constructor(
         val aptSource = sourceManager.getSelectedSource(PackageManagerType.APT)
         val pipSource = sourceManager.getSelectedSource(PackageManagerType.PIP)
         val npmSource = sourceManager.getSelectedSource(PackageManagerType.NPM)
+        val rustSource = sourceManager.getSelectedSource(PackageManagerType.RUST)
 
         val common = """
         export TMPDIR=$tmpDir

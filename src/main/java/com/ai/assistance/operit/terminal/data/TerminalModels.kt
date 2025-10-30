@@ -125,7 +125,8 @@ data class TerminalState(
 enum class PackageManagerType(val displayName: String) {
     APT("APT"),
     PIP("Pip/Uv"),
-    NPM("NPM")
+    NPM("NPM"),
+    RUST("Rust/Cargo")
 }
 
 /**

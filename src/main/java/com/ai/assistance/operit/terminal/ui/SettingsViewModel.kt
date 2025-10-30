@@ -81,6 +81,11 @@ class SettingsViewModel(
                 PackageManagerType.NPM,
                 sourceManager.getSelectedSourceId(PackageManagerType.NPM),
                 sourceManager.npmSources
+            ),
+            PackageManagerType.RUST to SourceConfig(
+                PackageManagerType.RUST,
+                sourceManager.getSelectedSourceId(PackageManagerType.RUST),
+                sourceManager.rustSources
             )
         )
     }
@@ -98,12 +103,17 @@ class SettingsViewModel(
                 PackageManagerType.APT -> sourceManager.aptSources.find { it.id == sourceId }
                 PackageManagerType.PIP -> sourceManager.pipSources.find { it.id == sourceId }
                 PackageManagerType.NPM -> sourceManager.npmSources.find { it.id == sourceId }
+                PackageManagerType.RUST -> sourceManager.rustSources.find { it.id == sourceId }
             }
             source?.let {
                 val command = when (pm) {
                     PackageManagerType.APT -> sourceManager.getAptSourceChangeCommand(it)
                     PackageManagerType.PIP -> sourceManager.getPipSourceChangeCommand(it)
                     PackageManagerType.NPM -> sourceManager.getNpmSourceChangeCommand(it)
+                    PackageManagerType.RUST -> {
+                        // Rust源的更改需要通过环境变量，这里只是提示用户
+                        "echo 'Rust镜像源已更新为: ${it.name}. 下次安装Rust时将使用此源。'"
+                    }
                 }
                 // 在默认会话中执行命令
                 terminalManager?.sendCommandToSession("default", command)
@@ -127,6 +137,7 @@ class SettingsViewModel(
                 PackageManagerType.APT -> "tuna_apt"
                 PackageManagerType.PIP -> "tuna_pip"
                 PackageManagerType.NPM -> "taobao_npm"
+                PackageManagerType.RUST -> "ustc_rust"
             }
             updateSource(pm, firstBuiltInSource)
         }

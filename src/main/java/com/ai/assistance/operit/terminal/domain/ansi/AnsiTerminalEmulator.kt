@@ -49,7 +49,8 @@ data class TerminalChar(
  */
 class AnsiTerminalEmulator(
     private var screenWidth: Int = 80,
-    private var screenHeight: Int = 24
+    private var screenHeight: Int = 24,
+    private val maxScrollbackLines: Int = 10000  // 最多保存 10000 行历史
 ) {
     companion object {
         private const val TAG = "AnsiTerminalEmulator"
@@ -59,6 +60,9 @@ class AnsiTerminalEmulator(
     // 屏幕缓冲区
     private var screenBuffer: Array<Array<TerminalChar>> = 
         Array(screenHeight) { Array(screenWidth) { TerminalChar() } }
+    
+    // 历史滚动缓冲区（保存滚出屏幕的行）
+    private val scrollbackBuffer = ArrayDeque<Array<TerminalChar>>()
     
     // 备用屏幕缓冲区（用于全屏应用如 vim）
     private var altScreenBuffer: Array<Array<TerminalChar>>? = null
@@ -472,6 +476,18 @@ class AnsiTerminalEmulator(
     
     private fun scrollUp(lines: Int = 1) {
         for (i in 0 until lines) {
+            // 如果滚动的是整个屏幕（不是局部滚动区域），则保存到历史缓冲区
+            if (scrollTop == 0 && scrollBottom == screenHeight - 1) {
+                // 将第一行保存到历史缓冲区
+                scrollbackBuffer.addLast(screenBuffer[scrollTop].copyOf())
+                
+                // 如果历史缓冲区超过最大限制，删除最旧的行
+                if (scrollbackBuffer.size > maxScrollbackLines) {
+                    scrollbackBuffer.removeFirst()
+                }
+            }
+            
+            // 向上滚动屏幕内容
             for (y in scrollTop until scrollBottom) {
                 screenBuffer[y] = screenBuffer[y + 1]
             }
@@ -513,7 +529,8 @@ class AnsiTerminalEmulator(
     
     private fun clearScreenAndScrollback() {
         clearScreen()
-        // 在实际实现中，这里还应该清除滚动回溯缓冲区
+        // 清除历史滚动缓冲区
+        scrollbackBuffer.clear()
     }
     
     private fun eraseFromCursorToEnd() {
@@ -649,6 +666,39 @@ class AnsiTerminalEmulator(
     fun isCursorVisible(): Boolean = cursorVisible
     
     fun getScreenContent(): Array<Array<TerminalChar>> = screenBuffer
+    
+    /**
+     * 获取历史滚动缓冲区的行数
+     */
+    fun getScrollbackLineCount(): Int = scrollbackBuffer.size
+    
+    /**
+     * 获取完整内容（包括历史记录和当前屏幕）
+     * 返回的数组包含：历史缓冲区的所有行 + 当前屏幕的所有行
+     */
+    fun getFullContent(): Array<Array<TerminalChar>> {
+        val totalLines = scrollbackBuffer.size + screenBuffer.size
+        val fullContent = Array(totalLines) { Array(screenWidth) { TerminalChar() } }
+        
+        // 复制历史缓冲区
+        scrollbackBuffer.forEachIndexed { index, line ->
+            // 如果历史行的宽度与当前屏幕宽度不同，需要调整
+            if (line.size == screenWidth) {
+                fullContent[index] = line.copyOf()
+            } else {
+                // 如果宽度不匹配，截断或填充
+                val minWidth = minOf(line.size, screenWidth)
+                System.arraycopy(line, 0, fullContent[index], 0, minWidth)
+            }
+        }
+        
+        // 复制当前屏幕内容
+        screenBuffer.forEachIndexed { index, line ->
+            fullContent[scrollbackBuffer.size + index] = line.copyOf()
+        }
+        
+        return fullContent
+    }
     
     fun resize(newWidth: Int, newHeight: Int) {
         val oldBuffer = screenBuffer

@@ -35,6 +35,14 @@ class SourceManager(context: Context) {
         MirrorSource("huawei_npm", "华为源", "https://repo.huaweicloud.com/repository/npm/", true),
         MirrorSource("official_npm", "官方源", "https://registry.npmjs.org/", true)
     )
+    
+    private val builtInRustSources = listOf(
+        MirrorSource("ustc_rust", "中科大源", "https://mirrors.ustc.edu.cn/rust-static", true),
+        MirrorSource("tuna_rust", "清华源", "https://mirrors.tuna.tsinghua.edu.cn/rustup", true),
+        MirrorSource("bfsu_rust", "北外源", "https://mirrors.bfsu.edu.cn/rustup", true),
+        MirrorSource("sjtu_rust", "上海交大源", "https://mirrors.sjtug.sjtu.edu.cn/rust-static", true),
+        MirrorSource("official_rust", "官方源", "https://static.rust-lang.org", true)
+    )
 
     // 获取自定义源
     private fun getCustomSources(pm: PackageManagerType): List<MirrorSource> {
@@ -42,6 +50,7 @@ class SourceManager(context: Context) {
             PackageManagerType.APT -> "custom_apt_sources"
             PackageManagerType.PIP -> "custom_pip_sources"
             PackageManagerType.NPM -> "custom_npm_sources"
+            PackageManagerType.RUST -> "custom_rust_sources"
         }
         val jsonString = prefs.getString(key, null) ?: return emptyList()
         return try {
@@ -66,6 +75,7 @@ class SourceManager(context: Context) {
             PackageManagerType.APT -> "custom_apt_sources"
             PackageManagerType.PIP -> "custom_pip_sources"
             PackageManagerType.NPM -> "custom_npm_sources"
+            PackageManagerType.RUST -> "custom_rust_sources"
         }
         prefs.edit().putString(key, json.encodeToString(customSources)).apply()
     }
@@ -79,6 +89,7 @@ class SourceManager(context: Context) {
             PackageManagerType.APT -> "custom_apt_sources"
             PackageManagerType.PIP -> "custom_pip_sources"
             PackageManagerType.NPM -> "custom_npm_sources"
+            PackageManagerType.RUST -> "custom_rust_sources"
         }
         prefs.edit().putString(key, json.encodeToString(customSources)).apply()
     }
@@ -92,6 +103,9 @@ class SourceManager(context: Context) {
     
     val npmSources: List<MirrorSource>
         get() = builtInNpmSources + getCustomSources(PackageManagerType.NPM)
+    
+    val rustSources: List<MirrorSource>
+        get() = builtInRustSources + getCustomSources(PackageManagerType.RUST)
 
     // 获取当前为特定包管理器选择的源ID
     fun getSelectedSourceId(pm: PackageManagerType): String {
@@ -99,6 +113,7 @@ class SourceManager(context: Context) {
             PackageManagerType.APT -> prefs.getString("selected_apt_source", "tuna_apt") ?: "tuna_apt"
             PackageManagerType.PIP -> prefs.getString("selected_pip_source", "tuna_pip") ?: "tuna_pip"
             PackageManagerType.NPM -> prefs.getString("selected_npm_source", "taobao_npm") ?: "taobao_npm"
+            PackageManagerType.RUST -> prefs.getString("selected_rust_source", "ustc_rust") ?: "ustc_rust"
         }
     }
     
@@ -109,6 +124,7 @@ class SourceManager(context: Context) {
             PackageManagerType.APT -> aptSources.find { it.id == id }!!
             PackageManagerType.PIP -> pipSources.find { it.id == id }!!
             PackageManagerType.NPM -> npmSources.find { it.id == id }!!
+            PackageManagerType.RUST -> rustSources.find { it.id == id }!!
         }
     }
 
@@ -119,6 +135,7 @@ class SourceManager(context: Context) {
                 PackageManagerType.APT -> "selected_apt_source"
                 PackageManagerType.PIP -> "selected_pip_source"
                 PackageManagerType.NPM -> "selected_npm_source"
+                PackageManagerType.RUST -> "selected_rust_source"
             },
             sourceId
         ).apply()
@@ -161,5 +178,14 @@ class SourceManager(context: Context) {
     fun getNpmSourceChangeCommand(source: MirrorSource): String {
         val sourceUrl = source.url
         return "npm config set registry ${sourceUrl}"
+    }
+    
+    // 生成Rust镜像源的环境变量设置命令
+    fun getRustSourceEnvCommand(source: MirrorSource): String {
+        val baseUrl = source.url
+        return """
+        export RUSTUP_DIST_SERVER=${baseUrl}
+        export RUSTUP_UPDATE_ROOT=${baseUrl}/rustup
+        """.trimIndent()
     }
 }
