@@ -33,7 +33,9 @@ class SSHTerminalProvider(
     private val jsch = JSch()
     private var session: Session? = null
     private val activeChannels = ConcurrentHashMap<String, ChannelShell>()
-    private val fileSystemProviders = ConcurrentHashMap<String, SSHFileSystemProvider>()
+    
+    // 使用单个共享的SFTP文件系统提供者
+    private var fileSystemProvider: SSHFileSystemProvider? = null
     
     companion object {
         private const val TAG = "SSHTerminalProvider"
@@ -81,6 +83,9 @@ class SSHTerminalProvider(
                 sshSession.connect(30000) // 30秒超时
                 session = sshSession
                 
+                // 创建SFTP文件系统提供者
+                fileSystemProvider = SSHFileSystemProvider(sshSession)
+                
                 Log.d(TAG, "SSH connection established successfully")
                 Result.success(Unit)
             } catch (e: Exception) {
@@ -97,10 +102,13 @@ class SSHTerminalProvider(
                 closeSession(sessionId)
             }
             
+            // 关闭SFTP文件系统提供者
+            fileSystemProvider?.close()
+            fileSystemProvider = null
+            
             // 断开SSH会话
             session?.disconnect()
             session = null
-            fileSystemProviders.clear()
             
             Log.d(TAG, "SSH connection closed")
         }
@@ -176,12 +184,6 @@ class SSHTerminalProvider(
                 
                 activeChannels[sessionId] = channel
                 
-                // 创建文件系统提供者
-                fileSystemProviders[sessionId] = SSHFileSystemProvider(
-                    sshSession = sshSession,
-                    sessionId = sessionId
-                )
-                
                 Log.d(TAG, "SSH terminal session started: $sessionId")
                 Result.success(Pair(terminalSession, pty))
             } catch (e: Exception) {
@@ -195,15 +197,14 @@ class SSHTerminalProvider(
         activeChannels[sessionId]?.let { channel ->
             channel.disconnect()
             activeChannels.remove(sessionId)
-            fileSystemProviders.remove(sessionId)
             Log.d(TAG, "Closed SSH terminal session: $sessionId")
         }
     }
     
     override fun getFileSystemProvider(): FileSystemProvider {
-        // 返回第一个可用的文件系统提供者，或者如果没有会话则抛出异常
-        return fileSystemProviders.values.firstOrNull() 
-            ?: throw IllegalStateException("No active SSH session")
+        // 返回共享的SFTP文件系统提供者
+        return fileSystemProvider 
+            ?: throw IllegalStateException("SSH connection not established or SFTP provider not available")
     }
     
     override suspend fun getWorkingDirectory(): String {

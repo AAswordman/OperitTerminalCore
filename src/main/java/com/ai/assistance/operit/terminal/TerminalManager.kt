@@ -894,18 +894,22 @@ class TerminalManager private constructor(
     }
 
     /**
-     * 获取当前会话的文件系统提供者
+     * 获取文件系统提供者
      * 
-     * 根据当前会话类型返回对应的提供者（本地或SSH）
+     * 根据配置返回对应的提供者（本地或SSH）
+     * 如果配置了SSH且已连接，返回SSH的文件系统提供者（共享SFTP连接）
+     * 否则返回本地文件系统提供者
      */
-    fun getFileSystemProvider(): FileSystemProvider {
-        val currentSession = sessionManager.getCurrentSession()
-        val sessionId = currentSession?.id
+    fun getFileSystemProvider(): FileSystemProvider = kotlinx.coroutines.runBlocking {
+        val sshConfig = sshConfigManager.getConfig()
         
-        return if (sessionId != null && terminalProviders.containsKey(sessionId)) {
-            terminalProviders[sessionId]!!.getFileSystemProvider()
+        return@runBlocking if (sshConfig != null && sshConfigManager.isEnabled()) {
+            // 查找任何一个 SSH provider（所有SSH会话共享同一个SFTP连接）
+            val sshProvider = terminalProviders.values.firstOrNull { it.type == TerminalType.SSH }
+            sshProvider?.getFileSystemProvider()
+                ?: throw IllegalStateException("SSH configured but no active SSH connection. Please create a terminal session first.")
         } else {
-            // 默认返回本地文件系统提供者
+            // 使用本地文件系统提供者
             LocalFileSystemProvider(context)
         }
     }

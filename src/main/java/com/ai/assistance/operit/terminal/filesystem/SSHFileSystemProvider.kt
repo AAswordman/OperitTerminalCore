@@ -1,402 +1,581 @@
 package com.ai.assistance.operit.terminal.filesystem
 
 import android.util.Log
-import com.jcraft.jsch.ChannelExec
+import com.jcraft.jsch.ChannelSftp
 import com.jcraft.jsch.Session
+import com.jcraft.jsch.SftpException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.util.Vector
 
 /**
  * SSH远程文件系统提供者
- * 使用SSH会话执行命令操作远程文件系统
+ * 使用SFTP协议操作远程文件系统
  * 
- * @param sshSession JSch SSH会话实例，用于执行远程命令
- * @param sessionId 终端会话ID，用于日志标识
+ * @param sshSession JSch SSH会话实例，用于创建SFTP通道
  */
 class SSHFileSystemProvider(
-    private val sshSession: Session,
-    private val sessionId: String
+    private val sshSession: Session
 ) : FileSystemProvider {
     
     companion object {
         private const val TAG = "SSHFileSystemProvider"
+        private const val BUFFER_SIZE = 32768 // 32KB buffer for file operations
     }
     
+    // SFTP通道 - 使用懒加载，在第一次使用时创建
+    private var sftpChannel: ChannelSftp? = null
+    
     /**
-     * 执行远程Shell命令并获取结果
-     * 使用JSch ChannelExec执行命令并同步等待结果
+     * 获取或创建SFTP通道
      */
-    private suspend fun executeCommand(command: String): CommandResult {
-        Log.d(TAG, "[executeCommand] Session: $sessionId, Command: $command")
-        return withContext(Dispatchers.IO) {
-            var channel: ChannelExec? = null
-            try {
-                // 检查SSH会话是否连接
-                if (!sshSession.isConnected) {
-                    Log.e(TAG, "[executeCommand] SSH session is not connected")
-                    return@withContext CommandResult(
-                        success = false,
-                        stdout = "",
-                        stderr = "SSH session is not connected",
-                        exitCode = -1
-                    )
-                }
-                
-                // 创建执行通道
-                channel = sshSession.openChannel("exec") as ChannelExec
-                channel.setCommand(command)
-                
-                // 准备输出流
-                val stdoutStream = ByteArrayOutputStream()
-                val stderrStream = ByteArrayOutputStream()
-                channel.outputStream = stdoutStream
-                channel.setErrStream(stderrStream)
-                
-                // 连接并执行
-                channel.connect(10000) // 10秒超时
-                
-                // 读取输出（ChannelExec会在命令执行完成后自动关闭）
-                val inputStream: InputStream = channel.inputStream
-                val buffer = ByteArray(4096)
-                while (true) {
-                    while (inputStream.available() > 0) {
-                        val len = inputStream.read(buffer)
-                        if (len < 0) break
-                        stdoutStream.write(buffer, 0, len)
-                    }
-                    if (channel.isClosed) {
-                        if (inputStream.available() > 0) continue
-                        break
-                    }
-                    Thread.sleep(100)
-                }
-                
-                val exitCode = channel.exitStatus
-                val stdout = stdoutStream.toString("UTF-8")
-                val stderr = stderrStream.toString("UTF-8")
-                
-                Log.d(TAG, "[executeCommand] Command completed with exit code: $exitCode")
-                Log.d(TAG, "[executeCommand] stdout length: ${stdout.length}, stderr length: ${stderr.length}")
-                
-                CommandResult(
-                    success = exitCode == 0,
-                    stdout = stdout,
-                    stderr = stderr,
-                    exitCode = exitCode
-                )
-            } catch (e: Exception) {
-                Log.e(TAG, "[executeCommand] Error executing command: $command", e)
-                CommandResult(
-                    success = false,
-                    stdout = "",
-                    stderr = e.message ?: "Unknown error",
-                    exitCode = -1
-                )
-            } finally {
-                channel?.disconnect()
+    private suspend fun getSftpChannel(): ChannelSftp = withContext(Dispatchers.IO) {
+        // 如果通道已存在且连接，直接返回
+        sftpChannel?.let { channel ->
+            if (channel.isConnected) {
+                return@withContext channel
             }
+        }
+        
+        // 创建新的SFTP通道
+        try {
+            if (!sshSession.isConnected) {
+                throw IllegalStateException("SSH session is not connected")
+            }
+            
+            val channel = sshSession.openChannel("sftp") as ChannelSftp
+            channel.connect(10000) // 10秒超时
+            sftpChannel = channel
+            Log.d(TAG, "SFTP channel created and connected")
+            channel
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create SFTP channel", e)
+            throw e
         }
     }
     
     /**
-     * 命令执行结果
+     * 关闭SFTP通道
      */
-    private data class CommandResult(
-        val success: Boolean,
-        val stdout: String,
-        val stderr: String,
-        val exitCode: Int
-    )
+    fun close() {
+        sftpChannel?.disconnect()
+        sftpChannel = null
+        Log.d(TAG, "SFTP channel closed")
+    }
     
     // ==================== 文件读取操作 ====================
     
-    override suspend fun readFile(path: String): String? {
+    override suspend fun readFile(path: String): String? = withContext(Dispatchers.IO) {
         Log.d(TAG, "[readFile] Reading file: $path")
-        val result = executeCommand("cat '$path'")
-        Log.d(TAG, "[readFile] Result: success=${result.success}, stdout length=${result.stdout.length}")
-        return if (result.success) result.stdout else null
+        try {
+            val channel = getSftpChannel()
+            val outputStream = ByteArrayOutputStream()
+            channel.get(path, outputStream)
+            val content = outputStream.toString("UTF-8")
+            Log.d(TAG, "[readFile] Successfully read file, size: ${content.length} chars")
+            content
+        } catch (e: SftpException) {
+            Log.e(TAG, "[readFile] Failed to read file: $path", e)
+            null
+        } catch (e: Exception) {
+            Log.e(TAG, "[readFile] Unexpected error reading file: $path", e)
+            null
+        }
     }
     
-    override suspend fun readFileWithLimit(path: String, maxBytes: Int): String? {
-        val result = executeCommand("head -c $maxBytes '$path'")
-        return if (result.success) result.stdout else null
+    override suspend fun readFileWithLimit(path: String, maxBytes: Int): String? = withContext(Dispatchers.IO) {
+        try {
+            val channel = getSftpChannel()
+            val inputStream = channel.get(path)
+            val buffer = ByteArray(minOf(maxBytes, BUFFER_SIZE))
+            val outputStream = ByteArrayOutputStream()
+            
+            var totalRead = 0
+            while (totalRead < maxBytes) {
+                val toRead = minOf(buffer.size, maxBytes - totalRead)
+                val bytesRead = inputStream.read(buffer, 0, toRead)
+                if (bytesRead <= 0) break
+                outputStream.write(buffer, 0, bytesRead)
+                totalRead += bytesRead
+            }
+            inputStream.close()
+            
+            outputStream.toString("UTF-8")
+        } catch (e: Exception) {
+            Log.e(TAG, "[readFileWithLimit] Failed to read file: $path", e)
+            null
+        }
     }
     
-    override suspend fun readFileLines(path: String, startLine: Int, endLine: Int): String? {
-        // 使用sed命令提取指定行范围
-        val result = executeCommand("sed -n '${startLine},${endLine}p' '$path'")
-        return if (result.success) result.stdout else null
+    override suspend fun readFileLines(path: String, startLine: Int, endLine: Int): String? = withContext(Dispatchers.IO) {
+        try {
+            val channel = getSftpChannel()
+            val inputStream = channel.get(path)
+            val reader = inputStream.bufferedReader(Charsets.UTF_8)
+            
+            val result = StringBuilder()
+            var currentLine = 1
+            
+            reader.use { r ->
+                while (currentLine < startLine) {
+                    r.readLine() ?: return@withContext null
+                    currentLine++
+                }
+                
+                while (currentLine <= endLine) {
+                    val line = r.readLine() ?: break
+                    result.append(line).append("\n")
+                    currentLine++
+                }
+            }
+            
+            result.toString()
+        } catch (e: Exception) {
+            Log.e(TAG, "[readFileLines] Failed to read file lines: $path", e)
+            null
+        }
     }
     
-    override suspend fun readFileSample(path: String, sampleSize: Int): ByteArray? {
-        val result = executeCommand("head -c $sampleSize '$path'")
-        return if (result.success) result.stdout.toByteArray() else null
+    override suspend fun readFileSample(path: String, sampleSize: Int): ByteArray? = withContext(Dispatchers.IO) {
+        try {
+            val channel = getSftpChannel()
+            val inputStream = channel.get(path)
+            val buffer = ByteArray(sampleSize)
+            val bytesRead = inputStream.read(buffer, 0, sampleSize)
+            inputStream.close()
+            
+            if (bytesRead <= 0) ByteArray(0) else buffer.copyOf(bytesRead)
+        } catch (e: Exception) {
+            Log.e(TAG, "[readFileSample] Failed to read file sample: $path", e)
+            null
+        }
     }
     
     // ==================== 文件写入操作 ====================
     
-    override suspend fun writeFile(path: String, content: String, append: Boolean): FileSystemProvider.OperationResult {
+    override suspend fun writeFile(path: String, content: String, append: Boolean): FileSystemProvider.OperationResult = withContext(Dispatchers.IO) {
         Log.d(TAG, "[writeFile] Path: $path, content length: ${content.length}, append: $append")
         
-        // 先创建父目录
-        val parentDir = path.substringBeforeLast('/')
-        if (parentDir.isNotEmpty() && parentDir != path) {
-            Log.d(TAG, "[writeFile] Creating parent directory: $parentDir")
-            executeCommand("mkdir -p '$parentDir'")
-        }
-        
-        // 对内容进行base64编码以避免特殊字符问题
-        val contentBase64 = android.util.Base64.encodeToString(
-            content.toByteArray(),
-            android.util.Base64.NO_WRAP
-        )
-        
-        val redirectOperator = if (append) ">>" else ">"
-        val result = executeCommand("echo '$contentBase64' | base64 -d $redirectOperator '$path'")
-        
-        if (!result.success) {
-            Log.w(TAG, "[writeFile] Base64 write failed, trying fallback method")
-            // 尝试备用方法
-            val fallbackResult = executeCommand("printf '%s' '$content' $redirectOperator '$path'")
-            if (!fallbackResult.success) {
-                Log.e(TAG, "[writeFile] Fallback write also failed: ${fallbackResult.stderr}")
-                return FileSystemProvider.OperationResult(
-                    success = false,
-                    message = "Failed to write to file: ${fallbackResult.stderr}"
-                )
+        try {
+            val channel = getSftpChannel()
+            
+            // 先创建父目录
+            val parentDir = path.substringBeforeLast('/')
+            if (parentDir.isNotEmpty() && parentDir != path) {
+                createDirectoryRecursive(channel, parentDir)
             }
-        }
-        
-        // 验证文件是否存在
-        val verifyResult = executeCommand("test -f '$path' && echo 'exists' || echo 'not exists'")
-        if (verifyResult.stdout.trim() != "exists") {
-            Log.e(TAG, "[writeFile] File verification failed, file does not exist after write")
-            return FileSystemProvider.OperationResult(
+            
+            val bytes = content.toByteArray(Charsets.UTF_8)
+            val inputStream = ByteArrayInputStream(bytes)
+            
+            if (append) {
+                // SFTP的append模式
+                channel.put(inputStream, path, ChannelSftp.APPEND)
+            } else {
+                // SFTP的覆盖模式
+                channel.put(inputStream, path, ChannelSftp.OVERWRITE)
+            }
+            
+            Log.d(TAG, "[writeFile] Successfully wrote ${bytes.size} bytes to $path")
+            FileSystemProvider.OperationResult(
+                success = true,
+                message = if (append) "Content appended to $path" else "Content written to $path"
+            )
+        } catch (e: SftpException) {
+            Log.e(TAG, "[writeFile] SFTP error writing file: $path", e)
+            FileSystemProvider.OperationResult(
                 success = false,
-                message = "Write command completed but file does not exist. Possible permission issue."
+                message = "Failed to write file: ${e.message}"
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "[writeFile] Unexpected error writing file: $path", e)
+            FileSystemProvider.OperationResult(
+                success = false,
+                message = "Failed to write file: ${e.message}"
             )
         }
-        
-        // 检查文件大小
-        val sizeResult = executeCommand("stat -c %s '$path' 2>/dev/null || echo '0'")
-        val size = sizeResult.stdout.trim().toLongOrNull() ?: 0
-        if (size == 0L && content.isNotEmpty()) {
-            Log.e(TAG, "[writeFile] File size is 0 but content was not empty")
-            return FileSystemProvider.OperationResult(
-                success = false,
-                message = "File was created but appears to be empty. Possible write failure."
-            )
-        }
-        
-        Log.d(TAG, "[writeFile] Write successful, file size: $size bytes")
-        return FileSystemProvider.OperationResult(
-            success = true,
-            message = if (append) "Content appended to $path" else "Content written to $path"
-        )
     }
     
-    override suspend fun writeFileBytes(path: String, bytes: ByteArray): FileSystemProvider.OperationResult {
-        // 先创建父目录
-        val parentDir = path.substringBeforeLast('/')
-        if (parentDir.isNotEmpty() && parentDir != path) {
-            executeCommand("mkdir -p '$parentDir'")
-        }
-        
-        // 使用base64编码传输二进制数据
-        val base64Content = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
-        val result = executeCommand("echo '$base64Content' | base64 -d > '$path'")
-        
-        if (!result.success) {
-            return FileSystemProvider.OperationResult(
+    override suspend fun writeFileBytes(path: String, bytes: ByteArray): FileSystemProvider.OperationResult = withContext(Dispatchers.IO) {
+        try {
+            val channel = getSftpChannel()
+            
+            // 先创建父目录
+            val parentDir = path.substringBeforeLast('/')
+            if (parentDir.isNotEmpty() && parentDir != path) {
+                createDirectoryRecursive(channel, parentDir)
+            }
+            
+            val inputStream = ByteArrayInputStream(bytes)
+            channel.put(inputStream, path, ChannelSftp.OVERWRITE)
+            
+            Log.d(TAG, "[writeFileBytes] Successfully wrote ${bytes.size} bytes to $path")
+            FileSystemProvider.OperationResult(
+                success = true,
+                message = "Binary content written to $path"
+            )
+        } catch (e: SftpException) {
+            Log.e(TAG, "[writeFileBytes] SFTP error writing file: $path", e)
+            FileSystemProvider.OperationResult(
                 success = false,
-                message = "Failed to write binary file: ${result.stderr}"
+                message = "Failed to write binary file: ${e.message}"
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "[writeFileBytes] Unexpected error writing file: $path", e)
+            FileSystemProvider.OperationResult(
+                success = false,
+                message = "Failed to write binary file: ${e.message}"
             )
         }
+    }
+    
+    /**
+     * 递归创建目录
+     */
+    private fun createDirectoryRecursive(channel: ChannelSftp, path: String) {
+        val parts = path.split('/').filter { it.isNotEmpty() }
+        val isAbsolute = path.startsWith('/')
         
-        return FileSystemProvider.OperationResult(
-            success = true,
-            message = "Binary content written to $path"
-        )
+        var currentPath = if (isAbsolute) "" else "."
+        for (part in parts) {
+            currentPath = if (currentPath.isEmpty() || currentPath == ".") {
+                if (isAbsolute) "/$part" else part
+            } else {
+                "$currentPath/$part"
+            }
+            
+            try {
+                channel.stat(currentPath)
+            } catch (e: SftpException) {
+                // 目录不存在，创建它
+                try {
+                    channel.mkdir(currentPath)
+                    Log.d(TAG, "[createDirectoryRecursive] Created directory: $currentPath")
+                } catch (e2: SftpException) {
+                    Log.w(TAG, "[createDirectoryRecursive] Failed to create directory: $currentPath", e2)
+                }
+            }
+        }
     }
     
     // ==================== 文件/目录管理操作 ====================
     
-    override suspend fun listDirectory(path: String): List<FileSystemProvider.FileInfo>? {
+    override suspend fun listDirectory(path: String): List<FileSystemProvider.FileInfo>? = withContext(Dispatchers.IO) {
         Log.d(TAG, "[listDirectory] Listing directory: $path")
-        val normalizedPath = if (path.endsWith("/")) path else "$path/"
-        val result = executeCommand("ls -la '$normalizedPath'")
-        
-        if (!result.success) {
-            Log.w(TAG, "[listDirectory] Failed to list directory: ${result.stderr}")
-            return null
+        try {
+            val channel = getSftpChannel()
+            @Suppress("UNCHECKED_CAST")
+            val entries = channel.ls(path) as Vector<ChannelSftp.LsEntry>
+            
+            val fileInfoList = entries
+                .filter { it.filename != "." && it.filename != ".." }
+                .map { entry ->
+                    val attrs = entry.attrs
+                    FileSystemProvider.FileInfo(
+                        name = entry.filename,
+                        isDirectory = attrs.isDir,
+                        size = attrs.size,
+                        permissions = attrs.permissionsString,
+                        lastModified = (attrs.mTime * 1000L).toString()
+                    )
+                }
+            
+            Log.d(TAG, "[listDirectory] Found ${fileInfoList.size} entries in $path")
+            fileInfoList
+        } catch (e: SftpException) {
+            Log.e(TAG, "[listDirectory] Failed to list directory: $path", e)
+            null
+        } catch (e: Exception) {
+            Log.e(TAG, "[listDirectory] Unexpected error listing directory: $path", e)
+            null
         }
-        
-        val entries = parseDirectoryListing(result.stdout)
-        Log.d(TAG, "[listDirectory] Found ${entries.size} entries in $path")
-        return entries
     }
     
-    override suspend fun exists(path: String): Boolean {
-        val result = executeCommand("test -e '$path' && echo 'exists' || echo 'not exists'")
-        return result.success && result.stdout.trim() == "exists"
+    override suspend fun exists(path: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val channel = getSftpChannel()
+            channel.stat(path)
+            true
+        } catch (e: SftpException) {
+            false
+        } catch (e: Exception) {
+            Log.e(TAG, "[exists] Unexpected error checking path: $path", e)
+            false
+        }
     }
     
-    override suspend fun isDirectory(path: String): Boolean {
-        val result = executeCommand("test -d '$path' && echo 'true' || echo 'false'")
-        return result.success && result.stdout.trim() == "true"
+    override suspend fun isDirectory(path: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val channel = getSftpChannel()
+            val attrs = channel.stat(path)
+            attrs.isDir
+        } catch (e: Exception) {
+            false
+        }
     }
     
-    override suspend fun isFile(path: String): Boolean {
-        val result = executeCommand("test -f '$path' && echo 'true' || echo 'false'")
-        return result.success && result.stdout.trim() == "true"
+    override suspend fun isFile(path: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val channel = getSftpChannel()
+            val attrs = channel.stat(path)
+            !attrs.isDir && !attrs.isLink
+        } catch (e: Exception) {
+            false
+        }
     }
     
-    override suspend fun getFileSize(path: String): Long {
-        val result = executeCommand("stat -c %s '$path' 2>/dev/null || echo '0'")
-        return result.stdout.trim().toLongOrNull() ?: 0
+    override suspend fun getFileSize(path: String): Long = withContext(Dispatchers.IO) {
+        try {
+            val channel = getSftpChannel()
+            val attrs = channel.stat(path)
+            attrs.size
+        } catch (e: Exception) {
+            0L
+        }
     }
     
-    override suspend fun getLineCount(path: String): Int {
-        val result = executeCommand("cat '$path' | wc -l")
-        if (!result.success) return 0
-        
-        return result.stdout.trim().split(" ")[0].toIntOrNull() ?: 0
+    override suspend fun getLineCount(path: String): Int = withContext(Dispatchers.IO) {
+        try {
+            val channel = getSftpChannel()
+            val inputStream = channel.get(path)
+            val reader = inputStream.bufferedReader(Charsets.UTF_8)
+            var count = 0
+            reader.use { r ->
+                while (r.readLine() != null) {
+                    count++
+                }
+            }
+            count
+        } catch (e: Exception) {
+            Log.e(TAG, "[getLineCount] Failed to count lines: $path", e)
+            0
+        }
     }
     
-    override suspend fun createDirectory(path: String, createParents: Boolean): FileSystemProvider.OperationResult {
+    override suspend fun createDirectory(path: String, createParents: Boolean): FileSystemProvider.OperationResult = withContext(Dispatchers.IO) {
         Log.d(TAG, "[createDirectory] Path: $path, createParents: $createParents")
         
-        // 先检查目录是否已存在
-        val checkResult = executeCommand("test -d '$path' && echo 'exists' || echo 'not exists'")
-        if (checkResult.success && checkResult.stdout.trim() == "exists") {
-            Log.d(TAG, "[createDirectory] Directory already exists: $path")
-            return FileSystemProvider.OperationResult(
-                success = true,
-                message = "Directory already exists: $path"
-            )
-        }
-        
-        val mkdirCommand = if (createParents) "mkdir -p '$path'" else "mkdir '$path'"
-        val result = executeCommand(mkdirCommand)
-        
-        if (!result.success) {
-            Log.w(TAG, "[createDirectory] mkdir command failed, rechecking if directory exists")
-            // 再次检查是否已存在（可能在执行过程中被创建）
-            val recheckResult = executeCommand("test -d '$path' && echo 'exists' || echo 'not exists'")
-            if (recheckResult.success && recheckResult.stdout.trim() == "exists") {
-                Log.d(TAG, "[createDirectory] Directory exists after recheck")
-                return FileSystemProvider.OperationResult(
-                    success = true,
-                    message = "Directory already exists: $path"
-                )
+        try {
+            val channel = getSftpChannel()
+            
+            // 检查目录是否已存在
+            try {
+                val attrs = channel.stat(path)
+                if (attrs.isDir) {
+                    return@withContext FileSystemProvider.OperationResult(
+                        success = true,
+                        message = "Directory already exists: $path"
+                    )
+                }
+            } catch (e: SftpException) {
+                // 目录不存在，继续创建
             }
             
-            Log.e(TAG, "[createDirectory] Failed to create directory: ${result.stderr}")
-            return FileSystemProvider.OperationResult(
+            if (createParents) {
+                createDirectoryRecursive(channel, path)
+            } else {
+                channel.mkdir(path)
+            }
+            
+            Log.d(TAG, "[createDirectory] Successfully created directory: $path")
+            FileSystemProvider.OperationResult(
+                success = true,
+                message = "Successfully created directory $path"
+            )
+        } catch (e: SftpException) {
+            Log.e(TAG, "[createDirectory] SFTP error creating directory: $path", e)
+            FileSystemProvider.OperationResult(
                 success = false,
-                message = "Failed to create directory: ${result.stderr}"
+                message = "Failed to create directory: ${e.message}"
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "[createDirectory] Unexpected error creating directory: $path", e)
+            FileSystemProvider.OperationResult(
+                success = false,
+                message = "Failed to create directory: ${e.message}"
             )
         }
-        
-        Log.d(TAG, "[createDirectory] Successfully created directory: $path")
-        return FileSystemProvider.OperationResult(
-            success = true,
-            message = "Successfully created directory $path"
-        )
     }
     
-    override suspend fun delete(path: String, recursive: Boolean): FileSystemProvider.OperationResult {
+    override suspend fun delete(path: String, recursive: Boolean): FileSystemProvider.OperationResult = withContext(Dispatchers.IO) {
         Log.d(TAG, "[delete] Path: $path, recursive: $recursive")
-        val deleteCommand = if (recursive) "rm -rf '$path'" else "rm -f '$path'"
-        val result = executeCommand(deleteCommand)
         
-        return if (result.success) {
+        try {
+            val channel = getSftpChannel()
+            
+            if (recursive && isDirectory(path)) {
+                deleteRecursive(channel, path)
+            } else {
+                // 删除文件或空目录
+                try {
+                    channel.rm(path)
+                } catch (e: SftpException) {
+                    // 如果是目录，尝试用rmdir
+                    channel.rmdir(path)
+                }
+            }
+            
             Log.d(TAG, "[delete] Successfully deleted: $path")
             FileSystemProvider.OperationResult(
                 success = true,
                 message = "Successfully deleted $path"
             )
-        } else {
-            Log.e(TAG, "[delete] Failed to delete: ${result.stderr}")
+        } catch (e: SftpException) {
+            Log.e(TAG, "[delete] SFTP error deleting: $path", e)
             FileSystemProvider.OperationResult(
                 success = false,
-                message = "Failed to delete: ${result.stderr}"
+                message = "Failed to delete: ${e.message}"
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "[delete] Unexpected error deleting: $path", e)
+            FileSystemProvider.OperationResult(
+                success = false,
+                message = "Failed to delete: ${e.message}"
             )
         }
     }
     
-    override suspend fun move(sourcePath: String, destPath: String): FileSystemProvider.OperationResult {
-        val result = executeCommand("mv '$sourcePath' '$destPath'")
+    /**
+     * 递归删除目录
+     */
+    private fun deleteRecursive(channel: ChannelSftp, path: String) {
+        @Suppress("UNCHECKED_CAST")
+        val entries = channel.ls(path) as Vector<ChannelSftp.LsEntry>
         
-        return if (result.success) {
+        for (entry in entries) {
+            if (entry.filename == "." || entry.filename == "..") continue
+            
+            val fullPath = "$path/${entry.filename}"
+            if (entry.attrs.isDir) {
+                deleteRecursive(channel, fullPath)
+            } else {
+                channel.rm(fullPath)
+            }
+        }
+        
+        channel.rmdir(path)
+    }
+    
+    override suspend fun move(sourcePath: String, destPath: String): FileSystemProvider.OperationResult = withContext(Dispatchers.IO) {
+        try {
+            val channel = getSftpChannel()
+            channel.rename(sourcePath, destPath)
+            
             FileSystemProvider.OperationResult(
                 success = true,
                 message = "Successfully moved $sourcePath to $destPath"
             )
-        } else {
+        } catch (e: SftpException) {
+            Log.e(TAG, "[move] SFTP error moving file", e)
             FileSystemProvider.OperationResult(
                 success = false,
-                message = "Failed to move file: ${result.stderr}"
+                message = "Failed to move file: ${e.message}"
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "[move] Unexpected error moving file", e)
+            FileSystemProvider.OperationResult(
+                success = false,
+                message = "Failed to move file: ${e.message}"
             )
         }
     }
     
-    override suspend fun copy(sourcePath: String, destPath: String, recursive: Boolean): FileSystemProvider.OperationResult {
-        // 检查源路径是否存在
-        val existsResult = executeCommand("test -e '$sourcePath' && echo 'exists' || echo 'not exists'")
-        if (existsResult.stdout.trim() != "exists") {
-            return FileSystemProvider.OperationResult(
+    override suspend fun copy(sourcePath: String, destPath: String, recursive: Boolean): FileSystemProvider.OperationResult = withContext(Dispatchers.IO) {
+        try {
+            val channel = getSftpChannel()
+            
+            // 检查源路径是否存在
+            val sourceAttrs = try {
+                channel.stat(sourcePath)
+            } catch (e: SftpException) {
+                return@withContext FileSystemProvider.OperationResult(
+                    success = false,
+                    message = "Source path does not exist: $sourcePath"
+                )
+            }
+            
+            // 确保目标父目录存在
+            val destParentDir = destPath.substringBeforeLast('/')
+            if (destParentDir.isNotEmpty() && destParentDir != destPath) {
+                createDirectoryRecursive(channel, destParentDir)
+            }
+            
+            if (sourceAttrs.isDir) {
+                if (!recursive) {
+                    return@withContext FileSystemProvider.OperationResult(
+                        success = false,
+                        message = "Cannot copy directory without recursive flag"
+                    )
+                }
+                copyDirectoryRecursive(channel, sourcePath, destPath)
+            } else {
+                // 复制单个文件
+                val inputStream = channel.get(sourcePath)
+                val outputStream = ByteArrayOutputStream()
+                inputStream.copyTo(outputStream)
+                inputStream.close()
+                
+                val bytes = outputStream.toByteArray()
+                val destInputStream = ByteArrayInputStream(bytes)
+                channel.put(destInputStream, destPath)
+            }
+            
+            FileSystemProvider.OperationResult(
+                success = true,
+                message = "Successfully copied ${if (sourceAttrs.isDir) "directory" else "file"} $sourcePath to $destPath"
+            )
+        } catch (e: SftpException) {
+            Log.e(TAG, "[copy] SFTP error copying", e)
+            FileSystemProvider.OperationResult(
                 success = false,
-                message = "Source path does not exist: $sourcePath"
+                message = "Failed to copy: ${e.message}"
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "[copy] Unexpected error copying", e)
+            FileSystemProvider.OperationResult(
+                success = false,
+                message = "Failed to copy: ${e.message}"
             )
         }
-        
-        // 检查是否为目录
-        val isDirResult = executeCommand("test -d '$sourcePath' && echo 'true' || echo 'false'")
-        val isDirectory = isDirResult.stdout.trim() == "true"
-        
-        // 确保目标父目录存在
-        val destParentDir = destPath.substringBeforeLast('/')
-        if (destParentDir.isNotEmpty()) {
-            executeCommand("mkdir -p '$destParentDir'")
+    }
+    
+    /**
+     * 递归复制目录
+     */
+    private fun copyDirectoryRecursive(channel: ChannelSftp, sourcePath: String, destPath: String) {
+        // 创建目标目录
+        try {
+            channel.mkdir(destPath)
+        } catch (e: SftpException) {
+            // 目录可能已存在
         }
         
-        // 执行复制
-        val copyCommand = if (isDirectory && recursive) {
-            "cp -r '$sourcePath' '$destPath'"
-        } else if (!isDirectory) {
-            "cp '$sourcePath' '$destPath'"
-        } else {
-            return FileSystemProvider.OperationResult(
-                success = false,
-                message = "Cannot copy directory without recursive flag"
-            )
+        @Suppress("UNCHECKED_CAST")
+        val entries = channel.ls(sourcePath) as Vector<ChannelSftp.LsEntry>
+        
+        for (entry in entries) {
+            if (entry.filename == "." || entry.filename == "..") continue
+            
+            val sourceFullPath = "$sourcePath/${entry.filename}"
+            val destFullPath = "$destPath/${entry.filename}"
+            
+            if (entry.attrs.isDir) {
+                copyDirectoryRecursive(channel, sourceFullPath, destFullPath)
+            } else {
+                // 复制文件
+                val inputStream = channel.get(sourceFullPath)
+                val outputStream = ByteArrayOutputStream()
+                inputStream.copyTo(outputStream)
+                inputStream.close()
+                
+                val bytes = outputStream.toByteArray()
+                val destInputStream = ByteArrayInputStream(bytes)
+                channel.put(destInputStream, destFullPath)
+            }
         }
-        
-        val result = executeCommand(copyCommand)
-        
-        if (!result.success) {
-            return FileSystemProvider.OperationResult(
-                success = false,
-                message = "Failed to copy: ${result.stderr}"
-            )
-        }
-        
-        // 验证复制是否成功
-        val verifyResult = executeCommand("test -e '$destPath' && echo 'exists' || echo 'not exists'")
-        if (verifyResult.stdout.trim() != "exists") {
-            return FileSystemProvider.OperationResult(
-                success = false,
-                message = "Copy command completed but destination does not exist"
-            )
-        }
-        
-        return FileSystemProvider.OperationResult(
-            success = true,
-            message = "Successfully copied ${if (isDirectory) "directory" else "file"} $sourcePath to $destPath"
-        )
     }
     
     // ==================== 文件搜索操作 ====================
@@ -406,132 +585,116 @@ class SSHFileSystemProvider(
         pattern: String,
         maxDepth: Int,
         caseInsensitive: Boolean
-    ): List<String> {
-        val searchOption = if (caseInsensitive) "-iname" else "-name"
-        val depthOption = if (maxDepth >= 0) "-maxdepth $maxDepth" else ""
-        
-        // 正确转义模式中的单引号
-        val escapedPattern = pattern.replace("'", "'\\''")
-        
-        val command = "find '${if(basePath.endsWith("/")) basePath else "$basePath/"}' $depthOption $searchOption '$escapedPattern'"
-        val result = executeCommand(command)
-        
-        val fileList = result.stdout.trim()
-        
-        return if (fileList.isBlank()) {
+    ): List<String> = withContext(Dispatchers.IO) {
+        try {
+            val channel = getSftpChannel()
+            val results = mutableListOf<String>()
+            
+            // 将glob模式转换为正则表达式
+            val regex = globToRegex(pattern, caseInsensitive)
+            
+            searchFilesRecursive(channel, basePath, regex, maxDepth, 0, results)
+            
+            results
+        } catch (e: Exception) {
+            Log.e(TAG, "[findFiles] Error searching files", e)
             emptyList()
+        }
+    }
+    
+    /**
+     * 递归搜索文件
+     */
+    private fun searchFilesRecursive(
+        channel: ChannelSftp,
+        currentPath: String,
+        pattern: Regex,
+        maxDepth: Int,
+        currentDepth: Int,
+        results: MutableList<String>
+    ) {
+        if (maxDepth >= 0 && currentDepth > maxDepth) return
+        
+        try {
+            @Suppress("UNCHECKED_CAST")
+            val entries = channel.ls(currentPath) as Vector<ChannelSftp.LsEntry>
+            
+            for (entry in entries) {
+                if (entry.filename == "." || entry.filename == "..") continue
+                
+                val fullPath = "$currentPath/${entry.filename}"
+                
+                if (pattern.matches(entry.filename)) {
+                    results.add(fullPath)
+                }
+                
+                if (entry.attrs.isDir) {
+                    searchFilesRecursive(channel, fullPath, pattern, maxDepth, currentDepth + 1, results)
+                }
+            }
+        } catch (e: SftpException) {
+            Log.w(TAG, "[searchFilesRecursive] Cannot access directory: $currentPath", e)
+        }
+    }
+    
+    /**
+     * 将glob模式转换为正则表达式
+     */
+    private fun globToRegex(glob: String, caseInsensitive: Boolean): Regex {
+        val regexPattern = buildString {
+            append('^')
+            for (char in glob) {
+                when (char) {
+                    '*' -> append(".*")
+                    '?' -> append('.')
+                    '.' -> append("\\.")
+                    '\\' -> append("\\\\")
+                    else -> append(char)
+                }
+            }
+            append('$')
+        }
+        
+        return if (caseInsensitive) {
+            Regex(regexPattern, RegexOption.IGNORE_CASE)
         } else {
-            fileList.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
+            Regex(regexPattern)
         }
     }
     
     // ==================== 文件信息操作 ====================
     
-    override suspend fun getFileInfo(path: String): FileSystemProvider.FileInfo? {
-        // 检查文件是否存在
-        val existsResult = executeCommand("test -e '$path' && echo 'exists' || echo 'not exists'")
-        if (existsResult.stdout.trim() != "exists") {
-            return null
+    override suspend fun getFileInfo(path: String): FileSystemProvider.FileInfo? = withContext(Dispatchers.IO) {
+        try {
+            val channel = getSftpChannel()
+            val attrs = channel.stat(path)
+            
+            val name = path.substringAfterLast('/')
+            
+            FileSystemProvider.FileInfo(
+                name = name,
+                isDirectory = attrs.isDir,
+                size = attrs.size,
+                permissions = attrs.permissionsString,
+                lastModified = (attrs.mTime * 1000L).toString()
+            )
+        } catch (e: SftpException) {
+            Log.e(TAG, "[getFileInfo] File not found: $path", e)
+            null
+        } catch (e: Exception) {
+            Log.e(TAG, "[getFileInfo] Unexpected error getting file info: $path", e)
+            null
         }
-        
-        // 获取文件名
-        val name = path.substringAfterLast('/')
-        
-        // 获取文件类型
-        val fileTypeResult = executeCommand("test -d '$path' && echo 'directory' || (test -f '$path' && echo 'file' || echo 'other')")
-        val isDirectory = fileTypeResult.stdout.trim() == "directory"
-        
-        // 获取文件大小
-        val sizeResult = executeCommand("stat -c %s '$path' 2>/dev/null || echo '0'")
-        val size = sizeResult.stdout.trim().toLongOrNull() ?: 0
-        
-        // 获取权限
-        val permissionsResult = executeCommand("stat -c %A '$path' 2>/dev/null || echo ''")
-        val permissions = permissionsResult.stdout.trim()
-        
-        // 获取最后修改时间
-        val modifiedResult = executeCommand("stat -c %y '$path' 2>/dev/null || echo ''")
-        val lastModified = modifiedResult.stdout.trim()
-        
-        return FileSystemProvider.FileInfo(
-            name = name,
-            isDirectory = isDirectory,
-            size = size,
-            permissions = permissions,
-            lastModified = lastModified
-        )
     }
     
-    override suspend fun getPermissions(path: String): String {
-        val result = executeCommand("stat -c %A '$path' 2>/dev/null || echo ''")
-        return result.stdout.trim()
-    }
-    
-    // ==================== 私有辅助方法 ====================
-    
-    /**
-     * 解析ls -la命令的输出
-     */
-    private fun parseDirectoryListing(output: String): List<FileSystemProvider.FileInfo> {
-        val lines = output.trim().split("\n")
-        val entries = mutableListOf<FileSystemProvider.FileInfo>()
-        
-        // 跳过第一行总计行
-        val startIndex = if (lines.isNotEmpty() && lines[0].startsWith("total")) 1 else 0
-        
-        val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
-        
-        for (i in startIndex until lines.size) {
-            try {
-                val line = lines[i]
-                if (line.isBlank()) continue
-                
-                // Android上ls -la输出格式: crwxrw--- 2 u0_a425 media_rw 4056 2025-03-14 06:04 Android
-                val androidRegex = """^(\S+)\s+(\d+)\s+(\S+\s*\S*)\s+(\S+)\s+(\d+)\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\s+(.+)$""".toRegex()
-                val androidMatch = androidRegex.find(line)
-                
-                if (androidMatch != null) {
-                    val permissions = androidMatch.groupValues[1]
-                    val size = androidMatch.groupValues[5].toLongOrNull() ?: 0
-                    val date = androidMatch.groupValues[6]
-                    val time = androidMatch.groupValues[7]
-                    var name = androidMatch.groupValues[8]
-                    val isDirectory = permissions.startsWith("d") || permissions.startsWith("c")
-                    val isSymlink = permissions.startsWith("l")
-                    
-                    // 处理符号链接格式
-                    if (isSymlink && name.contains(" -> ")) {
-                        name = name.substringBefore(" -> ")
-                    }
-                    
-                    // 跳过 . 和 .. 条目
-                    if (name == "." || name == "..") continue
-                    
-                    // 将日期和时间转换为时间戳字符串
-                    val dateTimeStr = "$date $time"
-                    val timestamp = try {
-                        val parsedDate = dateFormat.parse(dateTimeStr)
-                        parsedDate?.time?.toString() ?: dateTimeStr
-                    } catch (e: Exception) {
-                        dateTimeStr
-                    }
-                    
-                    entries.add(
-                        FileSystemProvider.FileInfo(
-                            name = name,
-                            isDirectory = isDirectory,
-                            size = size,
-                            permissions = permissions,
-                            lastModified = timestamp
-                        )
-                    )
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error parsing directory entry: ${lines[i]}", e)
-            }
+    override suspend fun getPermissions(path: String): String = withContext(Dispatchers.IO) {
+        try {
+            val channel = getSftpChannel()
+            val attrs = channel.stat(path)
+            attrs.permissionsString
+        } catch (e: Exception) {
+            ""
         }
-        
-        return entries
     }
 }
 
