@@ -20,8 +20,6 @@ class LocalTerminalProvider(
     private val context: Context
 ) : TerminalProvider {
     
-    override val type = TerminalType.LOCAL
-    
     private val filesDir: File = context.filesDir
     private val usrDir: File = File(filesDir, "usr")
     private val binDir: File = File(usrDir, "bin")

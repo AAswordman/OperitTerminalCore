@@ -10,10 +10,6 @@ import com.ai.assistance.operit.terminal.provider.filesystem.FileSystemProvider
  * 支持不同类型的终端实现（本地、SSH等）
  */
 interface TerminalProvider {
-    /**
-     * 终端提供者类型
-     */
-    val type: TerminalType
     
     /**
      * 是否已连接/可用

@@ -94,7 +94,8 @@ fun SetupScreen(
                     description = context.getString(com.ai.assistance.operit.terminal.R.string.category_ssh_desc),
                     packages = listOf(
                         PackageItem("ssh", context.getString(com.ai.assistance.operit.terminal.R.string.package_ssh_client_name), "ssh", context.getString(com.ai.assistance.operit.terminal.R.string.package_ssh_client_desc)),
-                        PackageItem("sshpass", context.getString(com.ai.assistance.operit.terminal.R.string.package_sshpass_name), "sshpass", context.getString(com.ai.assistance.operit.terminal.R.string.package_sshpass_desc))
+                        PackageItem("sshpass", context.getString(com.ai.assistance.operit.terminal.R.string.package_sshpass_name), "sshpass", context.getString(com.ai.assistance.operit.terminal.R.string.package_sshpass_desc)),
+                        PackageItem("openssh-server", "OpenSSH 服务器", "openssh-server", "用于反向隧道挂载本地文件系统")
                     )
                 ),
                 PackageCategory(
@@ -595,6 +596,7 @@ private suspend fun checkPackageInstalled(
         "go" -> "command -v go"
         "ssh" -> "command -v ssh"
         "sshpass" -> "command -v sshpass"
+        "openssh-server" -> "command -v sshd"
         else -> "dpkg -s ${pkg.command.split(" ").first()}"
     }
 
@@ -609,7 +611,7 @@ private suspend fun checkPackageInstalled(
             val majorVersion = versionMatch?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
             majorVersion >= 24
         }
-        "rust", "uv", "go", "ssh", "sshpass" -> output.isNotBlank() && !output.contains("not found")
+        "rust", "uv", "go", "ssh", "sshpass", "openssh-server" -> output.isNotBlank() && !output.contains("not found")
         "pnpm" -> output.contains("FOUND_PNPM")
         else -> output.contains("Status: install ok installed")
     }

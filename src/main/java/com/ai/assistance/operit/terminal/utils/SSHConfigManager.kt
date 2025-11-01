@@ -105,7 +105,13 @@ class SSHConfigManager(context: Context) {
             authType = SSHAuthType.valueOf(json.getString("authType")),
             password = json.optString("password", "").takeIf { it.isNotEmpty() },
             privateKeyPath = json.optString("privateKeyPath", "").takeIf { it.isNotEmpty() },
-            passphrase = json.optString("passphrase", "").takeIf { it.isNotEmpty() }
+            passphrase = json.optString("passphrase", "").takeIf { it.isNotEmpty() },
+            // 反向隧道配置
+            enableReverseTunnel = json.optBoolean("enableReverseTunnel", false),
+            remoteTunnelPort = json.optInt("remoteTunnelPort", 8888),
+            localSshPort = json.optInt("localSshPort", 8022),
+            localSshUsername = json.optString("localSshUsername", "root"),
+            localSshPassword = json.optString("localSshPassword", "")
         )
     }
     
@@ -118,6 +124,12 @@ class SSHConfigManager(context: Context) {
         config.password?.let { json.put("password", it) }
         config.privateKeyPath?.let { json.put("privateKeyPath", it) }
         config.passphrase?.let { json.put("passphrase", it) }
+        // 反向隧道配置
+        json.put("enableReverseTunnel", config.enableReverseTunnel)
+        json.put("remoteTunnelPort", config.remoteTunnelPort)
+        json.put("localSshPort", config.localSshPort)
+        json.put("localSshUsername", config.localSshUsername)
+        json.put("localSshPassword", config.localSshPassword)
         return json
     }
 }

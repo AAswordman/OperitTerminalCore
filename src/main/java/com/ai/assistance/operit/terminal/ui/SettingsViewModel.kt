@@ -71,6 +71,9 @@ class SettingsViewModel(
 
     private val _showSshToolsMissingDialog = MutableStateFlow(false)
     val showSshToolsMissingDialog = _showSshToolsMissingDialog.asStateFlow()
+    
+    private val _showOpensshMissingDialog = MutableStateFlow(false)
+    val showOpensshMissingDialog = _showOpensshMissingDialog.asStateFlow()
 
     // 自动检测更新，但不自动计算缓存大小
     init {
@@ -84,6 +87,10 @@ class SettingsViewModel(
     fun onSshToolsMissingDialogDismissed() {
         _showSshToolsMissingDialog.value = false
     }
+    
+    fun onOpensshMissingDialogDismissed() {
+        _showOpensshMissingDialog.value = false
+    }
 
     private fun areSshToolsInstalled(): Boolean {
         val filesDir = getApplication<Application>().filesDir
@@ -93,6 +100,13 @@ class SettingsViewModel(
         val sshpassExecutable = File(ubuntuRoot, "usr/bin/sshpass")
         
         return sshExecutable.exists() && sshpassExecutable.exists()
+    }
+    
+    private fun isOpensshServerInstalled(): Boolean {
+        val filesDir = getApplication<Application>().filesDir
+        val ubuntuRoot = File(filesDir, "usr/var/lib/proot-distro/installed-rootfs/ubuntu")
+        val sshdExecutable = File(ubuntuRoot, "usr/sbin/sshd")
+        return sshdExecutable.exists()
     }
 
     private fun loadSourceConfigs() {
@@ -338,12 +352,20 @@ class SettingsViewModel(
     
     fun setSSHEnabled(enabled: Boolean) {
         if (enabled) {
-            if (areSshToolsInstalled()) {
-                sshConfigManager.setEnabled(true)
-                loadSSHEnabled()
-            } else {
+            if (!areSshToolsInstalled()) {
                 _showSshToolsMissingDialog.value = true
+                return
             }
+            
+            // 检查是否启用了反向隧道且是否安装了openssh-server
+            val config = _sshConfig.value
+            if (config != null && config.enableReverseTunnel && !isOpensshServerInstalled()) {
+                _showOpensshMissingDialog.value = true
+                return
+            }
+            
+            sshConfigManager.setEnabled(true)
+            loadSSHEnabled()
         } else {
             sshConfigManager.setEnabled(false)
             loadSSHEnabled()

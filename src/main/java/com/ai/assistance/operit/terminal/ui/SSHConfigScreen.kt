@@ -198,6 +198,13 @@ fun SSHConfigEditDialog(
     var privateKeyPath by remember { mutableStateOf(config?.privateKeyPath ?: "") }
     var passphrase by remember { mutableStateOf(config?.passphrase ?: "") }
     
+    // 反向隧道配置
+    var enableReverseTunnel by remember { mutableStateOf(config?.enableReverseTunnel ?: false) }
+    var remoteTunnelPort by remember { mutableStateOf(config?.remoteTunnelPort?.toString() ?: "8888") }
+    var localSshPort by remember { mutableStateOf(config?.localSshPort?.toString() ?: "8022") }
+    var localSshUsername by remember { mutableStateOf(config?.localSshUsername ?: "root") }
+    var localSshPassword by remember { mutableStateOf(config?.localSshPassword ?: "") }
+    
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -351,6 +358,170 @@ fun SSHConfigEditDialog(
                         )
                     }
                 }
+                
+                // 反向隧道配置分隔符
+                item { Spacer(Modifier.height(16.dp)) }
+                
+                item {
+                    HorizontalDivider(
+                        color = SettingsTheme.onSurfaceColor.copy(alpha = 0.2f)
+                    )
+                }
+                
+                item { Spacer(Modifier.height(8.dp)) }
+                
+                // 反向挂载开关
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "启用反向挂载",
+                                color = SettingsTheme.onSurfaceColor,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "允许远程服务器挂载本地文件系统",
+                                color = SettingsTheme.onSurfaceVariant,
+                                fontSize = 12.sp
+                            )
+                        }
+                        Switch(
+                            checked = enableReverseTunnel,
+                            onCheckedChange = { enableReverseTunnel = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = SettingsTheme.primaryColor,
+                                checkedTrackColor = SettingsTheme.primaryColor.copy(alpha = 0.5f)
+                            )
+                        )
+                    }
+                }
+                
+                // 反向挂载说明
+                item { Spacer(Modifier.height(8.dp)) }
+                
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = SettingsTheme.primaryColor.copy(alpha = 0.1f)
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "📋 反向挂载说明",
+                                color = SettingsTheme.primaryColor,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                text = "• 本地需要：openssh-server（在环境配置中安装）",
+                                color = SettingsTheme.onSurfaceColor,
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                text = "• 远程需要：sshfs（在远程服务器安装）",
+                                color = SettingsTheme.onSurfaceColor,
+                                fontSize = 12.sp
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "启用后，远程服务器可通过 ~/storage 和 ~/sdcard 访问本地文件",
+                                color = SettingsTheme.onSurfaceVariant,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+                
+                // 如果启用反向隧道，显示配置字段
+                if (enableReverseTunnel) {
+                    item { Spacer(Modifier.height(12.dp)) }
+                    
+                    item {
+                        OutlinedTextField(
+                            value = remoteTunnelPort,
+                            onValueChange = { remoteTunnelPort = it },
+                            label = { Text("远程隧道端口") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = SettingsTheme.onSurfaceColor,
+                                unfocusedTextColor = SettingsTheme.onSurfaceColor,
+                                focusedBorderColor = SettingsTheme.primaryColor,
+                                unfocusedBorderColor = SettingsTheme.onSurfaceColor.copy(alpha = 0.5f),
+                                focusedLabelColor = SettingsTheme.primaryColor,
+                                unfocusedLabelColor = SettingsTheme.onSurfaceVariant
+                            )
+                        )
+                    }
+                    
+                    item { Spacer(Modifier.height(8.dp)) }
+                    
+                    item {
+                        OutlinedTextField(
+                            value = localSshPort,
+                            onValueChange = { localSshPort = it },
+                            label = { Text("本地SSH端口") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = SettingsTheme.onSurfaceColor,
+                                unfocusedTextColor = SettingsTheme.onSurfaceColor,
+                                focusedBorderColor = SettingsTheme.primaryColor,
+                                unfocusedBorderColor = SettingsTheme.onSurfaceColor.copy(alpha = 0.5f),
+                                focusedLabelColor = SettingsTheme.primaryColor,
+                                unfocusedLabelColor = SettingsTheme.onSurfaceVariant
+                            )
+                        )
+                    }
+                    
+                    item { Spacer(Modifier.height(8.dp)) }
+                    
+                    item {
+                        OutlinedTextField(
+                            value = localSshUsername,
+                            onValueChange = { localSshUsername = it },
+                            label = { Text("本地SSH用户名") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = SettingsTheme.onSurfaceColor,
+                                unfocusedTextColor = SettingsTheme.onSurfaceColor,
+                                focusedBorderColor = SettingsTheme.primaryColor,
+                                unfocusedBorderColor = SettingsTheme.onSurfaceColor.copy(alpha = 0.5f),
+                                focusedLabelColor = SettingsTheme.primaryColor,
+                                unfocusedLabelColor = SettingsTheme.onSurfaceVariant
+                            )
+                        )
+                    }
+                    
+                    item { Spacer(Modifier.height(8.dp)) }
+                    
+                    item {
+                        OutlinedTextField(
+                            value = localSshPassword,
+                            onValueChange = { localSshPassword = it },
+                            label = { Text("本地SSH密码") },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = SettingsTheme.onSurfaceColor,
+                                unfocusedTextColor = SettingsTheme.onSurfaceColor,
+                                focusedBorderColor = SettingsTheme.primaryColor,
+                                unfocusedBorderColor = SettingsTheme.onSurfaceColor.copy(alpha = 0.5f),
+                                focusedLabelColor = SettingsTheme.primaryColor,
+                                unfocusedLabelColor = SettingsTheme.onSurfaceVariant
+                            )
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
@@ -363,7 +534,13 @@ fun SSHConfigEditDialog(
                         authType = authType,
                         password = if (authType == SSHAuthType.PASSWORD) password else null,
                         privateKeyPath = if (authType == SSHAuthType.PUBLIC_KEY) privateKeyPath else null,
-                        passphrase = if (authType == SSHAuthType.PUBLIC_KEY && passphrase.isNotEmpty()) passphrase else null
+                        passphrase = if (authType == SSHAuthType.PUBLIC_KEY && passphrase.isNotEmpty()) passphrase else null,
+                        // 反向隧道配置
+                        enableReverseTunnel = enableReverseTunnel,
+                        remoteTunnelPort = remoteTunnelPort.toIntOrNull() ?: 8888,
+                        localSshPort = localSshPort.toIntOrNull() ?: 8022,
+                        localSshUsername = localSshUsername,
+                        localSshPassword = localSshPassword
                     )
                     onConfirm(newConfig)
                 },

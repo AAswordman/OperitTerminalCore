@@ -74,7 +74,10 @@ class TerminalManager private constructor(
     )
     private val sourceManager = SourceManager(context)
     private val sshConfigManager = SSHConfigManager(context)
-    private val terminalProviders = ConcurrentHashMap<String, TerminalProvider>()
+    
+    // 单例的 TerminalProvider
+    private var terminalProvider: TerminalProvider? = null
+    private val providerMutex = Mutex()
 
     // 状态和事件流
     private val _commandExecutionEvents = MutableSharedFlow<CommandExecutionEvent>()
@@ -152,8 +155,8 @@ class TerminalManager private constructor(
         val newSession = sessionManager.createNewSession(title, terminalType)
 
         // 异步初始化会话
-        val initJob = coroutineScope.launch {
-            initializeSession(newSession.id, terminalType)
+        coroutineScope.launch {
+            initializeSession(newSession.id)
         }
 
         // 等待会话初始化完成
@@ -361,40 +364,23 @@ class TerminalManager private constructor(
         }
     }
 
-    private fun initializeSession(sessionId: String, terminalType: TerminalType) {
+    private fun initializeSession(sessionId: String) {
         coroutineScope.launch {
-            when (terminalType) {
-                TerminalType.LOCAL -> {
-                    val success = initializeEnvironment()
-                    if (success) {
-                        startSession(sessionId, terminalType)
-                    }
-                }
-                TerminalType.SSH -> {
-                    val success = initializeEnvironment()
-                    if (success) {
-                        startSession(sessionId, terminalType)
-                    }
-                }
-                else -> {
-                    Log.e(TAG, "Unsupported terminal type: $terminalType")
-                }
+            val success = initializeEnvironment()
+            if (success) {
+                startSession(sessionId)
             }
         }
     }
 
-    private fun startSession(sessionId: String, terminalType: TerminalType) {
+    private fun startSession(sessionId: String) {
         coroutineScope.launch(Dispatchers.IO) {
             try {
-                Log.d(TAG, "Starting session with terminal type: $terminalType")
-                
-                // 创建并连接终端提供者
-                val provider = createTerminalProvider()
-                provider.connect().getOrThrow()
-                
-                // 存储provider以便后续使用
-                terminalProviders[sessionId] = provider
-                
+                Log.d(TAG, "Starting session...")
+
+                // 获取单例的终端提供者
+                val provider = getTerminalProvider()
+
                 // 启动终端会话
                 val result = provider.startSession(sessionId)
                 val (terminalSession, pty) = result.getOrThrow()
@@ -430,24 +416,29 @@ class TerminalManager private constructor(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error starting session", e)
-                // 清理失败的provider
-                terminalProviders.remove(sessionId)
             }
         }
     }
     
     /**
-     * 创建终端提供者 - 自动检测使用本地还是SSH
+     * 获取或创建单例的终端提供者
      */
-    private suspend fun createTerminalProvider(): TerminalProvider {
-        val sshConfig = sshConfigManager.getConfig()
-        return if (sshConfig != null && sshConfigManager.isEnabled()) {
-            Log.d(TAG, "Creating SSH terminal provider")
-            SSHTerminalProvider(context, sshConfig, this)
-        } else {
-            Log.d(TAG, "Creating local terminal provider")
-            LocalTerminalProvider(context)
+    private suspend fun getTerminalProvider(): TerminalProvider {
+        providerMutex.withLock {
+            if (terminalProvider == null) {
+                val sshConfig = sshConfigManager.getConfig()
+                val provider = if (sshConfig != null && sshConfigManager.isEnabled()) {
+                    Log.d(TAG, "Creating singleton SSH terminal provider")
+                    SSHTerminalProvider(context, sshConfig, this)
+                } else {
+                    Log.d(TAG, "Creating singleton local terminal provider")
+                    LocalTerminalProvider(context)
+                }
+                provider.connect().getOrThrow()
+                terminalProvider = provider
+            }
         }
+        return terminalProvider!!
     }
 
     suspend fun initializeEnvironment(): Boolean {
@@ -870,6 +861,13 @@ class TerminalManager private constructor(
     }
 
     fun cleanup() {
+        // 释放 provider 连接
+        kotlinx.coroutines.runBlocking {
+            terminalProvider?.disconnect()
+            Log.d(TAG, "Disconnected terminal provider")
+        }
+        terminalProvider = null
+        
         activeSessions.keys.forEach { sessionId ->
             closeTerminalSession(sessionId)
         }
@@ -886,16 +884,6 @@ class TerminalManager private constructor(
      * 否则返回本地文件系统提供者
      */
     fun getFileSystemProvider(): FileSystemProvider = kotlinx.coroutines.runBlocking {
-        val sshConfig = sshConfigManager.getConfig()
-        
-        return@runBlocking if (sshConfig != null && sshConfigManager.isEnabled()) {
-            // 查找任何一个 SSH provider（所有SSH会话共享同一个SFTP连接）
-            val sshProvider = terminalProviders.values.firstOrNull { it.type == TerminalType.SSH }
-            sshProvider?.getFileSystemProvider()
-                ?: throw IllegalStateException("SSH configured but no active SSH connection. Please create a terminal session first.")
-        } else {
-            // 使用本地文件系统提供者
-            LocalFileSystemProvider(context)
-        }
+        getTerminalProvider().getFileSystemProvider()
     }
 }

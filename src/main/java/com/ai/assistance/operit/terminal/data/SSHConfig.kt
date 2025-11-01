@@ -10,7 +10,13 @@ data class SSHConfig(
     val authType: SSHAuthType,
     val password: String? = null,
     val privateKeyPath: String? = null,
-    val passphrase: String? = null
+    val passphrase: String? = null,
+    // 反向隧道配置
+    val enableReverseTunnel: Boolean = false,
+    val remoteTunnelPort: Int = 8888,
+    val localSshPort: Int = 8022,
+    val localSshUsername: String = "root",
+    val localSshPassword: String = ""
 )
 
 /**

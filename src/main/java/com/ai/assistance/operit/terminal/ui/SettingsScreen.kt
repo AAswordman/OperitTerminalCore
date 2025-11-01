@@ -76,6 +76,7 @@ fun SettingsScreen(
     val sshConfig by viewModel.sshConfig.collectAsState()
     val sshEnabled by viewModel.sshEnabled.collectAsState()
     var showSshToolsMissingDialog by remember { mutableStateOf(false) }
+    var showOpensshMissingDialog by remember { mutableStateOf(false) }
     
     var showClearCacheDialog by remember { mutableStateOf(false) }
 
@@ -83,6 +84,11 @@ fun SettingsScreen(
     val showSshToolsMissingDialogState by viewModel.showSshToolsMissingDialog.collectAsState()
     LaunchedEffect(showSshToolsMissingDialogState) {
         showSshToolsMissingDialog = showSshToolsMissingDialogState
+    }
+    
+    val showOpensshMissingDialogState by viewModel.showOpensshMissingDialog.collectAsState()
+    LaunchedEffect(showOpensshMissingDialogState) {
+        showOpensshMissingDialog = showOpensshMissingDialogState
     }
 
     Scaffold(
@@ -351,13 +357,31 @@ fun SettingsScreen(
                                 color = SettingsTheme.onSurfaceColor
                             )
                             if (sshConfig != null) {
-                                Text(
-                                    text = if (sshEnabled) "使用远程 SSH 终端" else "使用本地终端",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = SettingsTheme.onSurfaceColor.copy(alpha = 0.6f)
-                                )
+                            Text(
+                                text = if (sshEnabled) "使用远程 SSH 终端" else "使用本地终端",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = SettingsTheme.onSurfaceColor.copy(alpha = 0.6f)
+                            )
+                            // 显示反向挂载状态
+                            sshConfig?.let { config ->
+                                if (config.enableReverseTunnel) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "✓ 反向挂载已启用",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = SettingsTheme.primaryColor,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = "远程可通过 ~/storage 和 ~/sdcard 访问本地文件",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = SettingsTheme.onSurfaceVariant,
+                                        fontSize = 11.sp
+                                    )
+                                }
                             }
                         }
+                    }
                         Switch(
                             checked = sshEnabled,
                             onCheckedChange = { enabled ->
@@ -461,6 +485,81 @@ fun SettingsScreen(
                     onClick = { viewModel.onSshToolsMissingDialogDismissed() }
                 ) {
                     Text(context.getString(com.ai.assistance.operit.terminal.R.string.dialog_cancel))
+                }
+            },
+            containerColor = SettingsTheme.surfaceColor
+        )
+    }
+    
+    if (showOpensshMissingDialog) {
+        AlertDialog(
+            onDismissRequest = { viewModel.onOpensshMissingDialogDismissed() },
+            title = { 
+                Text(
+                    text = "缺少 OpenSSH Server", 
+                    color = SettingsTheme.onSurfaceColor, 
+                    fontWeight = FontWeight.Bold
+                ) 
+            },
+            text = { 
+                Column {
+                    Text(
+                        text = "启用反向挂载需要安装以下组件：", 
+                        color = SettingsTheme.onSurfaceColor,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "✓ 本地（Android）：openssh-server",
+                        color = SettingsTheme.primaryColor,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = "  → 请前往环境配置安装",
+                        color = SettingsTheme.onSurfaceVariant,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "✓ 远程服务器：sshfs",
+                        color = SettingsTheme.primaryColor,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = "  → 在远程服务器执行：",
+                        color = SettingsTheme.onSurfaceVariant,
+                        fontSize = 12.sp
+                    )
+                    Text(
+                        text = "     apt install sshfs  # Ubuntu/Debian",
+                        color = SettingsTheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    )
+                    Text(
+                        text = "     yum install fuse-sshfs  # CentOS/RHEL",
+                        color = SettingsTheme.onSurfaceVariant,
+                        fontSize = 11.sp,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.onOpensshMissingDialogDismissed()
+                        onBack() // 返回上一页，方便用户去环境配置
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = SettingsTheme.primaryColor)
+                ) {
+                    Text("去安装 openssh-server")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { viewModel.onOpensshMissingDialogDismissed() }
+                ) {
+                    Text("取消")
                 }
             },
             containerColor = SettingsTheme.surfaceColor
