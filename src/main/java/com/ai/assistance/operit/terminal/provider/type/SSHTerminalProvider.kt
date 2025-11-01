@@ -38,6 +38,9 @@ class SSHTerminalProvider(
     // 记录我们实际挂载的路径，只卸载我们自己挂载的
     private val mountedPaths = mutableSetOf<String>()
     
+    // 记录端口转发状态
+    private var portForwardingActive = false
+    
     companion object {
         private const val TAG = "SSHTerminalProvider"
     }
@@ -87,6 +90,11 @@ class SSHTerminalProvider(
                 // 创建SFTP文件系统提供者
                 fileSystemProvider = SSHFileSystemProvider(sshSession)
                 
+                // 设置本地端口转发（用于MCP Bridge）
+                if (sshConfig.enablePortForwarding) {
+                    setupPortForwarding(sshSession)
+                }
+                
                 Log.d(TAG, "SSH connection for SFTP established successfully")
                 Result.success(Unit)
             } catch (e: Exception) {
@@ -98,6 +106,9 @@ class SSHTerminalProvider(
     
     override suspend fun disconnect() {
         withContext(Dispatchers.IO) {
+            // 关闭端口转发
+            teardownPortForwarding()
+            
             // 卸载存储
             unmountStorage()
             
@@ -380,6 +391,55 @@ class SSHTerminalProvider(
             Log.d(TAG, "Storage unmounted successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to unmount storage", e)
+            // 不抛出异常，允许继续断开连接
+        }
+    }
+    
+    /**
+     * 设置本地端口转发
+     * 将本地端口转发到远程服务器的指定端口（用于MCP Bridge）
+     */
+    private fun setupPortForwarding(sshSession: Session) {
+        try {
+            val localPort = sshConfig.localForwardPort
+            val remotePort = sshConfig.remoteForwardPort
+            
+            Log.d(TAG, "Setting up port forwarding: localhost:$localPort -> remote:$remotePort")
+            
+            // 使用JSch的setPortForwardingL方法设置本地端口转发
+            // 格式：setPortForwardingL(本地端口, 远程主机, 远程端口)
+            // 这里远程主机使用localhost，因为目标是SSH服务器本身的端口
+            sshSession.setPortForwardingL(localPort, "localhost", remotePort)
+            
+            portForwardingActive = true
+            Log.d(TAG, "Port forwarding established successfully: localhost:$localPort -> remote:$remotePort")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to setup port forwarding", e)
+            // 不抛出异常，允许继续使用SSH（即使端口转发失败）
+        }
+    }
+    
+    /**
+     * 关闭端口转发
+     */
+    private fun teardownPortForwarding() {
+        if (!portForwardingActive) {
+            return
+        }
+        
+        val sshSession = session ?: return
+        
+        try {
+            val localPort = sshConfig.localForwardPort
+            Log.d(TAG, "Tearing down port forwarding on port $localPort")
+            
+            // 删除端口转发
+            sshSession.delPortForwardingL(localPort)
+            
+            portForwardingActive = false
+            Log.d(TAG, "Port forwarding closed successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to teardown port forwarding", e)
             // 不抛出异常，允许继续断开连接
         }
     }

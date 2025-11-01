@@ -40,8 +40,17 @@ class LocalFileSystemProvider(
     private fun mapPath(linuxPath: String): String {
         val root = ubuntuRoot ?: return linuxPath
         
+        // 处理 ~ 展开（~/ 展开为 /root/）
+        val expandedPath = if (linuxPath.startsWith("~/")) {
+            "/root/" + linuxPath.substring(2)
+        } else if (linuxPath == "~") {
+            "/root"
+        } else {
+            linuxPath
+        }
+        
         // 移除路径开头的/，然后拼接到Ubuntu根目录
-        val relativePath = linuxPath.trimStart('/')
+        val relativePath = expandedPath.trimStart('/')
         
         // 如果输入路径为空或只有/，返回Ubuntu根目录
         if (relativePath.isEmpty()) {
