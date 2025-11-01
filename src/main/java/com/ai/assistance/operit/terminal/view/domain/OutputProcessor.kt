@@ -1,13 +1,12 @@
-package com.ai.assistance.operit.terminal.domain
+package com.ai.assistance.operit.terminal.view.domain
 
 import android.util.Log
 import com.ai.assistance.operit.terminal.CommandExecutionEvent
 import com.ai.assistance.operit.terminal.SessionDirectoryEvent
-import com.ai.assistance.operit.terminal.data.CommandHistoryItem
+import com.ai.assistance.operit.terminal.SessionManager
 import com.ai.assistance.operit.terminal.data.SessionInitState
 import com.ai.assistance.operit.terminal.data.TerminalSessionData
-import com.ai.assistance.operit.terminal.domain.ansi.AnsiUtils
-import java.util.UUID
+import com.ai.assistance.operit.terminal.view.domain.ansi.AnsiUtils
 
 /**
  * 终端输出的会话处理状态
@@ -220,7 +219,7 @@ class OutputProcessor(
         line: String,
         sessionManager: SessionManager
     ) {
-        if (AnsiUtils.stripAnsi(line).trim() == "TERMINAL_READY") {
+        if (AnsiUtils.stripAnsi(line).contains("TERMINAL_READY")) {
             Log.d(TAG, "TERMINAL_READY marker found.")
             sessionManager.updateSession(sessionId) { session ->
                 session.copy(initState = SessionInitState.AWAITING_FIRST_PROMPT)
@@ -234,6 +233,7 @@ class OutputProcessor(
         sessionManager: SessionManager
     ) {
         val cleanLine = AnsiUtils.stripAnsi(line)
+        Log.d(TAG, "handleAwaitingFirstPromptState: checking line: '$cleanLine'")
         if (handlePrompt(sessionId, cleanLine, sessionManager)) {
             Log.d(TAG, "First prompt detected. Session is now ready.")
             sessionManager.updateSession(sessionId) { session ->
@@ -242,6 +242,8 @@ class OutputProcessor(
             
             // 发送欢迎语到 Canvas
             sendWelcomeMessage(sessionId, sessionManager)
+        } else {
+            Log.d(TAG, "Not a prompt, continuing to wait...")
         }
     }
 

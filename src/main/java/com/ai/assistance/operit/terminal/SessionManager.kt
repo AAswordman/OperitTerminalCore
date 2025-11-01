@@ -1,15 +1,13 @@
-package com.ai.assistance.operit.terminal.domain
+package com.ai.assistance.operit.terminal
 
 import android.util.Log
-import com.ai.assistance.operit.terminal.TerminalManager
-import com.ai.assistance.operit.terminal.data.SessionInitState
 import com.ai.assistance.operit.terminal.data.TerminalSessionData
 import com.ai.assistance.operit.terminal.data.TerminalState
+import com.ai.assistance.operit.terminal.provider.type.TerminalType
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import java.util.UUID
 
 /**
  * 终端会话管理器
@@ -22,13 +20,25 @@ class SessionManager(private val terminalManager: TerminalManager) {
     
     /**
      * 创建新会话
+     * 
+     * @param title 会话标题
+     * @param terminalType 终端类型
      */
-    fun createNewSession(title: String? = null): TerminalSessionData {
+    fun createNewSession(
+        title: String? = null,
+        terminalType: TerminalType
+    ): TerminalSessionData {
         lateinit var newSession: TerminalSessionData
         _state.update { currentState ->
             val sessionCount = currentState.sessions.size + 1
+            val defaultTitle = when (terminalType) {
+                TerminalType.LOCAL -> "Ubuntu $sessionCount"
+                TerminalType.SSH -> "SSH $sessionCount"
+                else -> "Terminal $sessionCount"
+            }
             newSession = TerminalSessionData(
-                title = title ?: "Ubuntu $sessionCount"
+                title = title ?: defaultTitle,
+                terminalType = terminalType
             )
             currentState.copy(
                 sessions = currentState.sessions + newSession,
@@ -36,7 +46,7 @@ class SessionManager(private val terminalManager: TerminalManager) {
             )
         }
         
-        Log.d("SessionManager", "Created new session: ${newSession.id}")
+        Log.d("SessionManager", "Created new session: ${newSession.id} (type: $terminalType)")
         return newSession
     }
     

@@ -28,6 +28,8 @@
     <string name="category_rust_desc">Rust 开发环境和包管理器</string>
     <string name="category_go_name">Go 环境</string>
     <string name="category_go_desc">Go 语言开发环境</string>
+    <string name="category_ssh_name">SSH 工具</string>
+    <string name="category_ssh_desc">SSH 客户端和密码认证工具</string>
     
     <!-- Package Items -->
     <string name="package_nodejs_name">Node.js</string>
@@ -48,6 +50,10 @@
     <string name="package_rust_desc">通过 rustup 安装 Rust 工具链</string>
     <string name="package_go_name">Go</string>
     <string name="package_go_desc">Go 编程语言</string>
+    <string name="package_ssh_client_name">SSH 客户端</string>
+    <string name="package_ssh_client_desc">SSH 连接客户端</string>
+    <string name="package_sshpass_name">sshpass</string>
+    <string name="package_sshpass_desc">SSH 密码认证工具</string>
     
     <!-- SettingsScreen -->
     <string name="settings_title">设置</string>
@@ -127,4 +133,10 @@
     <string name="cannot_open_browser">无法打开浏览器</string>
     <string name="ftp_server_running_info">FTP服务器正在运行\n地址: %1$s:%2$s\n用户名: %3$s\n密码: %4$s\n根目录: Ubuntu文件系统</string>
     <string name="unknown_session">未知会话</string>
+    
+    <!-- SSH Tools Check -->
+    <string name="ssh_tools_missing_title">SSH 工具未安装</string>
+    <string name="ssh_tools_missing_message">启用 SSH 连接需要安装以下工具：\n\n• ssh - SSH 客户端\n• sshpass - SSH 密码认证工具\n\n请前往"环境配置"页面安装 SSH 工具。</string>
+    <string name="go_to_setup">前往配置</string>
+    <string name="checking_ssh_tools">正在检查 SSH 工具...</string>
 </resources> 

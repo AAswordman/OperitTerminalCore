@@ -28,6 +28,8 @@
     <string name="category_rust_desc">Rust development environment and package manager</string>
     <string name="category_go_name">Go Environment</string>
     <string name="category_go_desc">Go programming language environment</string>
+    <string name="category_ssh_name">SSH Tools</string>
+    <string name="category_ssh_desc">SSH client and password authentication tools</string>
     
     <!-- Package Items -->
     <string name="package_nodejs_name">Node.js</string>
@@ -48,6 +50,10 @@
     <string name="package_rust_desc">Install Rust toolchain via rustup</string>
     <string name="package_go_name">Go</string>
     <string name="package_go_desc">Go programming language</string>
+    <string name="package_ssh_client_name">SSH Client</string>
+    <string name="package_ssh_client_desc">SSH connection client</string>
+    <string name="package_sshpass_name">sshpass</string>
+    <string name="package_sshpass_desc">SSH password authentication tool</string>
     
     <!-- SettingsScreen -->
     <string name="settings_title">Settings</string>
@@ -127,4 +133,10 @@
     <string name="cannot_open_browser">Cannot open browser</string>
     <string name="ftp_server_running_info">FTP Server Running\nAddress: %1$s:%2$s\nUsername: %3$s\nPassword: %4$s\nRoot Directory: Ubuntu File System</string>
     <string name="unknown_session">Unknown Session</string>
+    
+    <!-- SSH Tools Check -->
+    <string name="ssh_tools_missing_title">SSH Tools Not Installed</string>
+    <string name="ssh_tools_missing_message">Enabling SSH connection requires the following tools:\n\n• ssh - SSH client\n• sshpass - SSH password authentication tool\n\n Please go to the "Environment Setup" page to install SSH tools.</string>
+    <string name="go_to_setup">Go to Setup</string>
+    <string name="checking_ssh_tools">Checking SSH tools...</string>
 </resources> 

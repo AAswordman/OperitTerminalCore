@@ -16,8 +16,8 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.view.KeyEvent
-import com.ai.assistance.operit.terminal.domain.ansi.AnsiTerminalEmulator
-import com.ai.assistance.operit.terminal.domain.ansi.TerminalChar
+import com.ai.assistance.operit.terminal.view.domain.ansi.AnsiTerminalEmulator
+import com.ai.assistance.operit.terminal.view.domain.ansi.TerminalChar
 import kotlin.math.max
 import kotlin.math.min
 import java.util.concurrent.locks.ReentrantLock

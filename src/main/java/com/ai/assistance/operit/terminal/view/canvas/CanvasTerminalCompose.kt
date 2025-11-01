@@ -4,7 +4,7 @@ import android.view.MotionEvent
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
-import com.ai.assistance.operit.terminal.domain.ansi.AnsiTerminalEmulator
+import com.ai.assistance.operit.terminal.view.domain.ansi.AnsiTerminalEmulator
 
 /**
  * Compose集成桥接

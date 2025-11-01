@@ -95,6 +95,9 @@ dependencies {
     // Kotlin Serialization
     implementation(libs.kotlinx.serialization)
     
+    // SSH 依赖
+    implementation("com.jcraft:jsch:0.1.55")
+    
     // FTP服务器依赖
     implementation("org.apache.ftpserver:ftpserver-core:1.2.0")
     implementation("org.apache.ftpserver:ftplet-api:1.2.0")

@@ -89,6 +89,15 @@ fun SetupScreen(
                     )
                 ),
                 PackageCategory(
+                    id = "ssh",
+                    name = context.getString(com.ai.assistance.operit.terminal.R.string.category_ssh_name),
+                    description = context.getString(com.ai.assistance.operit.terminal.R.string.category_ssh_desc),
+                    packages = listOf(
+                        PackageItem("ssh", context.getString(com.ai.assistance.operit.terminal.R.string.package_ssh_client_name), "ssh", context.getString(com.ai.assistance.operit.terminal.R.string.package_ssh_client_desc)),
+                        PackageItem("sshpass", context.getString(com.ai.assistance.operit.terminal.R.string.package_sshpass_name), "sshpass", context.getString(com.ai.assistance.operit.terminal.R.string.package_sshpass_desc))
+                    )
+                ),
+                PackageCategory(
                     id = "java", 
                     name = context.getString(com.ai.assistance.operit.terminal.R.string.category_java_name),
                     description = context.getString(com.ai.assistance.operit.terminal.R.string.category_java_desc),
@@ -584,6 +593,8 @@ private suspend fun checkPackageInstalled(
         "nodejs" -> "node -v 2>/dev/null"
         "pnpm" -> "test -f \"$(npm prefix -g)/bin/pnpm\" && echo FOUND_PNPM"
         "go" -> "command -v go"
+        "ssh" -> "command -v ssh"
+        "sshpass" -> "command -v sshpass"
         else -> "dpkg -s ${pkg.command.split(" ").first()}"
     }
 
@@ -598,7 +609,7 @@ private suspend fun checkPackageInstalled(
             val majorVersion = versionMatch?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
             majorVersion >= 24
         }
-        "rust", "uv", "go" -> output.isNotBlank() && !output.contains("not found")
+        "rust", "uv", "go", "ssh", "sshpass" -> output.isNotBlank() && !output.contains("not found")
         "pnpm" -> output.contains("FOUND_PNPM")
         else -> output.contains("Status: install ok installed")
     }

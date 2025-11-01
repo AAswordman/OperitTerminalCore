@@ -1,4 +1,4 @@
-package com.ai.assistance.operit.terminal.domain.ansi
+package com.ai.assistance.operit.terminal.view.domain.ansi
 
 /**
  * ANSI 序列扫描器
@@ -75,14 +75,22 @@ class AnsiScanner(private val input: String) {
             ']' -> scanOSC()
             'P' -> scanDCS()
             // DEC 特殊序列
-            '7' -> { next(); AnsiSequence.SingleEscape('7') } // DECSC
-            '8' -> { next(); AnsiSequence.SingleEscape('8') } // DECRC
-            'c' -> { next(); AnsiSequence.SingleEscape('c') } // RIS
-            'D' -> { next(); AnsiSequence.SingleEscape('D') } // IND
-            'E' -> { next(); AnsiSequence.SingleEscape('E') } // NEL
-            'H' -> { next(); AnsiSequence.SingleEscape('H') } // HTS
-            'M' -> { next(); AnsiSequence.SingleEscape('M') } // RI
-            'Z' -> { next(); AnsiSequence.SingleEscape('Z') } // DECID
+            '7' -> { next(); AnsiSequence.SingleEscape('7')
+            } // DECSC
+            '8' -> { next(); AnsiSequence.SingleEscape('8')
+            } // DECRC
+            'c' -> { next(); AnsiSequence.SingleEscape('c')
+            } // RIS
+            'D' -> { next(); AnsiSequence.SingleEscape('D')
+            } // IND
+            'E' -> { next(); AnsiSequence.SingleEscape('E')
+            } // NEL
+            'H' -> { next(); AnsiSequence.SingleEscape('H')
+            } // HTS
+            'M' -> { next(); AnsiSequence.SingleEscape('M')
+            } // RI
+            'Z' -> { next(); AnsiSequence.SingleEscape('Z')
+            } // DECID
             else -> {
                 val unknownChar = next()
                 AnsiSequence.Unknown(input.substring(start, position))

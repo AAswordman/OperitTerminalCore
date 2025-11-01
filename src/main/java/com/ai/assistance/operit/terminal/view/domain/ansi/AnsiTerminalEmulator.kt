@@ -1,4 +1,4 @@
-package com.ai.assistance.operit.terminal.domain.ansi
+package com.ai.assistance.operit.terminal.view.domain.ansi
 
 import android.graphics.Color
 import android.util.Log
@@ -57,7 +57,7 @@ class AnsiTerminalEmulator(
     }
     
     // 屏幕缓冲区
-    private var screenBuffer: Array<Array<TerminalChar>> = 
+    private var screenBuffer: Array<Array<TerminalChar>> =
         Array(screenHeight) { Array(screenWidth) { TerminalChar() } }
     
     // 备用屏幕缓冲区（用于全屏应用如 vim）

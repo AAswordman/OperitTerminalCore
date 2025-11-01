@@ -1,4 +1,4 @@
-package com.ai.assistance.operit.terminal.domain.ansi
+package com.ai.assistance.operit.terminal.view.domain.ansi
 
 import android.graphics.Color
 

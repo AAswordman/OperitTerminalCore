@@ -72,7 +72,18 @@ fun SettingsScreen(
     val sourceConfigs by viewModel.sourceConfigs.collectAsState()
     var showSourceDialogFor by remember { mutableStateOf<PackageManagerType?>(null) }
     
+    // SSH配置相关状态（单一配置）
+    val sshConfig by viewModel.sshConfig.collectAsState()
+    val sshEnabled by viewModel.sshEnabled.collectAsState()
+    var showSshToolsMissingDialog by remember { mutableStateOf(false) }
+    
     var showClearCacheDialog by remember { mutableStateOf(false) }
+
+    // 当 ViewModel 通知显示对话框时，更新本地状态
+    val showSshToolsMissingDialogState by viewModel.showSshToolsMissingDialog.collectAsState()
+    LaunchedEffect(showSshToolsMissingDialogState) {
+        showSshToolsMissingDialog = showSshToolsMissingDialogState
+    }
 
     Scaffold(
         topBar = {
@@ -317,6 +328,76 @@ fun SettingsScreen(
                 }
             }
             
+            // SSH配置区域
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = SettingsTheme.surfaceColor)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    // SSH 启用开关
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "启用 SSH 连接",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = SettingsTheme.onSurfaceColor
+                            )
+                            if (sshConfig != null) {
+                                Text(
+                                    text = if (sshEnabled) "使用远程 SSH 终端" else "使用本地终端",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = SettingsTheme.onSurfaceColor.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = sshEnabled,
+                            onCheckedChange = { enabled ->
+                                viewModel.setSSHEnabled(enabled)
+                            },
+                            enabled = sshConfig != null,
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = SettingsTheme.primaryColor,
+                                checkedTrackColor = SettingsTheme.primaryColor.copy(alpha = 0.5f)
+                            )
+                        )
+                    }
+                    
+                    if (sshConfig == null) {
+                        Text(
+                            text = "请先配置 SSH 连接信息",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SettingsTheme.onSurfaceColor.copy(alpha = 0.6f),
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
+                    
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 8.dp),
+                        color = SettingsTheme.onSurfaceColor.copy(alpha = 0.1f)
+                    )
+                    
+                    // SSH 配置表单
+                    SSHConfigScreen(
+                        config = sshConfig,
+                        onSave = { config ->
+                            viewModel.saveSSHConfig(config)
+                        },
+                        onDelete = {
+                            viewModel.deleteSSHConfig()
+                        }
+                    )
+                }
+            }
+            
             // 源管理区域
             Card(
                 modifier = Modifier
@@ -348,6 +429,44 @@ fun SettingsScreen(
         }
     }
     
+    if (showSshToolsMissingDialog) {
+        AlertDialog(
+            onDismissRequest = { viewModel.onSshToolsMissingDialogDismissed() },
+            title = { 
+                Text(
+                    text = context.getString(com.ai.assistance.operit.terminal.R.string.ssh_tools_missing_title), 
+                    color = SettingsTheme.onSurfaceColor, 
+                    fontWeight = FontWeight.Bold
+                ) 
+            },
+            text = { 
+                Text(
+                    text = context.getString(com.ai.assistance.operit.terminal.R.string.ssh_tools_missing_message), 
+                    color = SettingsTheme.onSurfaceColor
+                ) 
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.onSshToolsMissingDialogDismissed()
+                        onBack() // 返回上一页，方便用户去环境配置
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = SettingsTheme.primaryColor)
+                ) {
+                    Text(context.getString(com.ai.assistance.operit.terminal.R.string.go_to_setup))
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { viewModel.onSshToolsMissingDialogDismissed() }
+                ) {
+                    Text(context.getString(com.ai.assistance.operit.terminal.R.string.dialog_cancel))
+                }
+            },
+            containerColor = SettingsTheme.surfaceColor
+        )
+    }
+
     if (showClearCacheDialog) {
         AlertDialog(
             onDismissRequest = { showClearCacheDialog = false },

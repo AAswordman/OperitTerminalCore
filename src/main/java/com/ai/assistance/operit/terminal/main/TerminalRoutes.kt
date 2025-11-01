@@ -1,4 +1,4 @@
-package com.ai.assistance.operit.terminal.navigation
+package com.ai.assistance.operit.terminal.main
 
 object TerminalRoutes {
     const val SETUP_ROUTE = "setup"

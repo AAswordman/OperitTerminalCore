@@ -10,11 +10,14 @@ import com.ai.assistance.operit.terminal.TerminalManager
 import com.ai.assistance.operit.terminal.data.MirrorSource
 import com.ai.assistance.operit.terminal.data.PackageManagerType
 import com.ai.assistance.operit.terminal.data.SourceConfig
+import com.ai.assistance.operit.terminal.data.SSHConfig
 import com.ai.assistance.operit.terminal.utils.SourceManager
+import com.ai.assistance.operit.terminal.utils.SSHConfigManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
+import java.io.File
 
 class SettingsViewModel(
     application: Application,
@@ -24,6 +27,7 @@ class SettingsViewModel(
     private val updateChecker = UpdateChecker(application)
     private val ftpServerManager = FtpServerManager.getInstance(application)
     private val sourceManager = SourceManager(application)
+    private val sshConfigManager = SSHConfigManager(application)
 
     // 用于跟踪缓存计算任务的Job
     private var cacheSizeCalculationJob: Job? = null
@@ -57,12 +61,38 @@ class SettingsViewModel(
     // 源管理相关状态
     private val _sourceConfigs = MutableStateFlow<Map<PackageManagerType, SourceConfig>>(emptyMap())
     val sourceConfigs = _sourceConfigs.asStateFlow()
+    
+    // SSH配置相关状态（单一配置）
+    private val _sshConfig = MutableStateFlow<SSHConfig?>(null)
+    val sshConfig = _sshConfig.asStateFlow()
+    
+    private val _sshEnabled = MutableStateFlow(false)
+    val sshEnabled = _sshEnabled.asStateFlow()
+
+    private val _showSshToolsMissingDialog = MutableStateFlow(false)
+    val showSshToolsMissingDialog = _showSshToolsMissingDialog.asStateFlow()
 
     // 自动检测更新，但不自动计算缓存大小
     init {
         checkForUpdates()
         updateFtpServerStatus()
         loadSourceConfigs()
+        loadSSHConfigs()
+        loadSSHEnabled()
+    }
+
+    fun onSshToolsMissingDialogDismissed() {
+        _showSshToolsMissingDialog.value = false
+    }
+
+    private fun areSshToolsInstalled(): Boolean {
+        val filesDir = getApplication<Application>().filesDir
+        val ubuntuRoot = File(filesDir, "usr/var/lib/proot-distro/installed-rootfs/ubuntu")
+        
+        val sshExecutable = File(ubuntuRoot, "usr/bin/ssh")
+        val sshpassExecutable = File(ubuntuRoot, "usr/bin/sshpass")
+        
+        return sshExecutable.exists() && sshpassExecutable.exists()
     }
 
     private fun loadSourceConfigs() {
@@ -275,5 +305,48 @@ class SettingsViewModel(
     private fun updateFtpServerStatus() {
         _isFtpServerRunning.value = ftpServerManager.isFtpServerRunning()
         _ftpServerStatus.value = ftpServerManager.getFtpServerInfo()
+    }
+    
+    // ==================== SSH 配置管理 ====================
+    
+    private fun loadSSHConfigs() {
+        viewModelScope.launch {
+            _sshConfig.value = sshConfigManager.getConfig()
+        }
+    }
+    
+    private fun loadSSHEnabled() {
+        _sshEnabled.value = sshConfigManager.isEnabled()
+    }
+    
+    fun saveSSHConfig(config: SSHConfig) {
+        viewModelScope.launch {
+            sshConfigManager.saveConfig(config)
+            loadSSHConfigs()
+        }
+    }
+    
+    fun deleteSSHConfig() {
+        viewModelScope.launch {
+            sshConfigManager.deleteConfig()
+            // 删除配置时也禁用 SSH
+            sshConfigManager.setEnabled(false)
+            loadSSHConfigs()
+            loadSSHEnabled()
+        }
+    }
+    
+    fun setSSHEnabled(enabled: Boolean) {
+        if (enabled) {
+            if (areSshToolsInstalled()) {
+                sshConfigManager.setEnabled(true)
+                loadSSHEnabled()
+            } else {
+                _showSshToolsMissingDialog.value = true
+            }
+        } else {
+            sshConfigManager.setEnabled(false)
+            loadSSHEnabled()
+        }
     }
 } 

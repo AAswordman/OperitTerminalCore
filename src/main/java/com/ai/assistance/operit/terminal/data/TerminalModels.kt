@@ -4,8 +4,8 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshots.SnapshotStateList
-import com.ai.assistance.operit.terminal.domain.ansi.AnsiTerminalEmulator
+import com.ai.assistance.operit.terminal.view.domain.ansi.AnsiTerminalEmulator
+import com.ai.assistance.operit.terminal.provider.type.TerminalType
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.serialization.Serializable
@@ -81,6 +81,7 @@ enum class SessionInitState {
 data class TerminalSessionData(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
+    val terminalType: TerminalType = TerminalType.LOCAL,
     val terminalSession: com.ai.assistance.operit.terminal.TerminalSession? = null,
     val pty: com.ai.assistance.operit.terminal.Pty? = null, // PTY 对象，用于获取终端模式
     val sessionWriter: OutputStreamWriter? = null,
