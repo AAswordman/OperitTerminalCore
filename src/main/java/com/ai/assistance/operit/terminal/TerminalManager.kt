@@ -772,8 +772,9 @@ class TerminalManager private constructor(
           sleep 1
           bump_progress
           
-          # 直接连接SSH（假设ssh和sshpass已安装）
-          login_ubuntu 'exec '"${'$'}SSH_COMMAND"
+          # 先进入Ubuntu环境，然后连接SSH
+          # 当SSH退出时，用户会回到本地Ubuntu shell
+          login_ubuntu 'echo "Connecting to SSH..."; '"${'$'}SSH_COMMAND"'; echo "SSH connection closed. You are now in local Ubuntu terminal."; /bin/bash -il'
         }
         """.trimIndent()
 
