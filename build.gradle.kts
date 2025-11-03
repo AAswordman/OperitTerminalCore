@@ -99,6 +99,18 @@ dependencies {
     implementation("com.jcraft:jsch:0.1.55")
     
     // FTP服务器依赖
-    implementation("org.apache.ftpserver:ftpserver-core:1.2.0")
+    implementation("org.apache.ftpserver:ftpserver-core:1.2.0") {
+        exclude(group = "org.bouncycastle", module = "bcprov-jdk15to18")
+    }
     implementation("org.apache.ftpserver:ftplet-api:1.2.0")
-} 
+    
+    // SSHD服务器依赖
+    implementation("org.apache.sshd:sshd-core:2.10.0") {
+        exclude(group = "org.bouncycastle", module = "bcprov-jdk15to18")
+    }
+    implementation("org.apache.sshd:sshd-sftp:2.10.0") {
+        exclude(group = "org.bouncycastle", module = "bcprov-jdk15to18")
+    }
+    // BouncyCastle for SSHD on Android (avoids JMX issues)
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78")
+}

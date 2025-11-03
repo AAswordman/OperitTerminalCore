@@ -41,6 +41,9 @@ class SSHTerminalProvider(
     // 记录端口转发状态
     private var portForwardingActive = false
     
+    // 记录反向隧道状态
+    private var reverseTunnelActive = false
+    
     companion object {
         private const val TAG = "SSHTerminalProvider"
     }
@@ -95,6 +98,18 @@ class SSHTerminalProvider(
                     setupPortForwarding(sshSession)
                 }
                 
+                // 设置反向隧道（用于sshfs挂载本地存储）
+                if (sshConfig.enableReverseTunnel) {
+                    // 启动本地SSHD服务器
+                    val started = terminalManager.getSSHDServerManager().startServer(sshConfig)
+                    if (!started) {
+                        Log.w(TAG, "Failed to start SSHD server for reverse tunnel")
+                    } else {
+                        // 在JSch Session层面配置反向端口转发
+                        setupReverseTunnel(sshSession)
+                    }
+                }
+                
                 Log.d(TAG, "SSH connection for SFTP established successfully")
                 Result.success(Unit)
             } catch (e: Exception) {
@@ -109,6 +124,9 @@ class SSHTerminalProvider(
             // 关闭端口转发
             teardownPortForwarding()
             
+            // 关闭反向隧道
+            teardownReverseTunnel()
+            
             // 卸载存储
             unmountStorage()
             
@@ -120,6 +138,9 @@ class SSHTerminalProvider(
             // 关闭SFTP文件系统提供者
             fileSystemProvider?.close()
             fileSystemProvider = null
+            
+            // 停止SSHD服务器
+            terminalManager.getSSHDServerManager().stopServer()
             
             // 断开SSH会话
             session?.disconnect()
@@ -209,10 +230,7 @@ class SSHTerminalProvider(
         cmd.append("ssh")
         cmd.append(" -p ${sshConfig.port}")
         
-        // 反向隧道配置
-        if (sshConfig.enableReverseTunnel) {
-            cmd.append(" -R ${sshConfig.remoteTunnelPort}:localhost:${sshConfig.localSshPort}")
-        }
+        // 注意：反向隧道现在通过JSch Session API配置（setupReverseTunnel），不再需要ssh命令参数
         
         if (sshConfig.authType == SSHAuthType.PUBLIC_KEY && sshConfig.privateKeyPath != null) {
             // 注意：这里的路径是Android文件系统中的路径。
@@ -281,7 +299,7 @@ class SSHTerminalProvider(
                 if ! mountpoint -q ~/storage 2>/dev/null; then
                     echo "Mounting local /sdcard to ~/storage..."
                     sshfs -p ${sshConfig.remoteTunnelPort} \
-                        ${sshConfig.localSshUsername}@localhost:/sdcard \
+                        ${sshConfig.localSshUsername}@localhost:/ \
                         ~/storage \
                         -o password_stdin \
                         -o StrictHostKeyChecking=no \
@@ -298,7 +316,7 @@ class SSHTerminalProvider(
                 if ! mountpoint -q ~/sdcard 2>/dev/null; then
                     echo "Mounting local /sdcard to ~/sdcard..."
                     sshfs -p ${sshConfig.remoteTunnelPort} \
-                        ${sshConfig.localSshUsername}@localhost:/sdcard \
+                        ${sshConfig.localSshUsername}@localhost:/ \
                         ~/sdcard \
                         -o password_stdin \
                         -o StrictHostKeyChecking=no \
@@ -440,6 +458,55 @@ class SSHTerminalProvider(
             Log.d(TAG, "Port forwarding closed successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to teardown port forwarding", e)
+            // 不抛出异常，允许继续断开连接
+        }
+    }
+    
+    /**
+     * 设置反向端口转发（反向隧道）
+     * 将远程服务器的端口转发到本地SSHD服务器（用于sshfs挂载本地存储）
+     */
+    private fun setupReverseTunnel(sshSession: Session) {
+        try {
+            val remoteTunnelPort = sshConfig.remoteTunnelPort
+            val localSshPort = sshConfig.localSshPort
+            
+            Log.d(TAG, "Setting up reverse tunnel: remote:$remoteTunnelPort -> localhost:$localSshPort")
+            
+            // 使用JSch的setPortForwardingR方法设置反向端口转发
+            // 格式：setPortForwardingR(远程端口, 本地主机, 本地端口)
+            // 远程服务器的remoteTunnelPort会转发到本地的localSshPort
+            sshSession.setPortForwardingR(remoteTunnelPort, "localhost", localSshPort)
+            
+            reverseTunnelActive = true
+            Log.d(TAG, "Reverse tunnel established successfully: remote:$remoteTunnelPort -> localhost:$localSshPort")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to setup reverse tunnel", e)
+            // 不抛出异常，允许继续使用SSH（即使反向隧道失败）
+        }
+    }
+    
+    /**
+     * 关闭反向端口转发
+     */
+    private fun teardownReverseTunnel() {
+        if (!reverseTunnelActive) {
+            return
+        }
+        
+        val sshSession = session ?: return
+        
+        try {
+            val remoteTunnelPort = sshConfig.remoteTunnelPort
+            Log.d(TAG, "Tearing down reverse tunnel on remote port $remoteTunnelPort")
+            
+            // 删除反向端口转发
+            sshSession.delPortForwardingR(remoteTunnelPort)
+            
+            reverseTunnelActive = false
+            Log.d(TAG, "Reverse tunnel closed successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to teardown reverse tunnel", e)
             // 不抛出异常，允许继续断开连接
         }
     }

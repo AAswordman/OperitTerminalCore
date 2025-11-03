@@ -31,6 +31,7 @@ import com.ai.assistance.operit.terminal.data.PackageManagerType
 import com.ai.assistance.operit.terminal.data.SessionInitState
 import com.ai.assistance.operit.terminal.utils.SourceManager
 import com.ai.assistance.operit.terminal.utils.SSHConfigManager
+import com.ai.assistance.operit.terminal.utils.SSHDServerManager
 import com.ai.assistance.operit.terminal.provider.filesystem.FileSystemProvider
 import com.ai.assistance.operit.terminal.provider.filesystem.LocalFileSystemProvider
 import com.ai.assistance.operit.terminal.provider.type.TerminalProvider
@@ -74,6 +75,7 @@ class TerminalManager private constructor(
     )
     private val sourceManager = SourceManager(context)
     private val sshConfigManager = SSHConfigManager(context)
+    private val sshdServerManager = SSHDServerManager.getInstance(context)
     
     // 单例的 TerminalProvider
     private var terminalProvider: TerminalProvider? = null
@@ -866,6 +868,10 @@ class TerminalManager private constructor(
         kotlinx.coroutines.runBlocking {
             terminalProvider?.disconnect()
             Log.d(TAG, "Disconnected terminal provider")
+            
+            // 停止SSHD服务器
+            sshdServerManager.stopServer()
+            Log.d(TAG, "Stopped SSHD server")
         }
         terminalProvider = null
         
@@ -887,4 +893,11 @@ class TerminalManager private constructor(
     fun getFileSystemProvider(): FileSystemProvider = kotlinx.coroutines.runBlocking {
         getTerminalProvider().getFileSystemProvider()
     }
+    
+    /**
+     * 获取SSHD服务器管理器
+     * 
+     * 用于管理本地SSHD服务器（反向SSH隧道场景）
+     */
+    fun getSSHDServerManager(): SSHDServerManager = sshdServerManager
 }

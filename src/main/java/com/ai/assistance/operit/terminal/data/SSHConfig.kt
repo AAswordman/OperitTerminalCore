@@ -13,11 +13,11 @@ data class SSHConfig(
     val passphrase: String? = null,
     // 反向隧道配置
     val enableReverseTunnel: Boolean = false,
-    val remoteTunnelPort: Int = 8888,
-    val localSshPort: Int = 8022,
-    val localSshUsername: String = "root",
-    val localSshPassword: String = "",
+    val remoteTunnelPort: Int = 8881,
+    val localSshPort: Int = 2223,  // 本地SSHD服务器端口
+    val localSshPassword: String = "3688368398",
     // 本地端口转发配置（用于MCP Bridge）
+    val localSshUsername: String = "android",
     val enablePortForwarding: Boolean = true,
     val localForwardPort: Int = 8751,  // 本地监听端口
     val remoteForwardPort: Int = 8752  // 远程目标端口
