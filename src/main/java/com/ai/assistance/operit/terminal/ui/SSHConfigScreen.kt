@@ -200,10 +200,14 @@ fun SSHConfigEditDialog(
     
     // 反向隧道配置
     var enableReverseTunnel by remember { mutableStateOf(config?.enableReverseTunnel ?: false) }
-    var remoteTunnelPort by remember { mutableStateOf(config?.remoteTunnelPort?.toString() ?: "8888") }
-    var localSshPort by remember { mutableStateOf(config?.localSshPort?.toString() ?: "8022") }
-    var localSshUsername by remember { mutableStateOf(config?.localSshUsername ?: "root") }
-    var localSshPassword by remember { mutableStateOf(config?.localSshPassword ?: "") }
+    var remoteTunnelPort by remember { mutableStateOf(config?.remoteTunnelPort?.toString() ?: "8881") }
+    var localSshPort by remember { mutableStateOf(config?.localSshPort?.toString() ?: "2223") }
+    var localSshUsername by remember { mutableStateOf(config?.localSshUsername ?: "android") }
+    var localSshPassword by remember { mutableStateOf(config?.localSshPassword ?: "3688368398") }
+    
+    // 心跳包配置
+    var enableKeepAlive by remember { mutableStateOf(config?.enableKeepAlive ?: true) }
+    var keepAliveInterval by remember { mutableStateOf(config?.keepAliveInterval?.toString() ?: "30") }
     
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -355,6 +359,82 @@ fun SSHConfigEditDialog(
                                 focusedLabelColor = SettingsTheme.primaryColor,
                                 unfocusedLabelColor = SettingsTheme.onSurfaceVariant
                             )
+                        )
+                    }
+                }
+                
+                // 心跳包配置分隔符
+                item { Spacer(Modifier.height(16.dp)) }
+                
+                item {
+                    HorizontalDivider(
+                        color = SettingsTheme.onSurfaceColor.copy(alpha = 0.2f)
+                    )
+                }
+                
+                item { Spacer(Modifier.height(8.dp)) }
+                
+                // 心跳包开关
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "启用心跳包",
+                                color = SettingsTheme.onSurfaceColor,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "防止连接因闲置而断开",
+                                color = SettingsTheme.onSurfaceVariant,
+                                fontSize = 12.sp
+                            )
+                        }
+                        Switch(
+                            checked = enableKeepAlive,
+                            onCheckedChange = { enableKeepAlive = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = SettingsTheme.primaryColor,
+                                checkedTrackColor = SettingsTheme.primaryColor.copy(alpha = 0.5f)
+                            )
+                        )
+                    }
+                }
+                
+                // 如果启用心跳包，显示配置字段
+                if (enableKeepAlive) {
+                    item { Spacer(Modifier.height(12.dp)) }
+                    
+                    item {
+                        OutlinedTextField(
+                            value = keepAliveInterval,
+                            onValueChange = { keepAliveInterval = it },
+                            label = { Text("心跳间隔（秒）") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedTextColor = SettingsTheme.onSurfaceColor,
+                                unfocusedTextColor = SettingsTheme.onSurfaceColor,
+                                focusedBorderColor = SettingsTheme.primaryColor,
+                                unfocusedBorderColor = SettingsTheme.onSurfaceColor.copy(alpha = 0.5f),
+                                focusedLabelColor = SettingsTheme.primaryColor,
+                                unfocusedLabelColor = SettingsTheme.onSurfaceVariant
+                            )
+                        )
+                    }
+                    
+                    item { Spacer(Modifier.height(4.dp)) }
+                    
+                    item {
+                        Text(
+                            text = "💡 建议设置为 30-60 秒，每隔此时间向服务器发送心跳",
+                            color = SettingsTheme.onSurfaceVariant,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(horizontal = 4.dp)
                         )
                     }
                 }
@@ -537,10 +617,13 @@ fun SSHConfigEditDialog(
                         passphrase = if (authType == SSHAuthType.PUBLIC_KEY && passphrase.isNotEmpty()) passphrase else null,
                         // 反向隧道配置
                         enableReverseTunnel = enableReverseTunnel,
-                        remoteTunnelPort = remoteTunnelPort.toIntOrNull() ?: 8888,
-                        localSshPort = localSshPort.toIntOrNull() ?: 8022,
+                        remoteTunnelPort = remoteTunnelPort.toIntOrNull() ?: 8881,
+                        localSshPort = localSshPort.toIntOrNull() ?: 2223,
                         localSshUsername = localSshUsername,
-                        localSshPassword = localSshPassword
+                        localSshPassword = localSshPassword,
+                        // 心跳包配置
+                        enableKeepAlive = enableKeepAlive,
+                        keepAliveInterval = keepAliveInterval.toIntOrNull() ?: 30
                     )
                     onConfirm(newConfig)
                 },

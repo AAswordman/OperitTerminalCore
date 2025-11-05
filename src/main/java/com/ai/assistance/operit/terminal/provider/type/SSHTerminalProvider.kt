@@ -84,6 +84,16 @@ class SSHTerminalProvider(
                 // 配置会话
                 val config = Properties()
                 config["StrictHostKeyChecking"] = "no" // 不验证主机密钥（生产环境应该验证）
+                
+                // 配置心跳包（Keep-Alive）
+                if (sshConfig.enableKeepAlive) {
+                    // ServerAliveInterval: 客户端向服务器发送心跳包的间隔（秒）
+                    config["ServerAliveInterval"] = sshConfig.keepAliveInterval.toString()
+                    // ServerAliveCountMax: 在断开连接之前发送心跳包的最大次数
+                    config["ServerAliveCountMax"] = "3"
+                    Log.d(TAG, "Keep-Alive enabled: interval=${sshConfig.keepAliveInterval}s, max_count=3")
+                }
+                
                 sshSession.setConfig(config)
                 
                 // 连接
@@ -240,6 +250,13 @@ class SSHTerminalProvider(
         }
         
         cmd.append(" -o StrictHostKeyChecking=no") // 避免首次连接时的主机密钥检查提示
+        
+        // 配置心跳包（Keep-Alive）
+        if (sshConfig.enableKeepAlive) {
+            cmd.append(" -o ServerAliveInterval=${sshConfig.keepAliveInterval}")
+            cmd.append(" -o ServerAliveCountMax=3")
+        }
+        
         cmd.append(" ${sshConfig.username}@${sshConfig.host}")
 
         return cmd.toString()

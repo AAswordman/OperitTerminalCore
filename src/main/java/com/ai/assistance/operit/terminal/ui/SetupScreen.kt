@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import com.ai.assistance.operit.terminal.TerminalManager
 import com.ai.assistance.operit.terminal.data.PackageManagerType
 import com.ai.assistance.operit.terminal.utils.SourceManager
+import com.ai.assistance.operit.terminal.utils.SSHConfigManager
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -64,6 +65,14 @@ fun SetupScreen(
 ) {
     val context = LocalContext.current
     val sourceManager = remember { SourceManager(context) }
+    val sshConfigManager = remember { SSHConfigManager(context) }
+    
+    // 检查SSH是否启用
+    var isSSHEnabled by remember { mutableStateOf(false) }
+    
+    LaunchedEffect(Unit) {
+        isSSHEnabled = sshConfigManager.isEnabled()
+    }
     
     val packageCategories by remember {
         derivedStateOf {
@@ -254,8 +263,49 @@ fun SetupScreen(
             text = context.getString(com.ai.assistance.operit.terminal.R.string.setup_subtitle),
             color = Color.Gray,
             fontSize = 14.sp,
-            modifier = Modifier.padding(bottom = 24.dp)
+            modifier = Modifier.padding(bottom = 16.dp)
         )
+        
+        // SSH模式警告横幅
+        if (isSSHEnabled) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFFFFA500).copy(alpha = 0.2f)
+                ),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "⚠️",
+                        fontSize = 20.sp,
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                    Column {
+                        Text(
+                            text = "SSH 模式警告",
+                            color = Color(0xFFFFA500),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "本页面在 SSH 模式下检测不准确，请自行手动配置 pnpm 和 python。",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+            }
+        }
 
         // 包分类列表
         LazyColumn(

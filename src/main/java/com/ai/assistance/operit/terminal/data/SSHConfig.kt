@@ -20,7 +20,10 @@ data class SSHConfig(
     val localSshUsername: String = "android",
     val enablePortForwarding: Boolean = true,
     val localForwardPort: Int = 8751,  // 本地监听端口
-    val remoteForwardPort: Int = 8752  // 远程目标端口
+    val remoteForwardPort: Int = 8752,  // 远程目标端口
+    // 心跳包配置（Keep-Alive）
+    val enableKeepAlive: Boolean = true,  // 是否启用心跳包
+    val keepAliveInterval: Int = 30  // 心跳包发送间隔（秒）
 )
 
 /**
