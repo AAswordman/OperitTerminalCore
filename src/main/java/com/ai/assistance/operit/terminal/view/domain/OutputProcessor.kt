@@ -52,11 +52,9 @@ class OutputProcessor(
             return
         }
 
-        // 只有在 READY 状态后才更新 ANSI 解析器（用于 Canvas 渲染）
-        // 避免在初始化阶段显示登录信息和 TERMINAL_READY 标记
-        if (session.initState == SessionInitState.READY) {
-            session.ansiParser.parse(chunk)
-        }
+        // 始终更新 ANSI 解析器（用于 Canvas 渲染），包括初始化阶段
+        // 这样用户可以看到初始化过程中的所有输出，包括错误信息
+        session.ansiParser.parse(chunk)
         
         // 如果在全屏模式下，跳过行解析逻辑（全屏应用自己管理屏幕）
         if (session.isFullscreen) {
@@ -603,12 +601,13 @@ class OutputProcessor(
 
     /**
      * 发送欢迎消息到 Canvas
+     * 在 READY 状态时清屏，然后显示欢迎消息
      */
     private fun sendWelcomeMessage(sessionId: String, sessionManager: SessionManager) {
         val session = sessionManager.getSession(sessionId) ?: return
         
         // 构建欢迎消息，包含 ANSI 控制序列
-        // \u001B[2J - 清屏
+        // \u001B[2J - 清屏（清除初始化过程中的所有输出）
         // \u001B[H - 移动光标到左上角
         // 使用 \r\n 确保正确换行（\r 回车到行首，\n 换到下一行）
         val welcomeMessage = "\u001B[2J\u001B[H" +
@@ -623,9 +622,10 @@ class OutputProcessor(
             "\r\n"
         
         // 直接发送到 ANSI 解析器（Canvas 渲染）
+        // 清屏操作会清除之前初始化过程中的所有输出
         session.ansiParser.parse(welcomeMessage)
         
-        Log.d(TAG, "Welcome message sent to Canvas for session $sessionId")
+        Log.d(TAG, "Screen cleared and welcome message sent to Canvas for session $sessionId")
     }
 
 }
