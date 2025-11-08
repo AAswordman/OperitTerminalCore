@@ -56,6 +56,10 @@ fun CanvasTerminalScreen(
             view.setInputCallback(onInput)
             view.setSessionScrollCallbacks(sessionId, onScrollOffsetChanged, getScrollOffset)
         },
+        onRelease = { view ->
+            // 在视图被移除时停止渲染线程，避免SurfaceView锁竞争导致的ANR
+            view.stopRenderThread()
+        },
         modifier = modifier
     )
 }
@@ -130,6 +134,10 @@ fun PerformanceMonitoredTerminal(
             view.setConfig(config)
             view.setEmulator(emulator)
         },
+        onRelease = { view ->
+            // 在视图被移除时停止渲染线程，避免SurfaceView锁竞争导致的ANR
+            view.stopRenderThread()
+        },
         modifier = modifier
     )
 }
@@ -174,6 +182,10 @@ fun CanvasTerminalOutput(
             view.setEmulator(emulator)
             view.setPty(pty)
             view.setSessionScrollCallbacks(sessionId, onScrollOffsetChanged, getScrollOffset)
+        },
+        onRelease = { view ->
+            // 在视图被移除时停止渲染线程，避免SurfaceView锁竞争导致的ANR
+            view.stopRenderThread()
         },
         modifier = modifier
     )

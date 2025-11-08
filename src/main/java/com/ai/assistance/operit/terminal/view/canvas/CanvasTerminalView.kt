@@ -465,7 +465,11 @@ class CanvasTerminalView @JvmOverloads constructor(
         }
     }
     
-    private fun stopRenderThread() {
+    /**
+     * 停止渲染线程
+     * 在视图被销毁或移除时调用，避免SurfaceView锁竞争导致ANR
+     */
+    fun stopRenderThread() {
         renderThread?.let { thread ->
             thread.stopRendering()
             thread.interrupt()

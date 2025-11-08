@@ -144,6 +144,16 @@ class OutputProcessor(
             processLine(sessionId, line, sessionManager)
             return
         }
+        
+        // 检查是否是命令提示符（优先级最高）
+        // 即使是 CR line，如果是提示符也应该作为命令完成处理
+        if (isPrompt(cleanLine.trim())) {
+            Log.d(TAG, "Detected prompt in CR line: '$cleanLine'")
+            handlePrompt(sessionId, cleanLine, sessionManager)
+            sessionStates[sessionId]?.justHandledCarriageReturn = false
+            return
+        }
+        
         // 只有在清理后的内容非空时才处理为进度更新
         // 空内容（如 ANSI 控制序列）不应影响下一行的处理
         if (cleanLine.isNotEmpty()) {

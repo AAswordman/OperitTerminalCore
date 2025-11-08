@@ -48,9 +48,9 @@ data class TerminalChar(
  * 完整实现 VT100/xterm 终端模拟
  */
 class AnsiTerminalEmulator(
-    private var screenWidth: Int = 80,
-    private var screenHeight: Int = 24,
-    private val historySize: Int = 1000 // 历史缓冲区行数
+    private var screenWidth: Int = 40,
+    private var screenHeight: Int = 60,
+    private val historySize: Int = 200 // 历史缓冲区行数
 ) {
     companion object {
         private const val TAG = "AnsiTerminalEmulator"

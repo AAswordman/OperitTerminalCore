@@ -811,38 +811,6 @@ class TerminalManager private constructor(
         """.trimIndent()
     }
 
-    fun startTerminalSession(sessionId: String): Pair<TerminalSession, Pty> {
-        val bash = File(binDir, "bash").absolutePath
-        val startScript = "source \$HOME/common.sh && start_shell"
-
-        val command = arrayOf(bash, "-c", startScript)
-
-        val env = mutableMapOf<String, String>()
-        env["PATH"] = "${binDir.absolutePath}:${System.getenv("PATH")}"
-        env["HOME"] = filesDir.absolutePath
-        env["PREFIX"] = usrDir.absolutePath
-        env["TERMUX_PREFIX"] = usrDir.absolutePath
-        env["LD_LIBRARY_PATH"] = "${nativeLibDir}:${binDir.absolutePath}"
-        env["PROOT_LOADER"] = File(binDir, "loader").absolutePath
-        env["TMPDIR"] = File(filesDir, "tmp").absolutePath
-        env["PROOT_TMP_DIR"] = File(filesDir, "tmp").absolutePath
-        env["TERM"] = "xterm-256color"
-        env["LANG"] = "en_US.UTF-8"
-
-        Log.d(TAG, "Starting terminal session with command: ${command.joinToString(" ")}")
-        Log.d(TAG, "Environment: $env")
-
-        val pty = Pty.start(command, env, filesDir)
-
-        val session = TerminalSession(
-            process = pty.process,
-            stdout = pty.stdout,
-            stdin = pty.stdin
-        )
-        activeSessions[sessionId] = session
-        return Pair(session, pty)
-    }
-
     fun closeTerminalSession(sessionId: String) {
         activeSessions[sessionId]?.let { session ->
             session.process.destroy()
