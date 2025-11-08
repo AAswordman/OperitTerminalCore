@@ -193,6 +193,20 @@ class TerminalManager private constructor(
     fun closeSession(sessionId: String) {
         sessionManager.closeSession(sessionId)
     }
+    
+    /**
+     * 保存会话的滚动位置
+     */
+    fun saveScrollOffset(sessionId: String, scrollOffset: Float) {
+        sessionManager.saveScrollOffset(sessionId, scrollOffset)
+    }
+    
+    /**
+     * 获取会话的滚动位置
+     */
+    fun getScrollOffset(sessionId: String): Float {
+        return sessionManager.getScrollOffset(sessionId)
+    }
 
     private fun createBusyboxSymlinks() {
         val links = listOf(

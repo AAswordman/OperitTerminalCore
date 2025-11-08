@@ -16,12 +16,16 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.view.KeyEvent
+import android.os.Handler
+import android.os.Looper
 import com.ai.assistance.operit.terminal.view.domain.ansi.AnsiTerminalEmulator
 import com.ai.assistance.operit.terminal.view.domain.ansi.TerminalChar
 import kotlin.math.max
 import kotlin.math.min
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.math.abs
+import java.io.File
+import com.ai.assistance.operit.terminal.R
 
 /**
  * 基于Canvas的高性能终端视图
@@ -34,7 +38,7 @@ class CanvasTerminalView @JvmOverloads constructor(
 ) : SurfaceView(context, attrs, defStyleAttr), SurfaceHolder.Callback {
     
     // 渲染配置
-    private val config = RenderConfig()
+    private var config = RenderConfig()
     
     // Paint对象（复用以提高性能）
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -59,11 +63,19 @@ class CanvasTerminalView @JvmOverloads constructor(
     }
     
     // 文本测量工具
-    private val textMetrics = TextMetrics(textPaint)
+    private val textMetrics: TextMetrics
     
     // 终端模拟器
     private var emulator: AnsiTerminalEmulator? = null
     private var emulatorChangeListener: (() -> Unit)? = null
+    private var emulatorNewOutputListener: (() -> Unit)? = null
+    
+    // 是否自动滚动到底部（当新内容到达时）
+    private var autoScrollToBottom = true
+    // 用户是否正在手动滚动
+    private var isUserScrolling = false
+    // 是否需要滚动到底部（在渲染时执行）
+    private var needScrollToBottom = false
     
     // PTY 引用（用于窗口大小同步）
     private var pty: com.ai.assistance.operit.terminal.Pty? = null
@@ -91,6 +103,11 @@ class CanvasTerminalView @JvmOverloads constructor(
     // 输入回调
     private var inputCallback: ((String) -> Unit)? = null
     
+    // 会话ID和滚动位置回调
+    private var sessionId: String? = null
+    private var onScrollOffsetChanged: ((String, Float) -> Unit)? = null
+    private var getScrollOffset: ((String) -> Float)? = null
+    
     // 缓存终端尺寸，避免重复调用
     private var cachedRows = 0
     private var cachedCols = 0
@@ -101,6 +118,14 @@ class CanvasTerminalView @JvmOverloads constructor(
     // 全屏模式标记
     private var isFullscreenMode = true
     
+    // 方向键长按处理
+    private val handler = Handler(Looper.getMainLooper())
+    private var currentArrowKey: Int? = null
+    private var arrowKeyRepeatRunnable: Runnable? = null
+    private var isArrowKeyPressed = false
+    private val longPressDelay = 500L // 长按延迟时间（毫秒）
+    private val repeatInterval = 200L // 重复发送间隔（毫秒）
+    
     init {
         holder.addCallback(this)
         setWillNotDraw(false)
@@ -110,10 +135,40 @@ class CanvasTerminalView @JvmOverloads constructor(
         isFocusableInTouchMode = true
         
         // 初始化文本指标
-        textMetrics.updateFontSize(config.fontSize * scaleFactor)
+        textMetrics = TextMetrics(textPaint, config)
+        
+        // 加载并应用字体
+        loadAndApplyFont()
         
         // 初始化手势处理器
         initGestureHandler()
+    }
+    
+    /**
+     * 加载并应用字体
+     */
+    private fun loadAndApplyFont() {
+        // 主字体已由 config.typeface 提供，直接应用
+        textMetrics.updateFromRenderConfig(config)
+
+        // 加载 Nerd Font (如果路径在 config 中未指定，则使用默认资源)
+        val nerdFontResId = R.font.jetbrains_mono_nerd_font_regular
+        val nerdTypeface = try {
+            // 优先从 config 的 nerdFontPath 加载
+            config.nerdFontPath?.let { path ->
+                val file = File(path)
+                if (file.exists() && file.isFile) {
+                    Typeface.createFromFile(file)
+                } else {
+                    // 如果路径无效，尝试加载默认资源
+                    resources.getFont(nerdFontResId)
+                }
+            } ?: resources.getFont(nerdFontResId) // 如果路径为空，直接加载默认资源
+        } catch (e: Exception) {
+            // 加载失败
+            null
+        }
+        textMetrics.setNerdTypeface(nerdTypeface)
     }
     
     private fun initGestureHandler() {
@@ -127,6 +182,20 @@ class CanvasTerminalView @JvmOverloads constructor(
                 if (!selectionManager.hasSelection()) {
                     scrollOffsetY += distanceY
                     scrollOffsetY = scrollOffsetY.coerceAtLeast(0f)
+                    
+                    // 保存滚动位置
+                    sessionId?.let { id ->
+                        onScrollOffsetChanged?.invoke(id, scrollOffsetY)
+                    }
+                    
+                    // 用户手动滚动，检测是否在底部
+                    if (scrollOffsetY > 0f) {
+                        isUserScrolling = true
+                    } else {
+                        // 滚动到底部，恢复自动滚动
+                        isUserScrolling = false
+                    }
+                    
                     requestRender()
                 }
             },
@@ -150,14 +219,28 @@ class CanvasTerminalView @JvmOverloads constructor(
      * 设置终端模拟器
      */
     fun setEmulator(emulator: AnsiTerminalEmulator) {
+        // 保存当前模拟器的滚动位置
+        sessionId?.let { id ->
+            onScrollOffsetChanged?.invoke(id, scrollOffsetY)
+        }
+
         // 移除旧的监听器
         this.emulator?.let { oldEmulator ->
             emulatorChangeListener?.let { listener ->
                 oldEmulator.removeChangeListener(listener)
             }
+            emulatorNewOutputListener?.let { listener ->
+                oldEmulator.removeNewOutputListener(listener)
+            }
         }
         
         this.emulator = emulator
+        // 恢复新模拟器的滚动位置
+        sessionId?.let { id ->
+            getScrollOffset?.invoke(id)?.let { offset ->
+                scrollOffsetY = offset
+            }
+        }
         
         // 添加新的监听器
         emulatorChangeListener = {
@@ -166,11 +249,46 @@ class CanvasTerminalView @JvmOverloads constructor(
         }
         emulator.addChangeListener(emulatorChangeListener!!)
         
+        // 添加新输出监听器（用于自动滚动到底部）
+        emulatorNewOutputListener = {
+            if (autoScrollToBottom) {
+                scrollToBottom()
+            }
+        }
+        emulator.addNewOutputListener {
+            post {
+                emulatorNewOutputListener?.invoke()
+            }
+        }
+        
         // 如果 Surface 已经创建，立即同步终端大小
         if (width > 0 && height > 0) {
             updateTerminalSize(width, height)
         }
         
+        requestRender()
+    }
+    
+    /**
+     * 设置滚动偏移（用于恢复会话滚动位置）
+     */
+    fun setScrollOffset(offset: Float) {
+        scrollOffsetY = offset.coerceAtLeast(0f)
+        requestRender()
+    }
+    
+    /**
+     * 获取当前滚动偏移（用于保存会话滚动位置）
+     */
+    fun getScrollOffset(): Float = scrollOffsetY
+    
+    /**
+     * 滚动到底部
+     */
+    fun scrollToBottom() {
+        needScrollToBottom = true
+        isUserScrolling = false // 恢复自动滚动
+        isDirty = true
         requestRender()
     }
     
@@ -204,6 +322,27 @@ class CanvasTerminalView @JvmOverloads constructor(
     }
     
     /**
+     * 设置会话ID和滚动位置回调
+     */
+    fun setSessionScrollCallbacks(
+        sessionId: String?,
+        onScrollOffsetChanged: ((String, Float) -> Unit)?,
+        getScrollOffset: ((String) -> Float)?
+    ) {
+        this.sessionId = sessionId
+        this.onScrollOffsetChanged = onScrollOffsetChanged
+        this.getScrollOffset = getScrollOffset
+        
+        // 如果设置了sessionId，立即恢复滚动位置
+        sessionId?.let { id ->
+            getScrollOffset?.invoke(id)?.let { offset ->
+                scrollOffsetY = offset
+                requestRender()
+            }
+        }
+    }
+    
+    /**
      * 设置缩放回调
      */
     fun setScaleCallback(callback: (Float) -> Unit) {
@@ -221,6 +360,20 @@ class CanvasTerminalView @JvmOverloads constructor(
                 if (!selectionManager.hasSelection()) {
                     scrollOffsetY += distanceY
                     scrollOffsetY = scrollOffsetY.coerceAtLeast(0f)
+                    
+                    // 保存滚动位置
+                    sessionId?.let { id ->
+                        onScrollOffsetChanged?.invoke(id, scrollOffsetY)
+                    }
+                    
+                    // 用户手动滚动，检测是否在底部
+                    if (scrollOffsetY > 0f) {
+                        isUserScrolling = true
+                    } else {
+                        // 滚动到底部，恢复自动滚动
+                        isUserScrolling = false
+                    }
+                    
                     requestRender()
                 }
             },
@@ -242,10 +395,38 @@ class CanvasTerminalView @JvmOverloads constructor(
     }
     
     /**
+     * 设置渲染配置
+     */
+    fun setConfig(newConfig: RenderConfig) {
+        val oldTypeface = config.typeface
+        val oldNerdFontPath = config.nerdFontPath
+        val oldFontSize = config.fontSize
+
+        // 更新配置
+        config = newConfig
+
+        // 如果字体或字体大小改变了，重新加载并更新指标
+        if (oldTypeface != newConfig.typeface ||
+            oldNerdFontPath != newConfig.nerdFontPath ||
+            oldFontSize != newConfig.fontSize
+        ) {
+            loadAndApplyFont()
+            updateTerminalSize(holder.surfaceFrame.width(), holder.surfaceFrame.height())
+            requestRender()
+        } else {
+            // 其他配置改变，也需要重新渲染
+            requestRender()
+        }
+    }
+    
+    /**
      * 更新字体大小
      */
     private fun updateFontSize() {
-        textMetrics.updateFontSize(config.fontSize * scaleFactor)
+        // 字体大小的更新现在由 textMetrics.updateFromRenderConfig 处理
+        // 这里可以保留用于缩放手势等场景
+        textMetrics.updateFromRenderConfig(config.copy(fontSize = config.fontSize * scaleFactor))
+        updateTerminalSize(holder.surfaceFrame.width(), holder.surfaceFrame.height())
         requestRender()
     }
     
@@ -271,6 +452,8 @@ class CanvasTerminalView @JvmOverloads constructor(
     
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         stopRenderThread()
+        // 清理方向键长按回调，避免内存泄漏
+        handleArrowKeyUp()
     }
     
     // === 渲染线程 ===
@@ -366,29 +549,52 @@ class CanvasTerminalView @JvmOverloads constructor(
     // === 核心渲染方法 ===
     
     private fun drawTerminal(canvas: Canvas) {
-        val buffer = emulator?.getScreenContent() ?: return
+        val em = emulator ?: return
         
-        // 清空背景
-        canvas.drawColor(config.backgroundColor)
+        // 使用完整内容（历史 + 屏幕缓冲）
+        val fullContent = em.getFullContent()
+        val historySize = em.getHistorySize()
         
         val charWidth = textMetrics.charWidth
         val charHeight = textMetrics.charHeight
         val baseline = textMetrics.charBaseline
         
+        // 限制最大滚动偏移（不能超过内容高度）
+        val maxScrollOffset = max(0f, fullContent.size * charHeight - canvas.height)
+        
+        // 如果需要滚动到底部，在渲染时执行（使用正确的 canvas.height）
+        if (needScrollToBottom) {
+            scrollOffsetY = maxScrollOffset
+            needScrollToBottom = false
+        }
+        
+        scrollOffsetY = scrollOffsetY.coerceIn(0f, maxScrollOffset)
+        
         // 计算可见区域
         val visibleRows = (canvas.height / charHeight).toInt() + 1
         val startRow = (scrollOffsetY / charHeight).toInt()
-        val endRow = min(startRow + visibleRows, buffer.size)
+        val endRow = min(startRow + visibleRows, fullContent.size)
         
-        // 绘制每一行
+        // 绘制每一行（包括背景）
         for (row in startRow until endRow) {
-            if (row >= buffer.size) break
+            if (row >= fullContent.size) break
             
-            val line = buffer[row]
+            val line = fullContent[row]
             val y = (row - startRow) * charHeight - (scrollOffsetY % charHeight)
+            
+            // 先绘制整行的默认背景
+            bgPaint.color = config.backgroundColor
+            canvas.drawRect(0f, y, canvas.width.toFloat(), y + charHeight, bgPaint)
             
             // 绘制该行的所有字符
             drawLine(canvas, line, row, 0f, y, charWidth, charHeight, baseline)
+        }
+        
+        // 绘制底部剩余区域的背景（如果有）
+        val lastY = (endRow - startRow) * charHeight - (scrollOffsetY % charHeight)
+        if (lastY < canvas.height) {
+            bgPaint.color = config.backgroundColor
+            canvas.drawRect(0f, lastY, canvas.width.toFloat(), canvas.height.toFloat(), bgPaint)
         }
         
         // 绘制选择区域
@@ -396,9 +602,43 @@ class CanvasTerminalView @JvmOverloads constructor(
             drawSelection(canvas, charWidth, charHeight)
         }
         
-        // 绘制光标
-        if (emulator?.isCursorVisible() == true) {
-            drawCursor(canvas, charWidth, charHeight)
+        // 绘制光标（光标只在可见屏幕部分显示，需要考虑历史缓冲区偏移）
+        if (em.isCursorVisible()) {
+            val cursorRow = historySize + em.getCursorY()
+            val cursorCol = em.getCursorX()
+            
+            // 只有当光标在可见区域内时才绘制
+            if (cursorRow >= startRow && cursorRow < endRow) {
+                val cursorY = (cursorRow - startRow) * charHeight - (scrollOffsetY % charHeight)
+                
+                // 计算光标的 x 坐标，考虑宽字符
+                val line = fullContent.getOrNull(cursorRow) ?: arrayOf()
+                var cursorX = 0f
+                
+                // 遍历到光标列，累加每个字符的宽度
+                for (col in 0 until cursorCol.coerceAtMost(line.size)) {
+                    val cellWidth = textMetrics.getCellWidth(line[col].char)
+                    cursorX += charWidth * cellWidth
+                }
+                
+                // 获取光标所在字符的宽度
+                val cursorCharWidth = if (cursorCol < line.size) {
+                    val cellWidth = textMetrics.getCellWidth(line[cursorCol].char)
+                    charWidth * cellWidth
+                } else {
+                    charWidth
+                }
+                
+                cursorPaint.color = Color.GREEN
+                cursorPaint.alpha = 180
+                canvas.drawRect(
+                    cursorX,
+                    cursorY,
+                    cursorX + cursorCharWidth,
+                    cursorY + charHeight,
+                    cursorPaint
+                )
+            }
         }
     }
     
@@ -419,6 +659,10 @@ class CanvasTerminalView @JvmOverloads constructor(
         for (col in line.indices) {
             val termChar = line[col]
             
+            // 获取字符的单元格宽度（宽字符为2，普通字符为1）
+            val cellWidth = textMetrics.getCellWidth(termChar.char)
+            val actualCharWidth = charWidth * cellWidth
+            
             // 批量绘制相同背景色
             if (termChar.bgColor != config.backgroundColor) {
                 if (currentBgColor != termChar.bgColor) {
@@ -437,15 +681,21 @@ class CanvasTerminalView @JvmOverloads constructor(
                     canvas.drawRect(bgStartX, y, x, y + charHeight, bgPaint)
                 }
                 currentBgColor = null
-                bgStartX = x + charWidth
+                bgStartX = x + actualCharWidth
             }
             
-            // 绘制字符
+            // 绘制字符（宽字符居中显示）
             if (termChar.char != ' ' && !termChar.isHidden) {
-                drawChar(canvas, termChar, x, y + baseline)
+                val charX = if (cellWidth == 2) {
+                    // 宽字符居中显示
+                    x + charWidth / 2
+                } else {
+                    x
+                }
+                drawChar(canvas, termChar, charX, y + baseline, actualCharWidth)
             }
             
-            x += charWidth
+            x += actualCharWidth
         }
         
         // 绘制行尾的背景
@@ -455,9 +705,19 @@ class CanvasTerminalView @JvmOverloads constructor(
         }
     }
     
-    private fun drawChar(canvas: Canvas, termChar: TerminalChar, x: Float, y: Float) {
-        // 应用样式
+    private fun drawChar(canvas: Canvas, termChar: TerminalChar, x: Float, y: Float, charWidth: Float = textMetrics.charWidth) {
+        // 检查字符是否可被渲染，如果不行就用替换字符
+        val charToDraw = if (textMetrics.selectTypefaceForChar(termChar.char)) {
+            termChar.char
+        } else {
+            '\uFFFD' // Unicode 替换字符
+        }
+        
+        // 应用粗体/斜体等样式（这会设置一个基础字体）
         textMetrics.applyStyle(termChar.isBold, termChar.isItalic)
+        
+        // 再次选择正确的字体（主字体或Nerd字体），因为applyStyle可能会覆盖它
+        textMetrics.selectTypefaceForChar(charToDraw)
         
         // 设置颜色
         var fgColor = termChar.fgColor
@@ -481,48 +741,56 @@ class CanvasTerminalView @JvmOverloads constructor(
         // 绘制下划线
         if (termChar.isUnderline) {
             val underlineY = y + 2
-            canvas.drawLine(x, underlineY, x + textMetrics.charWidth, underlineY, textPaint)
+            canvas.drawLine(x, underlineY, x + charWidth, underlineY, textPaint)
         }
         
         // 绘制删除线
         if (termChar.isStrikethrough) {
             val strikeY = y - textMetrics.charHeight / 2
-            canvas.drawLine(x, strikeY, x + textMetrics.charWidth, strikeY, textPaint)
+            canvas.drawLine(x, strikeY, x + charWidth, strikeY, textPaint)
         }
         
         // 绘制字符
-        canvas.drawText(termChar.char.toString(), x, y, textPaint)
+        canvas.drawText(charToDraw.toString(), x, y, textPaint)
         
         // 重置样式
         textMetrics.resetStyle()
     }
     
-    private fun drawCursor(canvas: Canvas, charWidth: Float, charHeight: Float) {
-        val cursorX = emulator?.getCursorX() ?: 0
-        val cursorY = emulator?.getCursorY() ?: 0
-        
-        val x = cursorX * charWidth
-        val y = cursorY * charHeight - scrollOffsetY
-        
-        // 绘制光标方块
-        canvas.drawRect(x, y, x + charWidth, y + charHeight, cursorPaint)
-    }
-    
     private fun drawSelection(canvas: Canvas, charWidth: Float, charHeight: Float) {
         val selection = selectionManager.selection?.normalize() ?: return
+        val em = emulator ?: return
+        val fullContent = em.getFullContent()
+        val historySize = em.getHistorySize()
+        
+        val startRow = (scrollOffsetY / charHeight).toInt()
         
         for (row in selection.startRow..selection.endRow) {
-            val y = row * charHeight - scrollOffsetY
+            val y = (row - startRow) * charHeight - (scrollOffsetY % charHeight)
             
             val startCol = if (row == selection.startRow) selection.startCol else 0
             val endCol = if (row == selection.endRow) {
                 selection.endCol
             } else {
-                emulator?.getScreenContent()?.getOrNull(row)?.size ?: 0
+                fullContent.getOrNull(row)?.size ?: 0
             }
             
-            val x1 = startCol * charWidth
-            val x2 = (endCol + 1) * charWidth
+            // 计算选择区域的 x 坐标，考虑宽字符
+            val line = fullContent.getOrNull(row) ?: continue
+            var x1 = 0f
+            var x2 = 0f
+            
+            // 计算起始 x 坐标
+            for (col in 0 until startCol.coerceAtMost(line.size)) {
+                val cellWidth = textMetrics.getCellWidth(line[col].char)
+                x1 += charWidth * cellWidth
+            }
+            
+            // 计算结束 x 坐标
+            for (col in 0..endCol.coerceAtMost(line.size - 1)) {
+                val cellWidth = textMetrics.getCellWidth(line[col].char)
+                x2 += charWidth * cellWidth
+            }
             
             canvas.drawRect(x1, y, x2, y + charHeight, selectionPaint)
         }
@@ -562,11 +830,40 @@ class CanvasTerminalView @JvmOverloads constructor(
     
     /**
      * 屏幕坐标转换为终端坐标
+     * 考虑宽字符的影响
      */
     private fun screenToTerminalCoords(x: Float, y: Float): Pair<Int, Int> {
-        val row = ((y + scrollOffsetY) / textMetrics.charHeight).toInt()
-        val col = (x / textMetrics.charWidth).toInt()
-        return Pair(row, col)
+        val em = emulator ?: return Pair(0, 0)
+        val fullContent = em.getFullContent()
+        val row = ((y + scrollOffsetY) / textMetrics.charHeight).toInt().coerceIn(0, fullContent.size - 1)
+        
+        // 获取该行的内容
+        val line = fullContent.getOrNull(row) ?: return Pair(row, 0)
+        
+        // 遍历该行的字符，找到对应的列
+        var currentX = 0f
+        var col = 0
+        val charWidth = textMetrics.charWidth
+        
+        for (i in line.indices) {
+            val cellWidth = textMetrics.getCellWidth(line[i].char)
+            val actualCharWidth = charWidth * cellWidth
+            
+            if (x < currentX + actualCharWidth / 2) {
+                // 点击位置在这个字符的前半部分
+                col = i
+                break
+            } else if (x < currentX + actualCharWidth) {
+                // 点击位置在这个字符的后半部分（宽字符）
+                col = i
+                break
+            }
+            
+            currentX += actualCharWidth
+            col = i + 1
+        }
+        
+        return Pair(row, col.coerceIn(0, line.size - 1))
     }
     
     /**
@@ -689,15 +986,41 @@ class CanvasTerminalView @JvmOverloads constructor(
             
             override fun sendKeyEvent(event: KeyEvent?): Boolean {
                 event?.let {
-                    if (it.action == KeyEvent.ACTION_DOWN) {
-                        when (it.keyCode) {
-                            KeyEvent.KEYCODE_DEL -> {
-                                inputCallback?.invoke("\u007F")
-                                return true
+                    when (it.action) {
+                        KeyEvent.ACTION_DOWN -> {
+                            when (it.keyCode) {
+                                KeyEvent.KEYCODE_DEL -> {
+                                    inputCallback?.invoke("\u007F")
+                                    return true
+                                }
+                                KeyEvent.KEYCODE_ENTER -> {
+                                    inputCallback?.invoke("\n")
+                                    return true
+                                }
+                                KeyEvent.KEYCODE_DPAD_UP,
+                                KeyEvent.KEYCODE_DPAD_DOWN,
+                                KeyEvent.KEYCODE_DPAD_LEFT,
+                                KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                    // 全屏模式下处理方向键长按
+                                    if (isFullscreenMode) {
+                                        handleArrowKeyDown(it.keyCode)
+                                        return true
+                                    }
+                                }
                             }
-                            KeyEvent.KEYCODE_ENTER -> {
-                                inputCallback?.invoke("\n")
-                                return true
+                        }
+                        KeyEvent.ACTION_UP -> {
+                            when (it.keyCode) {
+                                KeyEvent.KEYCODE_DPAD_UP,
+                                KeyEvent.KEYCODE_DPAD_DOWN,
+                                KeyEvent.KEYCODE_DPAD_LEFT,
+                                KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                    // 全屏模式下处理方向键释放
+                                    if (isFullscreenMode) {
+                                        handleArrowKeyUp()
+                                        return true
+                                    }
+                                }
                             }
                         }
                     }
@@ -705,6 +1028,59 @@ class CanvasTerminalView @JvmOverloads constructor(
                 return super.sendKeyEvent(event)
             }
         }
+    }
+    
+    /**
+     * 处理方向键按下
+     */
+    private fun handleArrowKeyDown(keyCode: Int) {
+        // 如果已经有其他方向键被按下，先释放
+        if (isArrowKeyPressed && currentArrowKey != keyCode) {
+            handleArrowKeyUp()
+        }
+        
+        currentArrowKey = keyCode
+        isArrowKeyPressed = true
+        
+        // 立即发送一次方向键
+        sendArrowKey(keyCode)
+        
+        // 延迟后开始重复发送
+        arrowKeyRepeatRunnable = object : Runnable {
+            override fun run() {
+                if (isArrowKeyPressed && currentArrowKey == keyCode) {
+                    sendArrowKey(keyCode)
+                    handler.postDelayed(this, repeatInterval)
+                }
+            }
+        }
+        handler.postDelayed(arrowKeyRepeatRunnable!!, longPressDelay)
+    }
+    
+    /**
+     * 处理方向键释放
+     */
+    private fun handleArrowKeyUp() {
+        isArrowKeyPressed = false
+        currentArrowKey = null
+        arrowKeyRepeatRunnable?.let {
+            handler.removeCallbacks(it)
+            arrowKeyRepeatRunnable = null
+        }
+    }
+    
+    /**
+     * 发送方向键的 ANSI 转义序列
+     */
+    private fun sendArrowKey(keyCode: Int) {
+        val escapeSequence = when (keyCode) {
+            KeyEvent.KEYCODE_DPAD_UP -> "\u001b[A"    // ESC [ A
+            KeyEvent.KEYCODE_DPAD_DOWN -> "\u001b[B"  // ESC [ B
+            KeyEvent.KEYCODE_DPAD_RIGHT -> "\u001b[C" // ESC [ C
+            KeyEvent.KEYCODE_DPAD_LEFT -> "\u001b[D"   // ESC [ D
+            else -> return
+        }
+        inputCallback?.invoke(escapeSequence)
     }
     
     /**
@@ -719,10 +1095,10 @@ class CanvasTerminalView @JvmOverloads constructor(
      */
     private fun updateTerminalSize(width: Int, height: Int) {
         if (width <= 0 || height <= 0) return
-        
+
         // 确保字体指标已更新（基于当前缩放因子）
-        textMetrics.updateFontSize(config.fontSize * scaleFactor)
-        
+        textMetrics.updateFromRenderConfig(config.copy(fontSize = config.fontSize * scaleFactor))
+
         // 计算终端尺寸（行和列）
         val cols = (width / textMetrics.charWidth).toInt().coerceAtLeast(1)
         val rows = (height / textMetrics.charHeight).toInt().coerceAtLeast(1)

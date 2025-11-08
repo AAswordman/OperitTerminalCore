@@ -72,6 +72,9 @@ class TerminalEnv(
     }
     fun onSwitchSession(sessionId: String) = terminalManager.switchToSession(sessionId)
     fun onCloseSession(sessionId: String) = terminalManager.closeSession(sessionId)
+    
+    fun saveScrollOffset(sessionId: String, scrollOffset: Float) = terminalManager.saveScrollOffset(sessionId, scrollOffset)
+    fun getScrollOffset(sessionId: String): Float = terminalManager.getScrollOffset(sessionId)
 }
 
 @Composable

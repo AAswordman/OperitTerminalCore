@@ -62,6 +62,10 @@ import com.ai.assistance.operit.terminal.view.SyntaxHighlightingVisualTransforma
 import com.ai.assistance.operit.terminal.view.highlight
 import androidx.compose.material.icons.filled.Settings
 import com.ai.assistance.operit.terminal.view.canvas.CanvasTerminalScreen
+import com.ai.assistance.operit.terminal.view.canvas.RenderConfig
+import com.ai.assistance.operit.terminal.utils.TerminalFontConfigManager
+import android.graphics.Typeface
+import java.io.File
 
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
@@ -70,6 +74,31 @@ fun TerminalHome(
     onNavigateToSetup: () -> Unit,
     onNavigateToSettings: () -> Unit
 ) {
+    val context = LocalContext.current
+    val fontConfigManager = remember { TerminalFontConfigManager.getInstance(context) }
+    
+    // 字体配置状态
+    var fontConfig by remember { 
+        mutableStateOf(fontConfigManager.loadRenderConfig())
+    }
+    
+    // 监听字体配置变化（当从设置界面返回时）
+    LaunchedEffect(Unit) {
+        // 每次进入时重新读取配置
+        fontConfig = fontConfigManager.loadRenderConfig()
+    }
+    
+    // 当组件重新组合时，检查配置是否变化并更新
+    DisposableEffect(Unit) {
+        val newConfig = fontConfigManager.loadRenderConfig()
+        
+        if (fontConfig != newConfig) {
+            fontConfig = newConfig
+        }
+        
+        onDispose { }
+    }
+    
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
@@ -82,6 +111,9 @@ fun TerminalHome(
     // 删除确认弹窗状态
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var sessionToDelete by remember { mutableStateOf<String?>(null) }
+    
+    // 非全屏模式下虚拟键盘显示状态
+    var showVirtualKeyboard by remember { mutableStateOf(false) }
 
     // 计算基于缩放因子的字体大小和间距
     val baseFontSize = 14.sp
@@ -125,8 +157,12 @@ fun TerminalHome(
                 CanvasTerminalScreen(
                     emulator = env.terminalEmulator,
                     modifier = Modifier.weight(1f),
+                    config = fontConfig,
                     pty = currentPty,
-                    onInput = { env.onSendInput(it, false) }
+                    onInput = { env.onSendInput(it, false) },
+                    sessionId = env.currentSessionId,
+                    onScrollOffsetChanged = { id, offset -> env.saveScrollOffset(id, offset) },
+                    getScrollOffset = { id -> env.getScrollOffset(id) }
                 )
                 
                 // 虚拟键盘 - 会随 imePadding 一起上移
@@ -142,7 +178,11 @@ fun TerminalHome(
                 CanvasTerminalOutput(
                     emulator = env.terminalEmulator,
                     modifier = Modifier.weight(1f),
-                    pty = currentPty
+                    config = fontConfig,
+                    pty = currentPty,
+                    sessionId = env.currentSessionId,
+                    onScrollOffsetChanged = { id, offset -> env.saveScrollOffset(id, offset) },
+                    getScrollOffset = { id -> env.getScrollOffset(id) }
                 )
                 
                 // 终端工具栏
@@ -190,6 +230,31 @@ fun TerminalHome(
                         keyboardActions = KeyboardActions(onSend = {
                             env.onSendInput(env.command, true)
                         })
+                    )
+                    // 虚拟键盘切换按钮
+                    Surface(
+                        modifier = Modifier
+                            .padding(start = padding * 0.5f)
+                            .clickable { showVirtualKeyboard = !showVirtualKeyboard },
+                        color = if (showVirtualKeyboard) Color(0xFF4A4A4A) else Color(0xFF3A3A3A),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = "⌨",
+                            color = Color.White,
+                            fontFamily = FontFamily.Default,
+                            fontSize = fontSize * 1.2f,
+                            modifier = Modifier.padding(horizontal = padding * 0.75f, vertical = padding * 0.4f)
+                        )
+                    }
+                }
+                
+                // 虚拟键盘（当显示时）
+                if (showVirtualKeyboard) {
+                    VirtualKeyboard(
+                        onKeyPress = { key -> env.onSendInput(key, false) },
+                        fontSize = fontSize * 0.7f,
+                        padding = padding * 0.5f
                     )
                 }
             }

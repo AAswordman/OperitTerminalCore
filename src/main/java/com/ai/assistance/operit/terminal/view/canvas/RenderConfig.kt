@@ -8,8 +8,8 @@ import android.graphics.Typeface
  */
 data class RenderConfig(
     val fontSize: Float = 42f, // 默认字体大小（像素）
-    val textSize: Float = fontSize, // 别名，保持兼容性
-    val fontFamily: Typeface = Typeface.MONOSPACE,
+    val typeface: Typeface = Typeface.MONOSPACE,
+    val nerdFontPath: String? = null, // Nerd Font 字体文件路径（可选）
     val backgroundColor: Int = Color.BLACK,
     val foregroundColor: Int = Color.WHITE, // 添加前景色
     val defaultForegroundColor: Int = foregroundColor,
@@ -26,10 +26,18 @@ data class RenderConfig(
     val paddingRight: Float = 16f,
     val paddingBottom: Float = 16f
 ) {
-    fun withTextSize(newSize: Float): RenderConfig {
-        return copy(fontSize = newSize, textSize = newSize)
+    fun withFontSize(newSize: Float): RenderConfig {
+        return copy(fontSize = newSize)
     }
-    
+
+    fun withTypeface(newTypeface: Typeface): RenderConfig {
+        return copy(typeface = newTypeface)
+    }
+
+    fun withNerdFont(nerdFontPath: String?): RenderConfig {
+        return copy(nerdFontPath = nerdFontPath)
+    }
+
     fun getFrameDelay(): Long {
         return 1000L / targetFps
     }

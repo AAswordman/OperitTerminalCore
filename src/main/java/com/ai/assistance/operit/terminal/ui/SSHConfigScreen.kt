@@ -107,6 +107,32 @@ private fun SSHConfigCard(
                 color = SettingsTheme.onSurfaceVariant
             )
             
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            // 使用提示
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = SettingsTheme.primaryColor.copy(alpha = 0.1f)
+                )
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "💡",
+                        fontSize = 16.sp,
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                    Text(
+                        text = "提示：使用 exit 退出 SSH 回到本地终端",
+                        fontSize = 12.sp,
+                        color = SettingsTheme.onSurfaceColor
+                    )
+                }
+            }
+            
             Spacer(modifier = Modifier.height(16.dp))
             
             // 操作按钮

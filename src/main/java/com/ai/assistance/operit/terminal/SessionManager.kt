@@ -122,6 +122,22 @@ class SessionManager(private val terminalManager: TerminalManager) {
     }
     
     /**
+     * 保存会话的滚动位置
+     */
+    fun saveScrollOffset(sessionId: String, scrollOffset: Float) {
+        updateSession(sessionId) { session ->
+            session.copy(scrollOffsetY = scrollOffset)
+        }
+    }
+    
+    /**
+     * 获取会话的滚动位置
+     */
+    fun getScrollOffset(sessionId: String): Float {
+        return getSession(sessionId)?.scrollOffsetY ?: 0f
+    }
+    
+    /**
      * 获取当前会话
      */
     fun getCurrentSession(): TerminalSessionData? {

@@ -17,15 +17,20 @@ fun CanvasTerminalScreen(
     config: RenderConfig = RenderConfig(),
     pty: com.ai.assistance.operit.terminal.Pty? = null,
     onInput: (String) -> Unit = {},
-    onScaleChanged: (Float) -> Unit = {}
+    onScaleChanged: (Float) -> Unit = {},
+    sessionId: String? = null,
+    onScrollOffsetChanged: ((String, Float) -> Unit)? = null,
+    getScrollOffset: ((String) -> Float)? = null
 ) {
     AndroidView(
         factory = { context ->
             CanvasTerminalView(context).apply {
+                setConfig(config)
                 setEmulator(emulator)
                 setPty(pty)
                 setInputCallback(onInput)
                 setScaleCallback(onScaleChanged)
+                setSessionScrollCallbacks(sessionId, onScrollOffsetChanged, getScrollOffset)
                 
                 // 全屏模式下自动请求焦点
                 post {
@@ -45,9 +50,11 @@ fun CanvasTerminalScreen(
             }
         },
         update = { view ->
+            view.setConfig(config)
             view.setEmulator(emulator)
             view.setPty(pty)
             view.setInputCallback(onInput)
+            view.setSessionScrollCallbacks(sessionId, onScrollOffsetChanged, getScrollOffset)
         },
         modifier = modifier
     )
@@ -100,6 +107,7 @@ fun PerformanceMonitoredTerminal(
     AndroidView(
         factory = { context ->
             CanvasTerminalView(context).apply {
+                setConfig(config)
                 setEmulator(emulator)
                 setInputCallback(onInput)
                 setPerformanceCallback { fps: Float, frameTime: Long ->
@@ -119,6 +127,7 @@ fun PerformanceMonitoredTerminal(
             }
         },
         update = { view ->
+            view.setConfig(config)
             view.setEmulator(emulator)
         },
         modifier = modifier
@@ -134,14 +143,19 @@ fun CanvasTerminalOutput(
     emulator: AnsiTerminalEmulator,
     modifier: Modifier = Modifier,
     config: RenderConfig = RenderConfig(),
-    pty: com.ai.assistance.operit.terminal.Pty? = null
+    pty: com.ai.assistance.operit.terminal.Pty? = null,
+    sessionId: String? = null,
+    onScrollOffsetChanged: ((String, Float) -> Unit)? = null,
+    getScrollOffset: ((String) -> Float)? = null
 ) {
     AndroidView(
         factory = { context ->
             CanvasTerminalView(context).apply {
+                setConfig(config)
                 setEmulator(emulator)
                 setPty(pty)
                 setFullscreenMode(false) // 关键：设置为非全屏模式
+                setSessionScrollCallbacks(sessionId, onScrollOffsetChanged, getScrollOffset)
                 
                 // 请求父容器不要拦截触摸事件，让终端视图处理滚动手势
                 setOnTouchListener { v, event ->
@@ -156,8 +170,10 @@ fun CanvasTerminalOutput(
             }
         },
         update = { view ->
+            view.setConfig(config)
             view.setEmulator(emulator)
             view.setPty(pty)
+            view.setSessionScrollCallbacks(sessionId, onScrollOffsetChanged, getScrollOffset)
         },
         modifier = modifier
     )

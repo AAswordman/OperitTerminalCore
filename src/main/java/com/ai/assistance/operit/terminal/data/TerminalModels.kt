@@ -99,7 +99,9 @@ data class TerminalSessionData(
     @Transient var currentExecutingCommand: CommandHistoryItem? = null,
     @Transient var currentOutputLineCount: Int = 0,
     @Transient val commandQueue: MutableList<QueuedCommand> = mutableListOf(),
-    @Transient val commandMutex: Mutex = Mutex()
+    @Transient val commandMutex: Mutex = Mutex(),
+    // 保存每个会话的滚动位置
+    var scrollOffsetY: Float = 0f
 ) {
     val isInitializing: Boolean
         get() = initState != SessionInitState.READY

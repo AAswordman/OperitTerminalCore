@@ -49,7 +49,8 @@ data class TerminalChar(
  */
 class AnsiTerminalEmulator(
     private var screenWidth: Int = 80,
-    private var screenHeight: Int = 24
+    private var screenHeight: Int = 24,
+    private val historySize: Int = 1000 // 历史缓冲区行数
 ) {
     companion object {
         private const val TAG = "AnsiTerminalEmulator"
@@ -59,6 +60,9 @@ class AnsiTerminalEmulator(
     // 屏幕缓冲区
     private var screenBuffer: Array<Array<TerminalChar>> =
         Array(screenHeight) { Array(screenWidth) { TerminalChar() } }
+    
+    // 历史缓冲区（用于滚动回溯）
+    private val historyBuffer: MutableList<Array<TerminalChar>> = mutableListOf()
     
     // 备用屏幕缓冲区（用于全屏应用如 vim）
     private var altScreenBuffer: Array<Array<TerminalChar>>? = null
@@ -89,6 +93,12 @@ class AnsiTerminalEmulator(
     // 观察者模式：监听终端变化
     private val changeListeners = mutableListOf<() -> Unit>()
     
+    // 监听新输出（用于自动滚动到底部）
+    private val newOutputListeners = mutableListOf<() -> Unit>()
+    
+    // 缓存完整内容的视图（避免每次创建新列表）
+    private val fullContentView = FullContentView()
+    
     /**
      * 解析并执行 ANSI 序列
      */
@@ -112,6 +122,8 @@ class AnsiTerminalEmulator(
         
         // 通知监听器内容已改变
         notifyChange()
+        // 通知新输出监听器
+        notifyNewOutput()
     }
     
     /**
@@ -472,6 +484,18 @@ class AnsiTerminalEmulator(
     
     private fun scrollUp(lines: Int = 1) {
         for (i in 0 until lines) {
+            // 将滚动出去的顶行添加到历史缓冲区（仅当不在备用屏幕时）
+            if (!isAltScreenActive && scrollTop == 0) {
+                // 复制顶行到历史缓冲区
+                val topLine = screenBuffer[scrollTop].copyOf()
+                historyBuffer.add(topLine)
+                
+                // 限制历史缓冲区大小
+                if (historyBuffer.size > historySize) {
+                    historyBuffer.removeAt(0)
+                }
+            }
+            
             for (y in scrollTop until scrollBottom) {
                 screenBuffer[y] = screenBuffer[y + 1]
             }
@@ -513,7 +537,8 @@ class AnsiTerminalEmulator(
     
     private fun clearScreenAndScrollback() {
         clearScreen()
-        // 在实际实现中，这里还应该清除滚动回溯缓冲区
+        // 清除历史缓冲区
+        historyBuffer.clear()
     }
     
     private fun eraseFromCursorToEnd() {
@@ -650,6 +675,34 @@ class AnsiTerminalEmulator(
     
     fun getScreenContent(): Array<Array<TerminalChar>> = screenBuffer
     
+    /**
+     * 获取包含历史记录的完整内容（历史 + 屏幕）
+     */
+    fun getFullContent(): List<Array<TerminalChar>> {
+        return fullContentView
+    }
+    
+    /**
+     * 内部类：提供历史+屏幕缓冲的统一视图，避免每次创建新列表
+     */
+    private inner class FullContentView : AbstractList<Array<TerminalChar>>() {
+        override val size: Int
+            get() = historyBuffer.size + screenBuffer.size
+        
+        override fun get(index: Int): Array<TerminalChar> {
+            return if (index < historyBuffer.size) {
+                historyBuffer[index]
+            } else {
+                screenBuffer[index - historyBuffer.size]
+            }
+        }
+    }
+    
+    /**
+     * 获取历史缓冲区大小
+     */
+    fun getHistorySize(): Int = historyBuffer.size
+    
     fun resize(newWidth: Int, newHeight: Int) {
         val oldBuffer = screenBuffer
         val oldHeight = screenHeight
@@ -691,9 +744,30 @@ class AnsiTerminalEmulator(
     }
     
     /**
+     * 添加新输出监听器
+     */
+    fun addNewOutputListener(listener: () -> Unit) {
+        newOutputListeners.add(listener)
+    }
+    
+    /**
+     * 移除新输出监听器
+     */
+    fun removeNewOutputListener(listener: () -> Unit) {
+        newOutputListeners.remove(listener)
+    }
+    
+    /**
      * 通知所有监听器终端内容已改变
      */
     private fun notifyChange() {
         changeListeners.forEach { it() }
+    }
+    
+    /**
+     * 通知新输出监听器
+     */
+    private fun notifyNewOutput() {
+        newOutputListeners.forEach { it() }
     }
 } 

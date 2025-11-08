@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GetApp
 import androidx.compose.material.icons.filled.Source
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.verticalScroll
@@ -30,6 +31,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ai.assistance.operit.terminal.data.PackageManagerType
 import com.ai.assistance.operit.terminal.data.SourceConfig
+import com.ai.assistance.operit.terminal.utils.TerminalFontConfigManager
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 
 // 三色系主题配置
 object SettingsTheme {
@@ -71,6 +75,15 @@ fun SettingsScreen(
     // 源管理相关状态
     val sourceConfigs by viewModel.sourceConfigs.collectAsState()
     var showSourceDialogFor by remember { mutableStateOf<PackageManagerType?>(null) }
+    
+    // 字体配置相关状态
+    val fontConfigManager = remember { TerminalFontConfigManager.getInstance(context) }
+    var fontSize by remember { mutableStateOf(fontConfigManager.getFontSize()) }
+    var fontPath by remember { mutableStateOf(fontConfigManager.getFontPath() ?: "") }
+    var fontName by remember { mutableStateOf(fontConfigManager.getFontName() ?: "") }
+    var showFontSizeDialog by remember { mutableStateOf(false) }
+    var showFontPathDialog by remember { mutableStateOf(false) }
+    var showFontNameDialog by remember { mutableStateOf(false) }
     
     // SSH配置相关状态（单一配置）
     val sshConfig by viewModel.sshConfig.collectAsState()
@@ -422,6 +435,69 @@ fun SettingsScreen(
                 }
             }
             
+            // 字体设置区域
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = SettingsTheme.surfaceColor)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "终端字体设置",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = SettingsTheme.onSurfaceColor
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // 字体大小设置
+                    SettingsItem(
+                        title = "字体大小",
+                        subtitle = "${fontSize.toInt()}sp",
+                        onClick = { showFontSizeDialog = true },
+                        icon = Icons.Default.TextFields
+                    )
+                    HorizontalDivider(color = SettingsTheme.backgroundColor)
+                    
+                    // 字体路径设置
+                    SettingsItem(
+                        title = "字体文件路径",
+                        subtitle = fontPath.ifEmpty { "未设置（使用默认字体）" },
+                        onClick = { showFontPathDialog = true },
+                        icon = Icons.Default.Folder
+                    )
+                    HorizontalDivider(color = SettingsTheme.backgroundColor)
+                    
+                    // 系统字体名称设置
+                    SettingsItem(
+                        title = "系统字体名称",
+                        subtitle = fontName.ifEmpty { "未设置（使用默认字体）" },
+                        onClick = { showFontNameDialog = true },
+                        icon = Icons.Default.TextFields
+                    )
+                    HorizontalDivider(color = SettingsTheme.backgroundColor)
+                    
+                    // 重置按钮
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            fontConfigManager.resetToDefault()
+                            fontSize = fontConfigManager.getFontSize()
+                            fontPath = fontConfigManager.getFontPath() ?: ""
+                            fontName = fontConfigManager.getFontName() ?: ""
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = SettingsTheme.primaryColor
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SettingsTheme.primaryColor)
+                    ) {
+                        Text("重置为默认设置")
+                    }
+                }
+            }
+            
             // 源管理区域
             Card(
                 modifier = Modifier
@@ -566,6 +642,163 @@ fun SettingsScreen(
         )
     }
 
+    // 字体大小设置对话框
+    if (showFontSizeDialog) {
+        var fontSizeInput by remember { mutableStateOf(fontSize.toInt().toString()) }
+        AlertDialog(
+            onDismissRequest = { showFontSizeDialog = false },
+            title = { 
+                Text("设置字体大小", color = SettingsTheme.onSurfaceColor, fontWeight = FontWeight.Bold) 
+            },
+            text = { 
+                OutlinedTextField(
+                    value = fontSizeInput,
+                    onValueChange = { fontSizeInput = it },
+                    label = { Text("字体大小 (sp)", color = SettingsTheme.onSurfaceVariant) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = SettingsTheme.onSurfaceColor,
+                        unfocusedTextColor = SettingsTheme.onSurfaceColor,
+                        focusedBorderColor = SettingsTheme.primaryColor,
+                        unfocusedBorderColor = SettingsTheme.onSurfaceVariant
+                    )
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        try {
+                            val size = fontSizeInput.toFloat().coerceIn(12f, 100f)
+                            fontConfigManager.setFontSize(size)
+                            fontSize = size
+                            showFontSizeDialog = false
+                        } catch (e: Exception) {
+                            // 忽略无效输入
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = SettingsTheme.primaryColor)
+                ) {
+                    Text("确定")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showFontSizeDialog = false }
+                ) {
+                    Text("取消")
+                }
+            },
+            containerColor = SettingsTheme.surfaceColor
+        )
+    }
+    
+    // 字体路径设置对话框
+    if (showFontPathDialog) {
+        var fontPathInput by remember { mutableStateOf(fontPath) }
+        AlertDialog(
+            onDismissRequest = { showFontPathDialog = false },
+            title = { 
+                Text("设置字体文件路径", color = SettingsTheme.onSurfaceColor, fontWeight = FontWeight.Bold) 
+            },
+            text = { 
+                Column {
+                    OutlinedTextField(
+                        value = fontPathInput,
+                        onValueChange = { fontPathInput = it },
+                        label = { Text("字体文件路径", color = SettingsTheme.onSurfaceVariant) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = SettingsTheme.onSurfaceColor,
+                            unfocusedTextColor = SettingsTheme.onSurfaceColor,
+                            focusedBorderColor = SettingsTheme.primaryColor,
+                            unfocusedBorderColor = SettingsTheme.onSurfaceVariant
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "留空则使用默认字体",
+                        color = SettingsTheme.onSurfaceVariant,
+                        fontSize = 12.sp
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        fontConfigManager.setFontPath(if (fontPathInput.isBlank()) null else fontPathInput)
+                        fontPath = fontPathInput
+                        showFontPathDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = SettingsTheme.primaryColor)
+                ) {
+                    Text("确定")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showFontPathDialog = false }
+                ) {
+                    Text("取消")
+                }
+            },
+            containerColor = SettingsTheme.surfaceColor
+        )
+    }
+    
+    // 系统字体名称设置对话框
+    if (showFontNameDialog) {
+        var fontNameInput by remember { mutableStateOf(fontName) }
+        AlertDialog(
+            onDismissRequest = { showFontNameDialog = false },
+            title = { 
+                Text("设置系统字体名称", color = SettingsTheme.onSurfaceColor, fontWeight = FontWeight.Bold) 
+            },
+            text = { 
+                Column {
+                    OutlinedTextField(
+                        value = fontNameInput,
+                        onValueChange = { fontNameInput = it },
+                        label = { Text("系统字体名称", color = SettingsTheme.onSurfaceVariant) },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("例如: monospace, serif, sans-serif", color = SettingsTheme.onSurfaceVariant.copy(alpha = 0.5f)) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = SettingsTheme.onSurfaceColor,
+                            unfocusedTextColor = SettingsTheme.onSurfaceColor,
+                            focusedBorderColor = SettingsTheme.primaryColor,
+                            unfocusedBorderColor = SettingsTheme.onSurfaceVariant
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "留空则使用默认字体。常用值：monospace, serif, sans-serif",
+                        color = SettingsTheme.onSurfaceVariant,
+                        fontSize = 12.sp
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        fontConfigManager.setFontName(if (fontNameInput.isBlank()) null else fontNameInput)
+                        fontName = fontNameInput
+                        showFontNameDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = SettingsTheme.primaryColor)
+                ) {
+                    Text("确定")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showFontNameDialog = false }
+                ) {
+                    Text("取消")
+                }
+            },
+            containerColor = SettingsTheme.surfaceColor
+        )
+    }
+    
     if (showClearCacheDialog) {
         AlertDialog(
             onDismissRequest = { showClearCacheDialog = false },
