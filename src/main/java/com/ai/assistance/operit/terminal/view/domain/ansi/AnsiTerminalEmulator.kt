@@ -2,6 +2,7 @@ package com.ai.assistance.operit.terminal.view.domain.ansi
 
 import android.graphics.Color
 import android.util.Log
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * 终端字符数据
@@ -91,10 +92,10 @@ class AnsiTerminalEmulator(
     private var scrollBottom = screenHeight - 1
     
     // 观察者模式：监听终端变化
-    private val changeListeners = mutableListOf<() -> Unit>()
+    private val changeListeners = CopyOnWriteArrayList<() -> Unit>()
     
     // 监听新输出（用于自动滚动到底部）
-    private val newOutputListeners = mutableListOf<() -> Unit>()
+    private val newOutputListeners = CopyOnWriteArrayList<() -> Unit>()
     
     // 缓存完整内容的视图（避免每次创建新列表）
     private val fullContentView = FullContentView()
