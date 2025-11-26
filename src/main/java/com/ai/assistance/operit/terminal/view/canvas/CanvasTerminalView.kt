@@ -6,6 +6,7 @@ import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.util.Log
 import android.view.ActionMode
 import android.view.Menu
 import android.view.MenuItem
@@ -39,6 +40,11 @@ class CanvasTerminalView @JvmOverloads constructor(
     
     // 渲染配置
     private var config = RenderConfig()
+    
+    // 暂停控制
+    private val pauseLock = Object()
+    @Volatile
+    private var isPaused = false
     
     // Paint对象（复用以提高性能）
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -111,6 +117,9 @@ class CanvasTerminalView @JvmOverloads constructor(
     // 缓存终端尺寸，避免重复调用
     private var cachedRows = 0
     private var cachedCols = 0
+    
+    // 临时字符缓冲区，用于避免 drawChar 中的 String 分配
+    private val tempCharBuffer = CharArray(1)
     
     // 文本选择ActionMode
     private var actionMode: ActionMode? = null
@@ -439,11 +448,43 @@ class CanvasTerminalView @JvmOverloads constructor(
     
     // === SurfaceHolder.Callback 实现 ===
     
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        Log.d("CanvasTerminalView", "onSizeChanged: ${w}x${h}")
+        if (w <= 0 || h <= 0) {
+            synchronized(pauseLock) { isPaused = true }
+        } else {
+            synchronized(pauseLock) { 
+                isPaused = false
+                pauseLock.notifyAll()
+            }
+        }
+    }
+    
     override fun surfaceCreated(holder: SurfaceHolder) {
         startRenderThread()
     }
     
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+        Log.d("CanvasTerminalView", "surfaceChanged: ${width}x${height}")
+        // 如果尺寸无效，暂停渲染
+        if (width <= 0 || height <= 0) {
+            Log.d("CanvasTerminalView", "Invalid size, pausing render thread")
+            synchronized(pauseLock) {
+                isPaused = true
+            }
+            return
+        }
+        
+        // 恢复渲染
+        synchronized(pauseLock) {
+            if (isPaused) {
+                Log.d("CanvasTerminalView", "Valid size, resuming render thread")
+                isPaused = false
+                pauseLock.notifyAll()
+            }
+        }
+
         // 更新终端窗口大小
         updateTerminalSize(width, height)
         
@@ -500,6 +541,35 @@ class CanvasTerminalView @JvmOverloads constructor(
             val targetFrameTime = 1000L / config.targetFps
             
             while (running) {
+                // 如果视图尺寸无效，直接休眠（不依赖 isPaused 状态的兜底逻辑）
+                if (width <= 0 || height <= 0) {
+                    try {
+                        sleep(200)
+                    } catch (e: InterruptedException) {
+                        // Ignore
+                    }
+                    continue
+                }
+
+                // 检查是否暂停
+                if (isPaused) {
+                    Log.d("CanvasTerminalView", "RenderThread: Loop paused")
+                    synchronized(pauseLock) {
+                        while (isPaused && running) {
+                            try {
+                                Log.d("CanvasTerminalView", "RenderThread: Waiting...")
+                                pauseLock.wait()
+                            } catch (e: InterruptedException) {
+                                // Ignore
+                            }
+                        }
+                    }
+                    Log.d("CanvasTerminalView", "RenderThread: Waking up")
+                    // 唤醒后重置时间，避免 huge delta
+                    lastFrameTime = System.currentTimeMillis()
+                    continue
+                }
+
                 val currentTime = System.currentTimeMillis()
                 val deltaTime = currentTime - lastFrameTime
                 
@@ -532,6 +602,17 @@ class CanvasTerminalView @JvmOverloads constructor(
                             e.printStackTrace()
                         }
                     }
+                }
+
+                // 如果未能获取Canvas（例如Surface无效），暂停一会避免忙轮询
+                if (canvas == null) {
+                    Log.w("CanvasTerminalView", "RenderThread: Failed to lock canvas, sleeping 10ms")
+                    try {
+                        sleep(10)
+                    } catch (e: InterruptedException) {
+                        break
+                    }
+                    continue
                 }
                 
                 lastFrameTime = currentTime
@@ -755,7 +836,8 @@ class CanvasTerminalView @JvmOverloads constructor(
         }
         
         // 绘制字符
-        canvas.drawText(charToDraw.toString(), x, y, textPaint)
+        tempCharBuffer[0] = charToDraw
+        canvas.drawText(tempCharBuffer, 0, 1, x, y, textPaint)
         
         // 重置样式
         textMetrics.resetStyle()
