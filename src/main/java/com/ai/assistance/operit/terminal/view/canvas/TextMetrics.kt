@@ -13,6 +13,7 @@ class TextMetrics(
     config: RenderConfig
 ) {
     private val charWidthCache = LruCache<Char, Float>(256)
+    private val glyphCache = LruCache<Char, Int>(256) // 0: Default, 1: Nerd, 2: None
     private var currentTypeface: Typeface = config.typeface
     private var nerdTypeface: Typeface? = null // Nerd Font 字体
     
@@ -44,6 +45,7 @@ class TextMetrics(
 
         // 清除缓存
         charWidthCache.evictAll()
+        glyphCache.evictAll()
     }
     
     /**
@@ -51,36 +53,62 @@ class TextMetrics(
      */
     fun setNerdTypeface(typeface: Typeface?) {
         nerdTypeface = typeface
-        // 清除缓存，因为字体改变会影响字符宽度
+        // 清除缓存，因为字体改变会影响字符宽度和字形支持
         charWidthCache.evictAll()
+        glyphCache.evictAll()
     }
     
+    /**
+     * 解析字符的字体类型
+     * @param char 要渲染的字符
+     * @return 0: Default, 1: Nerd, 2: Fallback/None
+     */
+    fun resolveFontType(char: Char): Int {
+        // 查缓存
+        glyphCache.get(char)?.let { return it }
+
+        val charStr = char.toString()
+        
+        // 1. 检查默认字体
+        paint.typeface = currentTypeface
+        if (paint.hasGlyph(charStr)) {
+            glyphCache.put(char, 0)
+            return 0
+        }
+        
+        // 2. 检查 Nerd 字体
+        nerdTypeface?.let { nerd ->
+            paint.typeface = nerd
+            if (paint.hasGlyph(charStr)) {
+                glyphCache.put(char, 1)
+                return 1
+            }
+        }
+        
+        // 3. 都不支持
+        glyphCache.put(char, 2)
+        return 2
+    }
+
+    /**
+     * 根据字体类型设置 Paint 的 Typeface
+     */
+    fun setFont(fontType: Int) {
+        when (fontType) {
+            1 -> paint.typeface = nerdTypeface ?: currentTypeface
+            else -> paint.typeface = currentTypeface
+        }
+    }
+
     /**
      * 为给定的字符选择合适的字体（主字体或Nerd字体）并设置到Paint对象上。
      * @param char 要渲染的字符
      * @return 如果字符在任何一个字体中都不可渲染，则返回 false
      */
     fun selectTypefaceForChar(char: Char): Boolean {
-        // 默认使用当前字体
-        val defaultTypeface = currentTypeface
-        paint.typeface = defaultTypeface
-        
-        // 检查当前字体是否支持
-        if (paint.hasGlyph(char.toString())) {
-            return true
-        }
-        
-        // 如果当前字体不支持，且有Nerd字体，则尝试使用Nerd字体
-        nerdTypeface?.let {
-            paint.typeface = it
-            if (paint.hasGlyph(char.toString())) {
-                return true
-            }
-        }
-        
-        // 如果两个字体都不支持，恢复为默认字体并返回 false
-        paint.typeface = defaultTypeface
-        return false
+        val type = resolveFontType(char)
+        setFont(type)
+        return type != 2
     }
     
     /**

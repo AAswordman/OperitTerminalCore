@@ -587,10 +587,8 @@ class CanvasTerminalView @JvmOverloads constructor(
                 try {
                     canvas = surfaceHolder.lockCanvas()
                     canvas?.let {
-                        synchronized(surfaceHolder) {
-                            drawTerminal(it)
-                            isDirty = false
-                        }
+                        drawTerminal(it)
+                        isDirty = false
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -738,109 +736,189 @@ class CanvasTerminalView @JvmOverloads constructor(
         baseline: Float
     ) {
         var x = startX
+        
+        // Pass 1: Draw Backgrounds (Batching consecutive same-color cells)
         var currentBgColor: Int? = null
         var bgStartX = x
+        var bgRunWidth = 0f
         
         for (col in line.indices) {
             val termChar = line[col]
-            
-            // 获取字符的单元格宽度（宽字符为2，普通字符为1）
             val cellWidth = textMetrics.getCellWidth(termChar.char)
             val actualCharWidth = charWidth * cellWidth
             
-            // 批量绘制相同背景色
             if (termChar.bgColor != config.backgroundColor) {
                 if (currentBgColor != termChar.bgColor) {
-                    // 绘制之前的背景
+                    // Flush previous BG
                     currentBgColor?.let {
                         bgPaint.color = it
-                        canvas.drawRect(bgStartX, y, x, y + charHeight, bgPaint)
+                        canvas.drawRect(bgStartX, y, bgStartX + bgRunWidth, y + charHeight, bgPaint)
                     }
+                    // Start new BG run
                     currentBgColor = termChar.bgColor
-                    bgStartX = x
+                    bgStartX = startX + (if (col == 0) 0f else getXOffsetForCol(line, col, charWidth))
+                    bgRunWidth = 0f
                 }
+                bgRunWidth += actualCharWidth
             } else {
-                // 绘制累积的背景
+                // Flush previous BG
                 currentBgColor?.let {
                     bgPaint.color = it
-                    canvas.drawRect(bgStartX, y, x, y + charHeight, bgPaint)
+                    canvas.drawRect(bgStartX, y, bgStartX + bgRunWidth, y + charHeight, bgPaint)
                 }
                 currentBgColor = null
-                bgStartX = x + actualCharWidth
+                bgRunWidth = 0f
+            }
+        }
+        // Flush remaining BG
+        currentBgColor?.let {
+            bgPaint.color = it
+            canvas.drawRect(bgStartX, y, bgStartX + bgRunWidth, y + charHeight, bgPaint)
+        }
+
+        // Pass 2: Draw Text (Batching consecutive compatible characters)
+        x = startX
+        val sb = StringBuilder()
+        var runStartX = x
+        
+        // Current run attributes
+        var currentFgColor = -1
+        var currentFontType = -1
+        var currentBold = false
+        var currentItalic = false
+        var currentUnderline = false
+        var currentStrike = false
+        
+        for (col in line.indices) {
+            val termChar = line[col]
+            val char = termChar.char
+            val cellWidth = textMetrics.getCellWidth(char)
+            val actualCharWidth = charWidth * cellWidth
+            
+            if (char == ' ' || termChar.isHidden) {
+                // Space/Hidden breaks the run
+                if (sb.isNotEmpty()) {
+                    drawTextRun(canvas, sb.toString(), runStartX, y + baseline, currentFgColor, currentFontType, currentBold, currentItalic, currentUnderline, currentStrike, charWidth)
+                    sb.setLength(0)
+                }
+                x += actualCharWidth
+                continue
+            }
+
+            // Calculate attributes
+            var fgColor = termChar.fgColor
+            if (termChar.isDim) {
+                fgColor = Color.argb(180, Color.red(fgColor), Color.green(fgColor), Color.blue(fgColor))
+            }
+            if (termChar.isInverse) {
+                fgColor = termChar.bgColor
             }
             
-            // 绘制字符（宽字符居中显示）
-            if (termChar.char != ' ' && !termChar.isHidden) {
-                val charX = if (cellWidth == 2) {
-                    // 宽字符居中显示
-                    x + charWidth / 2
-                } else {
-                    x
+            val fontType = textMetrics.resolveFontType(char)
+            val isBold = termChar.isBold
+            val isItalic = termChar.isItalic
+            val isUnderline = termChar.isUnderline
+            val isStrike = termChar.isStrikethrough
+            
+            // Check if attributes match current run
+            val matches = sb.isNotEmpty() &&
+                    fgColor == currentFgColor &&
+                    fontType == currentFontType &&
+                    isBold == currentBold &&
+                    isItalic == currentItalic &&
+                    isUnderline == currentUnderline &&
+                    isStrike == currentStrike
+            
+            if (!matches) {
+                // Flush previous run
+                if (sb.isNotEmpty()) {
+                    drawTextRun(canvas, sb.toString(), runStartX, y + baseline, currentFgColor, currentFontType, currentBold, currentItalic, currentUnderline, currentStrike, charWidth)
+                    sb.setLength(0)
                 }
-                drawChar(canvas, termChar, charX, y + baseline, actualCharWidth)
+                // Start new run
+                currentFgColor = fgColor
+                currentFontType = fontType
+                currentBold = isBold
+                currentItalic = isItalic
+                currentUnderline = isUnderline
+                currentStrike = isStrike
+                runStartX = x
+            }
+            
+            if (cellWidth == 2) {
+                // Wide char: Draw immediately to handle positioning correctly (centered in 2 cells)
+                // Or just append? If we append, we rely on Paint to advance width. 
+                // Paint.measureText might not match 2*charWidth exactly.
+                // Safer to flush and draw individually for wide chars to ensure grid alignment.
+                if (sb.isNotEmpty()) {
+                    drawTextRun(canvas, sb.toString(), runStartX, y + baseline, currentFgColor, currentFontType, currentBold, currentItalic, currentUnderline, currentStrike, charWidth)
+                    sb.setLength(0)
+                }
+                
+                // Draw wide char
+                drawTextRun(canvas, char.toString(), x + (charWidth / 2), y + baseline, fgColor, fontType, isBold, isItalic, isUnderline, isStrike, actualCharWidth)
+                
+                // Reset run
+                runStartX = x + actualCharWidth
+            } else {
+                sb.append(char)
             }
             
             x += actualCharWidth
         }
         
-        // 绘制行尾的背景
-        currentBgColor?.let {
-            bgPaint.color = it
-            canvas.drawRect(bgStartX, y, x, y + charHeight, bgPaint)
+        // Flush final run
+        if (sb.isNotEmpty()) {
+            drawTextRun(canvas, sb.toString(), runStartX, y + baseline, currentFgColor, currentFontType, currentBold, currentItalic, currentUnderline, currentStrike, charWidth)
         }
     }
     
-    private fun drawChar(canvas: Canvas, termChar: TerminalChar, x: Float, y: Float, charWidth: Float = textMetrics.charWidth) {
-        // 检查字符是否可被渲染，如果不行就用替换字符
-        val charToDraw = if (textMetrics.selectTypefaceForChar(termChar.char)) {
-            termChar.char
-        } else {
-            '\uFFFD' // Unicode 替换字符
+    // Helper to calculate X offset for a column (for BG pass)
+    private fun getXOffsetForCol(line: Array<TerminalChar>, col: Int, charWidth: Float): Float {
+        var offset = 0f
+        for (i in 0 until col) {
+            offset += charWidth * textMetrics.getCellWidth(line[i].char)
         }
+        return offset
+    }
+
+    private fun drawTextRun(
+        canvas: Canvas,
+        text: String,
+        x: Float,
+        y: Float,
+        color: Int,
+        fontType: Int,
+        isBold: Boolean,
+        isItalic: Boolean,
+        isUnderline: Boolean,
+        isStrike: Boolean,
+        charWidth: Float // Only used for decorations on wide chars
+    ) {
+        textMetrics.applyStyle(isBold, isItalic)
+        textMetrics.setFont(fontType)
+        textPaint.color = color
         
-        // 应用粗体/斜体等样式（这会设置一个基础字体）
-        textMetrics.applyStyle(termChar.isBold, termChar.isItalic)
+        canvas.drawText(text, x, y, textPaint)
         
-        // 再次选择正确的字体（主字体或Nerd字体），因为applyStyle可能会覆盖它
-        textMetrics.selectTypefaceForChar(charToDraw)
+        val runWidth = if (text.length == 1) charWidth else text.length * textMetrics.charWidth
         
-        // 设置颜色
-        var fgColor = termChar.fgColor
-        if (termChar.isDim) {
-            // 使颜色变暗
-            fgColor = Color.argb(
-                180,
-                Color.red(fgColor),
-                Color.green(fgColor),
-                Color.blue(fgColor)
-            )
-        }
-        
-        if (termChar.isInverse) {
-            // 反转前景和背景色（这里只反转文字颜色）
-            fgColor = termChar.bgColor
-        }
-        
-        textPaint.color = fgColor
-        
-        // 绘制下划线
-        if (termChar.isUnderline) {
+        if (isUnderline) {
             val underlineY = y + 2
-            canvas.drawLine(x, underlineY, x + charWidth, underlineY, textPaint)
+            canvas.drawLine(x, underlineY, x + runWidth, underlineY, textPaint)
         }
         
-        // 绘制删除线
-        if (termChar.isStrikethrough) {
+        if (isStrike) {
             val strikeY = y - textMetrics.charHeight / 2
-            canvas.drawLine(x, strikeY, x + charWidth, strikeY, textPaint)
+            canvas.drawLine(x, strikeY, x + runWidth, strikeY, textPaint)
         }
         
-        // 绘制字符
-        tempCharBuffer[0] = charToDraw
-        canvas.drawText(tempCharBuffer, 0, 1, x, y, textPaint)
-        
-        // 重置样式
         textMetrics.resetStyle()
+    }
+    
+    private fun drawChar(canvas: Canvas, termChar: TerminalChar, x: Float, y: Float, charWidth: Float = textMetrics.charWidth) {
+        // Legacy method, kept if needed but drawLine now uses drawTextRun
+        // We can remove it or redirect.
     }
     
     private fun drawSelection(canvas: Canvas, charWidth: Float, charHeight: Float) {
@@ -1201,7 +1279,15 @@ class CanvasTerminalView @JvmOverloads constructor(
         emulator?.resize(cols, rows)
         
         // 同步 PTY 窗口尺寸
-        pty?.setWindowSize(rows, cols)
+        // 使用后台线程执行，避免ANR（特别是在SSH会话或PTY阻塞时）
+        val targetPty = pty
+        Thread {
+            try {
+                targetPty?.setWindowSize(rows, cols)
+            } catch (e: Exception) {
+                Log.e("CanvasTerminalView", "Failed to update PTY window size", e)
+            }
+        }.start()
     }
 }
 
