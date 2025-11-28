@@ -752,8 +752,9 @@ class TerminalManager private constructor(
           # 使用 proot 直接进入解压的 Ubuntu 根文件系统。
           # - 清理并设置 PATH，避免继承宿主 PATH 造成命令找不到或混用 busybox。
           # - 绑定常见伪文件系统与外部存储，保障交互和软件包管理工作正常。
-          # 在 proot 环境中创建 /storage/emulated 目录
+          # 在 proot 环境中创建必要的目录
           mkdir -p "${'$'}UBUNTU_PATH/storage/emulated" 2>/dev/null
+          mkdir -p "${'$'}UBUNTU_PATH$homeDir" 2>/dev/null
           exec ${'$'}BIN/proot \
             -0 \
             -r "${'$'}UBUNTU_PATH" \
@@ -769,6 +770,7 @@ class TerminalManager private constructor(
             -b /proc/self/fd/2:/dev/stderr \
             -b /storage/emulated/0:/sdcard \
             -b /storage/emulated/0:/storage/emulated/0 \
+            -b $homeDir:$homeDir \
             -w /root \
             /usr/bin/env -i \
               HOME=/root \

@@ -6,6 +6,18 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application>
+        <!-- Ubuntu File System Documents Provider for SAF -->
+        <provider
+            android:name=".provider.UbuntuDocumentsProvider"
+            android:authorities="com.ai.assistance.operit.documents.ubuntu"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
+
         <service
             android:name=".service.TerminalService"
             android:enabled="true"
