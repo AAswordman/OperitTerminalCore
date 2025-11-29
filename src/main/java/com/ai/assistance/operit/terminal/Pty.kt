@@ -71,7 +71,18 @@ open class Pty(
             val dummyProcess = object : Process() {
                 override fun destroy() {
                     // Send SIGHUP to the process group to ensure all child processes are terminated
-                    android.os.Process.sendSignal(pid, 1) // SIGHUP
+                    try {
+                        android.os.Process.sendSignal(pid, 1) // SIGHUP
+                    } catch (e: Exception) {
+                        // Ignore
+                    }
+                    
+                    // Send SIGKILL to ensure the process is dead immediately
+                    try {
+                        android.os.Process.sendSignal(pid, 9) // SIGKILL
+                    } catch (e: Exception) {
+                        // Ignore
+                    }
                 }
 
                 override fun exitValue(): Int {

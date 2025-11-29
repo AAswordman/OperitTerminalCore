@@ -814,6 +814,15 @@ class TerminalManager private constructor(
     }
 
     fun closeTerminalSession(sessionId: String) {
+        // Delegate to provider to ensure underlying process is killed
+        coroutineScope.launch {
+            try {
+                terminalProvider?.closeSession(sessionId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error closing session via provider", e)
+            }
+        }
+
         activeSessions[sessionId]?.let { session ->
             session.process.destroy()
             activeSessions.remove(sessionId)
