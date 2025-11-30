@@ -151,6 +151,9 @@ class CanvasTerminalView @JvmOverloads constructor(
         
         // 初始化手势处理器
         initGestureHandler()
+        
+        // 回退：移除可能导致卡顿的 ZOrderMediaOverlay 设置
+        // 保持默认的 SurfaceView 行为
     }
     
     /**
@@ -448,12 +451,39 @@ class CanvasTerminalView @JvmOverloads constructor(
     
     // === SurfaceHolder.Callback 实现 ===
     
+    // 防止死循环的上次重建时间
+    private var lastRecreateTime = 0L
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        Log.d("CanvasTerminalView", "onSizeChanged: ${w}x${h}")
+        Log.d("CanvasTerminalView", "onSizeChanged: ${w}x${h} (old: ${oldw}x${oldh})")
+        
+        // 只有当从无效尺寸变为有效尺寸时（0x0 -> 正常），才尝试重建
+        if (w > 0 && h > 0 && (oldw <= 0 || oldh <= 0)) {
+            // 简单的防抖动，避免 GONE/VISIBLE 切换造成的死循环
+            val currentTime = System.currentTimeMillis()
+            if (currentTime - lastRecreateTime > 1000) {
+                Log.d("CanvasTerminalView", "onSizeChanged: Detected 0->Normal transition. Forcing view recreation to fix black screen.")
+                lastRecreateTime = currentTime
+                
+                // 强制重建 SurfaceView 的 Surface
+                // 通过切换可见性 GONE -> VISIBLE，强制 WindowManager 重新组合 Surface
+                post {
+                    visibility = GONE
+                    post {
+                        visibility = VISIBLE
+                    }
+                }
+            }
+        }
+
         if (w <= 0 || h <= 0) {
+            Log.w("CanvasTerminalView", "onSizeChanged: Invalid size, stopping render thread")
+            stopRenderThread()
             synchronized(pauseLock) { isPaused = true }
         } else {
+            // 如果线程不存在（之前被销毁了），这里不急着启动，交给 surfaceChanged 统一处理
+            // 只是确保 pause 状态解除
             synchronized(pauseLock) { 
                 isPaused = false
                 pauseLock.notifyAll()
@@ -462,27 +492,37 @@ class CanvasTerminalView @JvmOverloads constructor(
     }
     
     override fun surfaceCreated(holder: SurfaceHolder) {
-        startRenderThread()
+        Log.d("CanvasTerminalView", "surfaceCreated")
+        // surfaceCreated 时如果尺寸未知或为0，startRenderThread 会被调用但 run 循环会等待
+        // 但为了安全，我们尽量由 surfaceChanged 驱动
+        if (width > 0 && height > 0) {
+            startRenderThread()
+        }
     }
     
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         Log.d("CanvasTerminalView", "surfaceChanged: ${width}x${height}")
-        // 如果尺寸无效，暂停渲染
+        
+        // 如果尺寸无效，停止渲染
         if (width <= 0 || height <= 0) {
-            Log.d("CanvasTerminalView", "Invalid size, pausing render thread")
+            Log.d("CanvasTerminalView", "surfaceChanged: Invalid size, stopping render thread")
+            stopRenderThread()
             synchronized(pauseLock) {
                 isPaused = true
             }
             return
         }
         
-        // 恢复渲染
+        // 恢复状态
         synchronized(pauseLock) {
-            if (isPaused) {
-                Log.d("CanvasTerminalView", "Valid size, resuming render thread")
-                isPaused = false
-                pauseLock.notifyAll()
-            }
+            isPaused = false
+            pauseLock.notifyAll()
+        }
+        
+        // 确保线程运行
+        if (renderThread == null || !renderThread!!.isAlive) {
+            Log.d("CanvasTerminalView", "surfaceChanged: Starting render thread for valid size")
+            startRenderThread()
         }
 
         // 更新终端窗口大小
@@ -492,6 +532,7 @@ class CanvasTerminalView @JvmOverloads constructor(
     }
     
     override fun surfaceDestroyed(holder: SurfaceHolder) {
+        Log.d("CanvasTerminalView", "surfaceDestroyed")
         stopRenderThread()
         // 清理方向键长按回调，避免内存泄漏
         handleArrowKeyUp()
@@ -500,6 +541,7 @@ class CanvasTerminalView @JvmOverloads constructor(
     // === 渲染线程 ===
     
     private fun startRenderThread() {
+        Log.d("CanvasTerminalView", "startRenderThread: Starting new thread")
         stopRenderThread()
         renderThread = RenderThread(holder).apply {
             start()
@@ -511,12 +553,16 @@ class CanvasTerminalView @JvmOverloads constructor(
      * 在视图被销毁或移除时调用，避免SurfaceView锁竞争导致ANR
      */
     fun stopRenderThread() {
+        Log.d("CanvasTerminalView", "stopRenderThread: Stopping thread")
         renderThread?.let { thread ->
+            Log.d("CanvasTerminalView", "stopRenderThread: Requesting stop for thread ${thread.id}")
             thread.stopRendering()
             thread.interrupt()
             try {
                 thread.join(1000)
+                Log.d("CanvasTerminalView", "stopRenderThread: Thread joined")
             } catch (e: InterruptedException) {
+                Log.e("CanvasTerminalView", "stopRenderThread: Interrupted while joining", e)
                 e.printStackTrace()
             }
         }
@@ -528,104 +574,91 @@ class CanvasTerminalView @JvmOverloads constructor(
         private var running = false
         
         override fun start() {
+            Log.d("CanvasTerminalView", "RenderThread: start() called")
             running = true
             super.start()
         }
         
         fun stopRendering() {
+            Log.d("CanvasTerminalView", "RenderThread: stopRendering() called")
             running = false
         }
         
         override fun run() {
-            var lastFrameTime = System.currentTimeMillis()
+            Log.d("CanvasTerminalView", "RenderThread started")
+            var lastRenderTime = System.currentTimeMillis()
             val targetFrameTime = 1000L / config.targetFps
             
             while (running) {
-                // 如果视图尺寸无效，直接休眠（不依赖 isPaused 状态的兜底逻辑）
-                if (width <= 0 || height <= 0) {
-                    try {
+                try {
+                    // === 1. 状态检查 ===
+                    // 尺寸无效：休眠等待
+                    if (width <= 0 || height <= 0) {
                         sleep(200)
-                    } catch (e: InterruptedException) {
-                        // Ignore
+                        continue
                     }
-                    continue
-                }
-
-                // 检查是否暂停
-                if (isPaused) {
-                    Log.d("CanvasTerminalView", "RenderThread: Loop paused")
-                    synchronized(pauseLock) {
-                        while (isPaused && running) {
-                            try {
-                                Log.d("CanvasTerminalView", "RenderThread: Waiting...")
+                    
+                    // 暂停状态：等待唤醒
+                    if (isPaused) {
+                        synchronized(pauseLock) {
+                            while (isPaused && running) {
                                 pauseLock.wait()
-                            } catch (e: InterruptedException) {
-                                // Ignore
+                            }
+                        }
+                        lastRenderTime = System.currentTimeMillis() // 重置时间基准
+                        continue
+                    }
+                    
+                    // === 2. 帧率控制 ===
+                    val currentTime = System.currentTimeMillis()
+                    val timeSinceLastRender = currentTime - lastRenderTime
+                    
+                    // 未到渲染时间且无脏数据：短暂休眠
+                    if (!isDirty && timeSinceLastRender < targetFrameTime) {
+                        sleep(5)
+                        continue
+                    }
+                    
+                    // === 3. 渲染 ===
+                    var canvas: Canvas? = null
+                    try {
+                        canvas = surfaceHolder.lockCanvas()
+                        if (canvas != null) {
+                            drawTerminal(canvas)
+                            isDirty = false
+                            lastRenderTime = currentTime
+                        } else {
+                            // Canvas 不可用，休眠后重试
+                            sleep(10)
+                        }
+                    } catch (e: Exception) {
+                        Log.e("CanvasTerminalView", "Render error", e)
+                    } finally {
+                        canvas?.let {
+                            try {
+                                surfaceHolder.unlockCanvasAndPost(it)
+                            } catch (e: Exception) {
+                                Log.e("CanvasTerminalView", "Failed to unlock canvas", e)
                             }
                         }
                     }
-                    Log.d("CanvasTerminalView", "RenderThread: Waking up")
-                    // 唤醒后重置时间，避免 huge delta
-                    lastFrameTime = System.currentTimeMillis()
-                    continue
-                }
-
-                val currentTime = System.currentTimeMillis()
-                val deltaTime = currentTime - lastFrameTime
-                
-                // 如果没有变化且距离上次渲染时间较短，则跳过渲染（省电）
-                if (!isDirty && deltaTime < targetFrameTime) {
-                    try {
-                        sleep(5)
-                    } catch (e: InterruptedException) {
-                        break
-                    }
-                    continue
-                }
-                
-                var canvas: Canvas? = null
-                try {
-                    canvas = surfaceHolder.lockCanvas()
-                    canvas?.let {
-                        drawTerminal(it)
-                        isDirty = false
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                } finally {
-                    canvas?.let {
-                        try {
-                            surfaceHolder.unlockCanvasAndPost(it)
-                        } catch (e: Exception) {
-                            e.printStackTrace()
+                    
+                    // === 4. 帧时间控制 ===
+                    if (canvas != null) {
+                        val frameTime = System.currentTimeMillis() - currentTime
+                        val sleepTime = targetFrameTime - frameTime
+                        if (sleepTime > 0) {
+                            sleep(sleepTime)
                         }
                     }
-                }
-
-                // 如果未能获取Canvas（例如Surface无效），暂停一会避免忙轮询
-                if (canvas == null) {
-                    Log.w("CanvasTerminalView", "RenderThread: Failed to lock canvas, sleeping 10ms")
-                    try {
-                        sleep(10)
-                    } catch (e: InterruptedException) {
-                        break
-                    }
-                    continue
-                }
-                
-                lastFrameTime = currentTime
-                
-                // 控制帧率
-                val frameTime = System.currentTimeMillis() - currentTime
-                val sleepTime = targetFrameTime - frameTime
-                if (sleepTime > 0) {
-                    try {
-                        sleep(sleepTime)
-                    } catch (e: InterruptedException) {
-                        break
-                    }
+                    
+                } catch (e: InterruptedException) {
+                    Log.d("CanvasTerminalView", "RenderThread interrupted")
+                    break
                 }
             }
+            
+            Log.d("CanvasTerminalView", "RenderThread stopped")
         }
     }
     
@@ -641,6 +674,10 @@ class CanvasTerminalView @JvmOverloads constructor(
         val charWidth = textMetrics.charWidth
         val charHeight = textMetrics.charHeight
         val baseline = textMetrics.charBaseline
+        
+        // 1. 首先全屏清屏（防止前帧内容残留和闪烁）
+        bgPaint.color = config.backgroundColor
+        canvas.drawRect(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat(), bgPaint)
         
         // 限制最大滚动偏移（不能超过内容高度）
         val maxScrollOffset = max(0f, fullContent.size * charHeight - canvas.height)
@@ -658,26 +695,21 @@ class CanvasTerminalView @JvmOverloads constructor(
         val startRow = (scrollOffsetY / charHeight).toInt()
         val endRow = min(startRow + visibleRows, fullContent.size)
         
+
         // 绘制每一行（包括背景）
+        var drawnCharCount = 0
         for (row in startRow until endRow) {
             if (row >= fullContent.size) break
             
             val line = fullContent[row]
-            val y = (row - startRow) * charHeight - (scrollOffsetY % charHeight)
+            drawnCharCount += line.size
             
-            // 先绘制整行的默认背景
-            bgPaint.color = config.backgroundColor
-            canvas.drawRect(0f, y, canvas.width.toFloat(), y + charHeight, bgPaint)
+            // 使用绝对坐标计算，避免 startRow 跳变导致的整体偏移
+            val exactY = row * charHeight - scrollOffsetY
+            val y = kotlin.math.round(exactY)
             
             // 绘制该行的所有字符
             drawLine(canvas, line, row, 0f, y, charWidth, charHeight, baseline)
-        }
-        
-        // 绘制底部剩余区域的背景（如果有）
-        val lastY = (endRow - startRow) * charHeight - (scrollOffsetY % charHeight)
-        if (lastY < canvas.height) {
-            bgPaint.color = config.backgroundColor
-            canvas.drawRect(0f, lastY, canvas.width.toFloat(), canvas.height.toFloat(), bgPaint)
         }
         
         // 绘制选择区域
@@ -692,7 +724,8 @@ class CanvasTerminalView @JvmOverloads constructor(
             
             // 只有当光标在可见区域内时才绘制
             if (cursorRow >= startRow && cursorRow < endRow) {
-                val cursorY = (cursorRow - startRow) * charHeight - (scrollOffsetY % charHeight)
+                val exactCursorY = cursorRow * charHeight - scrollOffsetY
+                val cursorY = kotlin.math.round(exactCursorY)
                 
                 // 计算光标的 x 坐标，考虑宽字符
                 val line = fullContent.getOrNull(cursorRow) ?: arrayOf()
@@ -930,7 +963,8 @@ class CanvasTerminalView @JvmOverloads constructor(
         val startRow = (scrollOffsetY / charHeight).toInt()
         
         for (row in selection.startRow..selection.endRow) {
-            val y = (row - startRow) * charHeight - (scrollOffsetY % charHeight)
+            val exactY = row * charHeight - scrollOffsetY
+            val y = kotlin.math.round(exactY)
             
             val startCol = if (row == selection.startRow) selection.startCol else 0
             val endCol = if (row == selection.endRow) {
@@ -1260,10 +1294,16 @@ class CanvasTerminalView @JvmOverloads constructor(
     private fun updateTerminalSize(width: Int, height: Int) {
         if (width <= 0 || height <= 0) return
 
+        // 1. 记录当前的滚动状态（基于行数，而不是像素）
+        // 这样在缩放后可以恢复到相同的逻辑位置
+        val oldCharHeight = textMetrics.charHeight
+        val currentScrollRows = if (oldCharHeight > 0) scrollOffsetY / oldCharHeight else 0f
+        
         // 确保字体指标已更新（基于当前缩放因子）
         textMetrics.updateFromRenderConfig(config.copy(fontSize = config.fontSize * scaleFactor))
 
         // 计算终端尺寸（行和列）
+        // 现在终端模拟器支持重排，可以正常根据字体大小调整列数
         val cols = (width / textMetrics.charWidth).toInt().coerceAtLeast(1)
         val rows = (height / textMetrics.charHeight).toInt().coerceAtLeast(1)
         
@@ -1277,6 +1317,18 @@ class CanvasTerminalView @JvmOverloads constructor(
         
         // 更新模拟器尺寸
         emulator?.resize(cols, rows)
+        
+        // 2. 恢复滚动位置
+        // 使用新的行高计算新的像素偏移量
+        if (emulator != null) {
+            val newCharHeight = textMetrics.charHeight
+            // 重新计算最大滚动范围
+            val fullContentSize = emulator?.getFullContent()?.size ?: 0
+            val maxScrollOffset = max(0f, fullContentSize * newCharHeight - height)
+            
+            // 恢复之前的行位置
+            scrollOffsetY = (currentScrollRows * newCharHeight).coerceIn(0f, maxScrollOffset)
+        }
         
         // 同步 PTY 窗口尺寸
         // 使用后台线程执行，避免ANR（特别是在SSH会话或PTY阻塞时）

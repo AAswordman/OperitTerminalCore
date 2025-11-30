@@ -62,8 +62,12 @@ class AnsiTerminalEmulator(
     private var screenBuffer: Array<Array<TerminalChar>> =
         Array(screenHeight) { Array(screenWidth) { TerminalChar() } }
     
+    // 行元数据：标记每一行是否是软换行（因宽度限制自动换行，而非真正的\n）
+    private var lineWrapped: BooleanArray = BooleanArray(screenHeight) { false }
+    
     // 历史缓冲区（用于滚动回溯）
     private val historyBuffer: MutableList<Array<TerminalChar>> = mutableListOf()
+    private val historyWrapped: MutableList<Boolean> = mutableListOf()
     
     // 备用屏幕缓冲区（用于全屏应用如 vim）
     private var altScreenBuffer: Array<Array<TerminalChar>>? = null
@@ -134,6 +138,10 @@ class AnsiTerminalEmulator(
         // 检查是否需要自动换行
         if (cursorX >= screenWidth) {
             if (autoWrapMode) {
+                // 标记当前行为软换行
+                if (cursorY >= 0 && cursorY < screenHeight) {
+                    lineWrapped[cursorY] = true
+                }
                 cursorX = 0
                 cursorY++
                 if (cursorY > scrollBottom) {
@@ -169,6 +177,10 @@ class AnsiTerminalEmulator(
                 cursorX = nextTabStop.coerceAtMost(screenWidth - 1)
             }
             ControlCharType.LINE_FEED -> {
+                // 换行符：这是硬换行，不标记为软换行
+                if (cursorY >= 0 && cursorY < screenHeight) {
+                    lineWrapped[cursorY] = false
+                }
                 cursorY++
                 if (cursorY > scrollBottom) {
                     cursorY = scrollBottom
@@ -489,16 +501,20 @@ class AnsiTerminalEmulator(
             if (!isAltScreenActive && scrollTop == 0) {
                 // 复制顶行到历史缓冲区
                 val topLine = screenBuffer[scrollTop].copyOf()
+                val topWrapped = lineWrapped[scrollTop]
                 historyBuffer.add(topLine)
+                historyWrapped.add(topWrapped)
                 
                 // 限制历史缓冲区大小
                 if (historyBuffer.size > historySize) {
                     historyBuffer.removeAt(0)
+                    historyWrapped.removeAt(0)
                 }
             }
             
             for (y in scrollTop until scrollBottom) {
                 screenBuffer[y] = screenBuffer[y + 1]
+                lineWrapped[y] = lineWrapped[y + 1]
             }
             screenBuffer[scrollBottom] = Array(screenWidth) { 
                 TerminalChar(attributes = currentAttributes.copy(
@@ -514,6 +530,7 @@ class AnsiTerminalEmulator(
                     isStrikethrough = false
                 ))
             }
+            lineWrapped[scrollBottom] = false
         }
     }
     
@@ -705,27 +722,181 @@ class AnsiTerminalEmulator(
     fun getHistorySize(): Int = historyBuffer.size
     
     fun resize(newWidth: Int, newHeight: Int) {
-        val oldBuffer = screenBuffer
-        val oldHeight = screenHeight
-        val oldWidth = screenWidth
+        if (newWidth == screenWidth && newHeight == screenHeight) return
         
+        // 主流程：收集 -> 清理 -> 重排 -> 分配
+        val logicalLines = collectLogicalLines()
+        trimTrailingEmptyLines(logicalLines)
+        val (newPhysicalLines, newPhysicalWrapped) = rewrapLogicalLines(logicalLines, newWidth)
+        
+        // 更新尺寸并重建缓冲区
         screenWidth = newWidth
         screenHeight = newHeight
-        screenBuffer = Array(screenHeight) { Array(screenWidth) { TerminalChar() } }
+        distributeToBuffers(newPhysicalLines, newPhysicalWrapped)
         
-        // 复制旧内容
-        val heightToCopy = oldHeight.coerceAtMost(newHeight)
-        val widthToCopy = oldWidth.coerceAtMost(newWidth)
-        
-        for (y in 0 until heightToCopy) {
-            System.arraycopy(oldBuffer[y], 0, screenBuffer[y], 0, widthToCopy)
-        }
-        
-        cursorX = cursorX.coerceIn(0, screenWidth - 1)
-        cursorY = cursorY.coerceIn(0, screenHeight - 1)
+        // 重置滚动区域和光标
+        scrollTop = 0
         scrollBottom = screenHeight - 1
+        cursorX = 0
         
         notifyChange()
+    }
+    
+    /**
+     * 收集所有逻辑行（合并历史+屏幕的软换行）
+     */
+    private fun collectLogicalLines(): MutableList<MutableList<TerminalChar>> {
+        val logicalLines = mutableListOf<MutableList<TerminalChar>>()
+        var currentLogicalLine = mutableListOf<TerminalChar>()
+        
+        // 辅助函数：处理一行物理行
+        fun processPhysicalLine(line: Array<TerminalChar>, isWrapped: Boolean) {
+            // 计算有效长度：软换行取整行，硬换行去除末尾空白
+            val effectiveLength = if (isWrapped) {
+                line.size
+            } else {
+                findLastNonEmptyIndex(line) + 1
+            }
+            
+            // 添加有效字符到当前逻辑行
+            for (i in 0 until effectiveLength) {
+                currentLogicalLine.add(line[i])
+            }
+            
+            // 硬换行：逻辑行结束
+            if (!isWrapped) {
+                logicalLines.add(currentLogicalLine)
+                currentLogicalLine = mutableListOf()
+            }
+        }
+        
+        // 处理历史缓冲区
+        for (i in historyBuffer.indices) {
+            processPhysicalLine(historyBuffer[i], historyWrapped[i])
+        }
+        
+        // 处理屏幕缓冲区
+        for (i in 0 until screenHeight) {
+            processPhysicalLine(screenBuffer[i], lineWrapped[i])
+        }
+        
+        // 处理残留的逻辑行（最后一行是软换行的情况）
+        if (currentLogicalLine.isNotEmpty()) {
+            logicalLines.add(currentLogicalLine)
+        }
+        
+        return logicalLines
+    }
+    
+    /**
+     * 查找行中最后一个非空字符的索引
+     */
+    private fun findLastNonEmptyIndex(line: Array<TerminalChar>): Int {
+        for (i in line.size - 1 downTo 0) {
+            val c = line[i]
+            // 检查是否为空白字符（无内容无样式）
+            if (c.char != ' ' || c.bgColor != Color.BLACK || c.isInverse || c.isUnderline || c.isStrikethrough) {
+                return i
+            }
+        }
+        return -1 // 整行都是空白
+    }
+    
+    /**
+     * 移除末尾连续的空逻辑行
+     */
+    private fun trimTrailingEmptyLines(logicalLines: MutableList<MutableList<TerminalChar>>) {
+        while (logicalLines.isNotEmpty()) {
+            val lastLine = logicalLines.last()
+            if (lastLine.isEmpty() || lastLine.all { 
+                it.char == ' ' && it.bgColor == Color.BLACK && !it.isInverse && !it.isUnderline 
+            }) {
+                logicalLines.removeAt(logicalLines.size - 1)
+            } else {
+                break
+            }
+        }
+    }
+    
+    /**
+     * 根据新宽度重新折行
+     */
+    private fun rewrapLogicalLines(
+        logicalLines: List<List<TerminalChar>>,
+        newWidth: Int
+    ): Pair<List<Array<TerminalChar>>, List<Boolean>> {
+        val physicalLines = mutableListOf<Array<TerminalChar>>()
+        val wrappedFlags = mutableListOf<Boolean>()
+        
+        for (logicalLine in logicalLines) {
+            if (logicalLine.isEmpty()) {
+                // 空逻辑行（真正的空行）
+                physicalLines.add(Array(newWidth) { TerminalChar() })
+                wrappedFlags.add(false)
+                continue
+            }
+            
+            // 将逻辑行按新宽度切分成多个物理行
+            var offset = 0
+            while (offset < logicalLine.size) {
+                val chunkSize = (logicalLine.size - offset).coerceAtMost(newWidth)
+                val chunk = Array(newWidth) { TerminalChar() }
+                
+                for (i in 0 until chunkSize) {
+                    chunk[i] = logicalLine[offset + i]
+                }
+                
+                offset += chunkSize
+                val isWrapped = offset < logicalLine.size // 还有剩余内容则标记为软换行
+                
+                physicalLines.add(chunk)
+                wrappedFlags.add(isWrapped)
+            }
+        }
+        
+        return Pair(physicalLines, wrappedFlags)
+    }
+    
+    /**
+     * 将物理行分配到历史缓冲区和屏幕缓冲区
+     */
+    private fun distributeToBuffers(
+        physicalLines: List<Array<TerminalChar>>,
+        wrappedFlags: List<Boolean>
+    ) {
+        historyBuffer.clear()
+        historyWrapped.clear()
+        screenBuffer = Array(screenHeight) { Array(screenWidth) { TerminalChar() } }
+        lineWrapped = BooleanArray(screenHeight) { false }
+        
+        val totalLines = physicalLines.size
+        
+        if (totalLines <= screenHeight) {
+            // 内容不足一屏，直接填充屏幕
+            for (i in 0 until totalLines) {
+                screenBuffer[i] = physicalLines[i]
+                lineWrapped[i] = wrappedFlags[i]
+            }
+            cursorY = (totalLines - 1).coerceAtLeast(0)
+        } else {
+            // 内容超过一屏，分流到历史和屏幕
+            val historyCount = totalLines - screenHeight
+            val startHistoryIdx = (historyCount - historySize).coerceAtLeast(0)
+            
+            // 填充历史缓冲区（受限于 historySize）
+            for (i in startHistoryIdx until historyCount) {
+                historyBuffer.add(physicalLines[i])
+                historyWrapped.add(wrappedFlags[i])
+            }
+            
+            // 填充屏幕缓冲区（最后 screenHeight 行）
+            for (i in 0 until screenHeight) {
+                screenBuffer[i] = physicalLines[historyCount + i]
+                lineWrapped[i] = wrappedFlags[historyCount + i]
+            }
+            
+            cursorY = screenHeight - 1
+        }
     }
     
     // === 观察者模式方法 ===
