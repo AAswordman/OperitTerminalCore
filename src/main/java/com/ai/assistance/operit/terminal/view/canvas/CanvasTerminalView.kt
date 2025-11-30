@@ -135,6 +135,9 @@ class CanvasTerminalView @JvmOverloads constructor(
     private val longPressDelay = 500L // 长按延迟时间（毫秒）
     private val repeatInterval = 200L // 重复发送间隔（毫秒）
     
+    // 无障碍支持
+    private val terminalAccessibilityDelegate: TerminalAccessibilityDelegate
+    
     init {
         holder.addCallback(this)
         setWillNotDraw(false)
@@ -151,6 +154,18 @@ class CanvasTerminalView @JvmOverloads constructor(
         
         // 初始化手势处理器
         initGestureHandler()
+        
+        // 初始化无障碍支持
+        terminalAccessibilityDelegate = TerminalAccessibilityDelegate(
+            view = this,
+            getEmulator = { emulator },
+            getTextMetrics = { textMetrics },
+            getScrollOffsetY = { scrollOffsetY }
+        )
+        accessibilityDelegate = terminalAccessibilityDelegate
+        
+        // 重要：启用accessibility以让系统识别虚拟节点
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
         
         // 回退：移除可能导致卡顿的 ZOrderMediaOverlay 设置
         // 保持默认的 SurfaceView 行为
@@ -258,6 +273,8 @@ class CanvasTerminalView @JvmOverloads constructor(
         emulatorChangeListener = {
             isDirty = true
             requestRender()
+            // 通知无障碍服务内容已更新
+            (accessibilityDelegate as? TerminalAccessibilityDelegate)?.notifyContentChanged()
         }
         emulator.addChangeListener(emulatorChangeListener!!)
         
@@ -994,7 +1011,64 @@ class CanvasTerminalView @JvmOverloads constructor(
         }
     }
     
+    // === 无障碍支持 ===
+    
+    /**
+     * 初始化无障碍节点信息
+     * 确保View本身不会被无障碍服务选中，只通过虚拟节点访问内容
+     */
+    override fun onInitializeAccessibilityNodeInfo(info: android.view.accessibility.AccessibilityNodeInfo) {
+        super.onInitializeAccessibilityNodeInfo(info)
+        // 关键：不设置任何描述性文本，让View对TalkBack透明
+        // 所有交互都通过虚拟节点（每一行）进行
+        info.className = CanvasTerminalView::class.java.name
+        info.isClickable = false
+        info.isFocusable = false
+        info.isLongClickable = false
+        // 不设置 contentDescription，避免整个View被朗读
+    }
+    
     // === 触摸事件处理 ===
+    
+    /**
+     * 处理悬停事件（用于无障碍触摸探索）
+     * 当用户使用TalkBack触摸屏幕时，会触发此方法
+     */
+    override fun dispatchHoverEvent(event: MotionEvent): Boolean {
+        // 让accessibility delegate处理悬停事件
+        // 这样触摸探索时能找到对应的虚拟节点（行）
+        (accessibilityDelegate as? TerminalAccessibilityDelegate)?.let { delegate ->
+            val virtualViewId = delegate.findVirtualViewAt(event.x, event.y)
+            
+            when (event.action) {
+                MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
+                    // 当触摸到一个虚拟节点时，主动请求该节点获得无障碍焦点
+                    if (virtualViewId != -1) {
+                        // 获取节点提供者并请求焦点
+                        accessibilityNodeProvider?.let { provider ->
+                            provider.performAction(
+                                virtualViewId,
+                                android.view.accessibility.AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS,
+                                null
+                            )
+                        }
+                        
+                        // 发送悬停事件
+                        val hoverEvent = android.view.accessibility.AccessibilityEvent.obtain(
+                            android.view.accessibility.AccessibilityEvent.TYPE_VIEW_HOVER_ENTER
+                        )
+                        hoverEvent.setSource(this, virtualViewId)
+                        parent?.requestSendAccessibilityEvent(this, hoverEvent)
+                    }
+                }
+                MotionEvent.ACTION_HOVER_EXIT -> {
+                    // 悬停退出时不清除焦点，让焦点保持在最后一个触摸的节点上
+                }
+            }
+        }
+        
+        return super.dispatchHoverEvent(event)
+    }
     
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val handled = gestureHandler.onTouchEvent(event)
