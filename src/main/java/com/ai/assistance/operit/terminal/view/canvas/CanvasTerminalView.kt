@@ -19,6 +19,7 @@ import android.view.inputmethod.InputMethodManager
 import android.view.KeyEvent
 import android.os.Handler
 import android.os.Looper
+import android.widget.OverScroller
 import com.ai.assistance.operit.terminal.view.domain.ansi.AnsiTerminalEmulator
 import com.ai.assistance.operit.terminal.view.domain.ansi.TerminalChar
 import kotlin.math.max
@@ -105,6 +106,9 @@ class CanvasTerminalView @JvmOverloads constructor(
     
     // 滚动偏移
     private var scrollOffsetY = 0f
+    
+    // 惯性滚动处理器
+    private val scroller: OverScroller by lazy { OverScroller(context) }
     
     // 输入回调
     private var inputCallback: ((String) -> Unit)? = null
@@ -207,6 +211,11 @@ class CanvasTerminalView @JvmOverloads constructor(
             },
             onScroll = { _, distanceY ->
                 if (!selectionManager.hasSelection()) {
+                    // 手动滚动时停止惯性滚动
+                    if (!scroller.isFinished) {
+                        scroller.abortAnimation()
+                    }
+                    
                     scrollOffsetY += distanceY
                     scrollOffsetY = scrollOffsetY.coerceAtLeast(0f)
                     
@@ -223,6 +232,23 @@ class CanvasTerminalView @JvmOverloads constructor(
                         isUserScrolling = false
                     }
                     
+                    requestRender()
+                }
+            },
+            onFling = { velocityX, velocityY ->
+                if (!selectionManager.hasSelection()) {
+                    // 开始惯性滚动
+                    val em = emulator ?: return@GestureHandler
+                    val fullContent = em.getFullContent()
+                    val charHeight = textMetrics.charHeight
+                    val maxScrollOffset = max(0f, fullContent.size * charHeight - height).toInt()
+                    
+                    scroller.fling(
+                        0, scrollOffsetY.toInt(),  // 起始位置
+                        0, (-velocityY).toInt(),    // 速度（Y方向反转）
+                        0, 0,                        // X范围
+                        0, maxScrollOffset           // Y范围
+                    )
                     requestRender()
                 }
             },
@@ -274,7 +300,8 @@ class CanvasTerminalView @JvmOverloads constructor(
             isDirty = true
             requestRender()
             // 通知无障碍服务内容已更新
-            (accessibilityDelegate as? TerminalAccessibilityDelegate)?.notifyContentChanged()
+            // 直接使用成员变量以兼容 API < 29 (getAccessibilityDelegate 是 API 29+)
+            terminalAccessibilityDelegate.notifyContentChanged()
         }
         emulator.addChangeListener(emulatorChangeListener!!)
         
@@ -326,7 +353,6 @@ class CanvasTerminalView @JvmOverloads constructor(
      */
     fun setPty(pty: com.ai.assistance.operit.terminal.Pty?) {
         this.pty = pty
-        
         // 如果 Surface 已经创建且有 emulator，立即同步终端大小
         if (width > 0 && height > 0 && emulator != null) {
             updateTerminalSize(width, height)
@@ -387,6 +413,11 @@ class CanvasTerminalView @JvmOverloads constructor(
             },
             onScroll = { _, distanceY ->
                 if (!selectionManager.hasSelection()) {
+                    // 手动滚动时停止惯性滚动
+                    if (!scroller.isFinished) {
+                        scroller.abortAnimation()
+                    }
+                    
                     scrollOffsetY += distanceY
                     scrollOffsetY = scrollOffsetY.coerceAtLeast(0f)
                     
@@ -403,6 +434,23 @@ class CanvasTerminalView @JvmOverloads constructor(
                         isUserScrolling = false
                     }
                     
+                    requestRender()
+                }
+            },
+            onFling = { velocityX, velocityY ->
+                if (!selectionManager.hasSelection()) {
+                    // 开始惯性滚动
+                    val em = emulator ?: return@GestureHandler
+                    val fullContent = em.getFullContent()
+                    val charHeight = textMetrics.charHeight
+                    val maxScrollOffset = max(0f, fullContent.size * charHeight - height).toInt()
+                    
+                    scroller.fling(
+                        0, scrollOffsetY.toInt(),  // 起始位置
+                        0, (-velocityY).toInt(),    // 速度（Y方向反转）
+                        0, 0,                        // X范围
+                        0, maxScrollOffset           // Y范围
+                    )
                     requestRender()
                 }
             },
@@ -492,6 +540,11 @@ class CanvasTerminalView @JvmOverloads constructor(
                     }
                 }
             }
+            
+            // 从无效尺寸恢复时，清空缓存以确保 PTY resize 被触发
+            cachedRows = 0
+            cachedCols = 0
+            Log.d("CanvasTerminalView", "onSizeChanged: Cleared terminal size cache due to 0->Normal transition")
         }
 
         if (w <= 0 || h <= 0) {
@@ -504,6 +557,13 @@ class CanvasTerminalView @JvmOverloads constructor(
             synchronized(pauseLock) { 
                 isPaused = false
                 pauseLock.notifyAll()
+            }
+            
+            // 尺寸发生变化时，重新计算并同步终端大小到 PTY
+            // 这样可以确保终端窗口大小与 View 大小保持一致
+            if (oldw != w || oldh != h) {
+                Log.d("CanvasTerminalView", "onSizeChanged: Triggering updateTerminalSize(${w}x${h})")
+                updateTerminalSize(w, h)
             }
         }
     }
@@ -683,6 +743,29 @@ class CanvasTerminalView @JvmOverloads constructor(
     
     private fun drawTerminal(canvas: Canvas) {
         val em = emulator ?: return
+        
+        // 处理惯性滚动动画
+        if (scroller.computeScrollOffset()) {
+            val newScrollY = scroller.currY.toFloat()
+            if (newScrollY != scrollOffsetY) {
+                scrollOffsetY = newScrollY
+                
+                // 保存滚动位置
+                sessionId?.let { id ->
+                    onScrollOffsetChanged?.invoke(id, scrollOffsetY)
+                }
+                
+                // 更新用户滚动状态
+                if (scrollOffsetY > 0f) {
+                    isUserScrolling = true
+                } else {
+                    isUserScrolling = false
+                }
+                
+                // 继续请求渲染以保持动画流畅
+                isDirty = true
+            }
+        }
         
         // 使用完整内容（历史 + 屏幕缓冲）
         val fullContent = em.getFullContent()
@@ -1037,7 +1120,8 @@ class CanvasTerminalView @JvmOverloads constructor(
     override fun dispatchHoverEvent(event: MotionEvent): Boolean {
         // 让accessibility delegate处理悬停事件
         // 这样触摸探索时能找到对应的虚拟节点（行）
-        (accessibilityDelegate as? TerminalAccessibilityDelegate)?.let { delegate ->
+        // 直接使用成员变量以兼容 API < 29 (getAccessibilityDelegate 是 API 29+)
+        terminalAccessibilityDelegate.let { delegate ->
             val virtualViewId = delegate.findVirtualViewAt(event.x, event.y)
             
             when (event.action) {

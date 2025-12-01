@@ -112,7 +112,8 @@ fun SetupScreen(
                     name = context.getString(com.ai.assistance.operit.terminal.R.string.category_java_name),
                     description = context.getString(com.ai.assistance.operit.terminal.R.string.category_java_desc),
                     packages = listOf(
-                        PackageItem("openjdk-17", context.getString(com.ai.assistance.operit.terminal.R.string.package_openjdk_name), "openjdk-17-jdk", context.getString(com.ai.assistance.operit.terminal.R.string.package_openjdk_desc))
+                        PackageItem("openjdk-17", context.getString(com.ai.assistance.operit.terminal.R.string.package_openjdk_name), "openjdk-17-jdk", context.getString(com.ai.assistance.operit.terminal.R.string.package_openjdk_desc)),
+                        PackageItem("gradle", context.getString(com.ai.assistance.operit.terminal.R.string.package_gradle_name), "gradle", context.getString(com.ai.assistance.operit.terminal.R.string.package_gradle_desc))
                     )
                 ),
                 PackageCategory(
@@ -642,11 +643,12 @@ private suspend fun checkPackageInstalled(
         "rust" -> "command -v rustc"
         "uv" -> "command -v uv"
         "nodejs" -> "node -v 2>/dev/null"
-        "pnpm" -> "test -f \"$(npm prefix -g)/bin/pnpm\" && echo FOUND_PNPM"
+        "pnpm" -> "test -f \"\$(npm prefix -g)/bin/pnpm\" && echo FOUND_PNPM"
         "go" -> "command -v go"
         "ssh" -> "command -v ssh"
         "sshpass" -> "command -v sshpass"
         "openssh-server" -> "command -v sshd"
+        "gradle" -> "command -v gradle"
         else -> "dpkg -s ${pkg.command.split(" ").first()}"
     }
 
@@ -661,7 +663,7 @@ private suspend fun checkPackageInstalled(
             val majorVersion = versionMatch?.groupValues?.getOrNull(1)?.toIntOrNull() ?: 0
             majorVersion >= 24
         }
-        "rust", "uv", "go", "ssh", "sshpass", "openssh-server" -> output.isNotBlank() && !output.contains("not found")
+        "rust", "uv", "go", "ssh", "sshpass", "openssh-server", "gradle" -> output.isNotBlank() && !output.contains("not found")
         "pnpm" -> output.contains("FOUND_PNPM")
         else -> output.contains("Status: install ok installed")
     }

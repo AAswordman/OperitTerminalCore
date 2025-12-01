@@ -46,6 +46,8 @@
     <string name="package_uv_desc">An extremely fast Python package installer written in Rust</string>
     <string name="package_openjdk_name">OpenJDK 17</string>
     <string name="package_openjdk_desc">Java 17 development environment</string>
+    <string name="package_gradle_name">Gradle</string>
+    <string name="package_gradle_desc">Modern build automation tool</string>
     <string name="package_rust_name">Rust &amp; Cargo</string>
     <string name="package_rust_desc">Install Rust toolchain via rustup</string>
     <string name="package_go_name">Go</string>

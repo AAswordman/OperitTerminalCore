@@ -15,6 +15,7 @@ class GestureHandler(
     context: Context,
     private val onScale: (Float) -> Unit,
     private val onScroll: (Float, Float) -> Unit,
+    private val onFling: ((Float, Float) -> Unit)? = null,
     private val onDoubleTap: (Float, Float) -> Unit,
     private val onLongPress: (Float, Float) -> Unit
 ) {
@@ -63,6 +64,19 @@ class GestureHandler(
             
             override fun onLongPress(e: MotionEvent) {
                 onLongPress(e.x, e.y)
+            }
+            
+            override fun onFling(
+                e1: MotionEvent?,
+                e2: MotionEvent,
+                velocityX: Float,
+                velocityY: Float
+            ): Boolean {
+                if (!isScaling) {
+                    onFling?.invoke(velocityX, velocityY)
+                    return true
+                }
+                return false
             }
             
             override fun onDown(e: MotionEvent): Boolean {

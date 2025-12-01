@@ -46,6 +46,8 @@
     <string name="package_uv_desc">一个用 Rust 编写的极速 Python 包安装器</string>
     <string name="package_openjdk_name">OpenJDK 17</string>
     <string name="package_openjdk_desc">Java 17 开发环境</string>
+    <string name="package_gradle_name">Gradle</string>
+    <string name="package_gradle_desc">现代化的构建自动化工具</string>
     <string name="package_rust_name">Rust &amp; Cargo</string>
     <string name="package_rust_desc">通过 rustup 安装 Rust 工具链</string>
     <string name="package_go_name">Go</string>
