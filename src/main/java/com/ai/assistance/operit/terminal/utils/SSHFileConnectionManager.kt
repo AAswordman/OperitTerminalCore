@@ -307,7 +307,7 @@ class SSHFileConnectionManager private constructor(private val context: Context)
      */
     fun getFileSystemProvider(connectionId: String? = null): SSHFileSystemProvider? {
         val id = connectionId ?: currentConnectionId
-        return connections[id]?.fileSystemProvider
+        return if (id != null) connections[id]?.fileSystemProvider else null
     }
     
     /**
