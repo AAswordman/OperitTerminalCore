@@ -241,9 +241,11 @@ class TerminalManager private constructor(
         val actualCommandId = commandId ?: UUID.randomUUID().toString()
         val session = sessionManager.getCurrentSession() ?: return actualCommandId
 
-        // 如果会话在交互模式，直接发送输入（不创建命令历史）
-        if (session.isInteractiveMode) {
-            Log.d(TAG, "Session in interactive mode, sending as input: $command")
+        // Allow input during initialization (e.g. password prompt) or interactive mode
+        val isInitializing = session.initState != SessionInitState.READY
+        
+        if (session.isInteractiveMode || isInitializing) {
+            Log.d(TAG, "Session in interactive mode or initializing, sending as input: $command")
             sendInput(command + "\n")
             return actualCommandId
         }
@@ -631,11 +633,15 @@ class TerminalManager private constructor(
     private fun extractAssets() {
         try {
             val assets = listOf(
-                UBUNTU_FILENAME
+                UBUNTU_FILENAME,
+                "setup_fake_sysdata.sh"
             )
             assets.forEach { assetName ->
                 val assetFile = File(filesDir, assetName)
-                if (!assetFile.exists()) {
+                // 强制更新脚本文件，大文件只在不存在时提取
+                val shouldExtract = !assetFile.exists() || assetName == "setup_fake_sysdata.sh"
+
+                if (shouldExtract) {
                     context.assets.open(assetName).use { input ->
                         assetFile.outputStream().use { output ->
                             input.copyTo(output)
@@ -742,13 +748,47 @@ class TerminalManager private constructor(
         }
         """.trimIndent()
 
+        val fixPermissions = """
+        fix_permissions(){
+          echo "Fixing permissions..."
+          # Fix "cannot find name for group ID" warnings
+          # Append Android groups to Ubuntu /etc/group
+          current_groups=$(id -G)
+          for gid in ${'$'}current_groups; do
+            if ! grep -q ":${'$'}gid:" ${'$'}UBUNTU_PATH/etc/group; then
+              echo "android_group_${'$'}gid:x:${'$'}gid:" >> ${'$'}UBUNTU_PATH/etc/group
+            fi
+          done
+          echo "Permissions fixed."
+        }
+        """.trimIndent()
+
         val loginUbuntu = """
         login_ubuntu(){
           COMMAND_TO_EXEC="$1"
           if [ -z "${'$'}COMMAND_TO_EXEC" ]; then
             COMMAND_TO_EXEC="/bin/bash -il"
           fi
-        
+
+          # Setup fake sysdata
+          export INSTALLED_ROOTFS_DIR=$(dirname "${'$'}UBUNTU_PATH")
+          export distro_name=$(basename "${'$'}UBUNTU_PATH")
+          
+          if [ -f "${'$'}HOME/setup_fake_sysdata.sh" ]; then
+              source "${'$'}HOME/setup_fake_sysdata.sh"
+              setup_fake_sysdata
+          fi
+
+          # Prepare extra bindings for missing proc files
+          PROOT_EXTRA_BINDINGS=""
+          if [ ! -e /proc/stat ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.stat:/proc/stat"; fi
+          if [ ! -e /proc/loadavg ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.loadavg:/proc/loadavg"; fi
+          if [ ! -e /proc/uptime ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.uptime:/proc/uptime"; fi
+          if [ ! -e /proc/version ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.version:/proc/version"; fi
+          if [ ! -e /proc/vmstat ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.vmstat:/proc/vmstat"; fi
+          if [ ! -e /proc/sys/kernel/cap_last_cap ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.sysctl_entry_cap_last_cap:/proc/sys/kernel/cap_last_cap"; fi
+          if [ ! -e /proc/sys/fs/inotify/max_user_watches ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.sysctl_inotify_max_user_watches:/proc/sys/fs/inotify/max_user_watches"; fi
+
           # 使用 proot 直接进入解压的 Ubuntu 根文件系统。
           # - 清理并设置 PATH，避免继承宿主 PATH 造成命令找不到或混用 busybox。
           # - 绑定常见伪文件系统与外部存储，保障交互和软件包管理工作正常。
@@ -771,6 +811,7 @@ class TerminalManager private constructor(
             -b /storage/emulated/0:/sdcard \
             -b /storage/emulated/0:/storage/emulated/0 \
             -b $homeDir:$homeDir \
+            ${'$'}PROOT_EXTRA_BINDINGS \
             -w /root \
             /usr/bin/env -i \
               HOME=/root \
@@ -787,6 +828,7 @@ class TerminalManager private constructor(
           set -x
           install_ubuntu
           configure_sources
+          fix_permissions
           sleep 1
           bump_progress
           
@@ -800,12 +842,14 @@ class TerminalManager private constructor(
         $common
         $installUbuntu
         $configureSources
+        $fixPermissions
         $loginUbuntu
         $sshShell
         clear_lines
         start_shell(){
           install_ubuntu
           configure_sources
+          fix_permissions
           sleep 1
           bump_progress
           login_ubuntu
