@@ -141,4 +141,57 @@
     <string name="ssh_tools_missing_message">启用 SSH 连接需要安装以下工具：\n\n• ssh - SSH 客户端\n• sshpass - SSH 密码认证工具\n\n请前往"环境配置"页面安装 SSH 工具。</string>
     <string name="go_to_setup">前往配置</string>
     <string name="checking_ssh_tools">正在检查 SSH 工具...</string>
+    
+    <!-- Shared TMP Settings -->
+    <string name="shared_tmp_title">共享临时目录</string>
+    <string name="shared_tmp_enabled_desc">已启用 - Android 和 Ubuntu 共享 /tmp 目录</string>
+    <string name="shared_tmp_disabled_desc">已禁用 - Ubuntu 使用独立的 /tmp 目录</string>
+    <string name="shared_tmp_note">注意：某些设备可能在共享模式下出现兼容性问题，如遇错误可尝试禁用此选项</string>
+    
+    <!-- SSH Settings -->
+    <string name="ssh_enable_title">启用 SSH 连接</string>
+    <string name="ssh_use_remote_desc">使用远程 SSH 终端</string>
+    <string name="ssh_use_local_desc">使用本地终端</string>
+    <string name="ssh_reverse_mount_enabled">✓ 反向挂载已启用</string>
+    <string name="ssh_reverse_mount_desc">远程可通过 ~/storage 和 ~/sdcard 访问本地文件</string>
+    <string name="ssh_config_required">请先配置 SSH 连接信息</string>
+    <string name="openssh_missing_title">缺少 OpenSSH Server</string>
+    <string name="openssh_missing_desc">启用反向挂载需要安装以下组件：</string>
+    <string name="openssh_local_component">✓ 本地（Android）：openssh-server</string>
+    <string name="openssh_go_to_install">  → 请前往环境配置安装</string>
+    <string name="openssh_remote_component">✓ 远程服务器：sshfs</string>
+    <string name="openssh_remote_install">  → 在远程服务器执行：</string>
+    <string name="openssh_install_ubuntu_cmd">     apt install sshfs  # Ubuntu/Debian</string>
+    <string name="openssh_install_centos_cmd">     yum install fuse-sshfs  # CentOS/RHEL</string>
+    <string name="openssh_install_button">去安装 openssh-server</string>
+    
+    <!-- Font Settings -->
+    <string name="font_settings_title">终端字体设置</string>
+    <string name="font_size_title">字体大小</string>
+    <string name="font_path_title">字体文件路径</string>
+    <string name="font_name_title">系统字体名称</string>
+    <string name="font_not_set">未设置（使用默认字体）</string>
+    <string name="font_reset_default">重置为默认设置</string>
+    <string name="font_size_dialog_title">设置字体大小</string>
+    <string name="font_size_label">字体大小 (sp)</string>
+    <string name="font_path_dialog_title">设置字体文件路径</string>
+    <string name="font_path_label">字体文件路径</string>
+    <string name="font_path_hint">留空则使用默认字体</string>
+    <string name="font_name_dialog_title">设置系统字体名称</string>
+    <string name="font_name_label">系统字体名称</string>
+    <string name="font_name_placeholder">例如: monospace, serif, sans-serif</string>
+    <string name="font_name_hint">留空则使用默认字体。常用值：monospace, serif, sans-serif</string>
+    
+    <!-- Source Management -->
+    <string name="source_management_title">软件源管理</string>
+    <string name="source_current">当前源: %s</string>
+    <string name="select_source_title">选择 %s 源</string>
+    
+    <!-- Common Actions -->
+    <string name="confirm">确定</string>
+    <string name="add">添加</string>
+    <string name="delete_source">删除</string>
+    <string name="add_custom_source_title">添加自定义 %s 源</string>
+    <string name="source_name_label">源名称</string>
+    <string name="source_url_label">源地址</string>
 </resources> 

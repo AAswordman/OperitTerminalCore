@@ -91,6 +91,9 @@ fun SettingsScreen(
     var showSshToolsMissingDialog by remember { mutableStateOf(false) }
     var showOpensshMissingDialog by remember { mutableStateOf(false) }
     
+    // 共享tmp设置状态
+    val sharedTmpEnabled by viewModel.sharedTmpEnabled.collectAsState()
+    
     var showClearCacheDialog by remember { mutableStateOf(false) }
 
     // 当 ViewModel 通知显示对话框时，更新本地状态
@@ -365,13 +368,13 @@ fun SettingsScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "启用 SSH 连接",
+                                text = context.getString(com.ai.assistance.operit.terminal.R.string.ssh_enable_title),
                                 style = MaterialTheme.typography.titleMedium,
                                 color = SettingsTheme.onSurfaceColor
                             )
                             if (sshConfig != null) {
                             Text(
-                                text = if (sshEnabled) "使用远程 SSH 终端" else "使用本地终端",
+                                text = if (sshEnabled) context.getString(com.ai.assistance.operit.terminal.R.string.ssh_use_remote_desc) else context.getString(com.ai.assistance.operit.terminal.R.string.ssh_use_local_desc),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = SettingsTheme.onSurfaceColor.copy(alpha = 0.6f)
                             )
@@ -380,13 +383,13 @@ fun SettingsScreen(
                                 if (config.enableReverseTunnel) {
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = "✓ 反向挂载已启用",
+                                        text = context.getString(com.ai.assistance.operit.terminal.R.string.ssh_reverse_mount_enabled),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = SettingsTheme.primaryColor,
                                         fontWeight = FontWeight.Medium
                                     )
                                     Text(
-                                        text = "远程可通过 ~/storage 和 ~/sdcard 访问本地文件",
+                                        text = context.getString(com.ai.assistance.operit.terminal.R.string.ssh_reverse_mount_desc),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = SettingsTheme.onSurfaceVariant,
                                         fontSize = 11.sp
@@ -410,7 +413,7 @@ fun SettingsScreen(
                     
                     if (sshConfig == null) {
                         Text(
-                            text = "请先配置 SSH 连接信息",
+                            text = context.getString(com.ai.assistance.operit.terminal.R.string.ssh_config_required),
                             style = MaterialTheme.typography.bodySmall,
                             color = SettingsTheme.onSurfaceColor.copy(alpha = 0.6f),
                             modifier = Modifier.padding(bottom = 8.dp)
@@ -435,6 +438,59 @@ fun SettingsScreen(
                 }
             }
             
+            // 共享临时目录设置区域
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = SettingsTheme.surfaceColor)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = context.getString(com.ai.assistance.operit.terminal.R.string.shared_tmp_title),
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = SettingsTheme.onSurfaceColor
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = if (sharedTmpEnabled) {
+                                    context.getString(com.ai.assistance.operit.terminal.R.string.shared_tmp_enabled_desc)
+                                } else {
+                                    context.getString(com.ai.assistance.operit.terminal.R.string.shared_tmp_disabled_desc)
+                                },
+                                fontSize = 14.sp,
+                                color = SettingsTheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = sharedTmpEnabled,
+                            onCheckedChange = { enabled ->
+                                viewModel.setSharedTmpEnabled(enabled)
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = SettingsTheme.primaryColor,
+                                checkedTrackColor = SettingsTheme.primaryColor.copy(alpha = 0.5f)
+                            )
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.shared_tmp_note),
+                        fontSize = 12.sp,
+                        color = SettingsTheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        lineHeight = 16.sp
+                    )
+                }
+            }
+            
             // 字体设置区域
             Card(
                 modifier = Modifier
@@ -444,7 +500,7 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "终端字体设置",
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.font_settings_title),
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = SettingsTheme.onSurfaceColor
@@ -453,7 +509,7 @@ fun SettingsScreen(
                     
                     // 字体大小设置
                     SettingsItem(
-                        title = "字体大小",
+                        title = context.getString(com.ai.assistance.operit.terminal.R.string.font_size_title),
                         subtitle = "${fontSize.toInt()}sp",
                         onClick = { showFontSizeDialog = true },
                         icon = Icons.Default.TextFields
@@ -462,8 +518,8 @@ fun SettingsScreen(
                     
                     // 字体路径设置
                     SettingsItem(
-                        title = "字体文件路径",
-                        subtitle = fontPath.ifEmpty { "未设置（使用默认字体）" },
+                        title = context.getString(com.ai.assistance.operit.terminal.R.string.font_path_title),
+                        subtitle = fontPath.ifEmpty { context.getString(com.ai.assistance.operit.terminal.R.string.font_not_set) },
                         onClick = { showFontPathDialog = true },
                         icon = Icons.Default.Folder
                     )
@@ -471,8 +527,8 @@ fun SettingsScreen(
                     
                     // 系统字体名称设置
                     SettingsItem(
-                        title = "系统字体名称",
-                        subtitle = fontName.ifEmpty { "未设置（使用默认字体）" },
+                        title = context.getString(com.ai.assistance.operit.terminal.R.string.font_name_title),
+                        subtitle = fontName.ifEmpty { context.getString(com.ai.assistance.operit.terminal.R.string.font_not_set) },
                         onClick = { showFontNameDialog = true },
                         icon = Icons.Default.TextFields
                     )
@@ -493,7 +549,7 @@ fun SettingsScreen(
                         ),
                         border = androidx.compose.foundation.BorderStroke(1.dp, SettingsTheme.primaryColor)
                     ) {
-                        Text("重置为默认设置")
+                        Text(context.getString(com.ai.assistance.operit.terminal.R.string.font_reset_default))
                     }
                 }
             }
@@ -507,7 +563,7 @@ fun SettingsScreen(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "软件源管理",
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.source_management_title),
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = SettingsTheme.onSurfaceColor
@@ -517,7 +573,7 @@ fun SettingsScreen(
                     sourceConfigs.forEach { (pm, config) ->
                         SettingsItem(
                             title = pm.displayName,
-                            subtitle = "当前源: ${config.sources.find { it.id == config.selectedSourceId }?.name ?: "N/A"}",
+                            subtitle = context.getString(com.ai.assistance.operit.terminal.R.string.source_current, config.sources.find { it.id == config.selectedSourceId }?.name ?: "N/A"),
                             onClick = { showSourceDialogFor = pm },
                             icon = Icons.Default.Source
                         )
@@ -572,7 +628,7 @@ fun SettingsScreen(
             onDismissRequest = { viewModel.onOpensshMissingDialogDismissed() },
             title = { 
                 Text(
-                    text = "缺少 OpenSSH Server", 
+                    text = context.getString(com.ai.assistance.operit.terminal.R.string.openssh_missing_title), 
                     color = SettingsTheme.onSurfaceColor, 
                     fontWeight = FontWeight.Bold
                 ) 
@@ -580,40 +636,40 @@ fun SettingsScreen(
             text = { 
                 Column {
                     Text(
-                        text = "启用反向挂载需要安装以下组件：", 
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.openssh_missing_desc), 
                         color = SettingsTheme.onSurfaceColor,
                         fontWeight = FontWeight.Medium
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "✓ 本地（Android）：openssh-server",
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.openssh_local_component),
                         color = SettingsTheme.primaryColor,
                         fontSize = 14.sp
                     )
                     Text(
-                        text = "  → 请前往环境配置安装",
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.openssh_go_to_install),
                         color = SettingsTheme.onSurfaceVariant,
                         fontSize = 12.sp
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "✓ 远程服务器：sshfs",
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.openssh_remote_component),
                         color = SettingsTheme.primaryColor,
                         fontSize = 14.sp
                     )
                     Text(
-                        text = "  → 在远程服务器执行：",
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.openssh_remote_install),
                         color = SettingsTheme.onSurfaceVariant,
                         fontSize = 12.sp
                     )
                     Text(
-                        text = "     apt install sshfs  # Ubuntu/Debian",
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.openssh_install_ubuntu_cmd),
                         color = SettingsTheme.onSurfaceVariant,
                         fontSize = 11.sp,
                         fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
                     )
                     Text(
-                        text = "     yum install fuse-sshfs  # CentOS/RHEL",
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.openssh_install_centos_cmd),
                         color = SettingsTheme.onSurfaceVariant,
                         fontSize = 11.sp,
                         fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
@@ -628,14 +684,14 @@ fun SettingsScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = SettingsTheme.primaryColor)
                 ) {
-                    Text("去安装 openssh-server")
+                    Text(context.getString(com.ai.assistance.operit.terminal.R.string.openssh_install_button))
                 }
             },
             dismissButton = {
                 OutlinedButton(
                     onClick = { viewModel.onOpensshMissingDialogDismissed() }
                 ) {
-                    Text("取消")
+                    Text(context.getString(com.ai.assistance.operit.terminal.R.string.cancel))
                 }
             },
             containerColor = SettingsTheme.surfaceColor
@@ -648,13 +704,13 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showFontSizeDialog = false },
             title = { 
-                Text("设置字体大小", color = SettingsTheme.onSurfaceColor, fontWeight = FontWeight.Bold) 
+                Text(context.getString(com.ai.assistance.operit.terminal.R.string.font_size_dialog_title), color = SettingsTheme.onSurfaceColor, fontWeight = FontWeight.Bold) 
             },
             text = { 
                 OutlinedTextField(
                     value = fontSizeInput,
                     onValueChange = { fontSizeInput = it },
-                    label = { Text("字体大小 (sp)", color = SettingsTheme.onSurfaceVariant) },
+                    label = { Text(context.getString(com.ai.assistance.operit.terminal.R.string.font_size_label), color = SettingsTheme.onSurfaceVariant) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = SettingsTheme.onSurfaceColor,
@@ -678,14 +734,14 @@ fun SettingsScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = SettingsTheme.primaryColor)
                 ) {
-                    Text("确定")
+                    Text(context.getString(com.ai.assistance.operit.terminal.R.string.confirm))
                 }
             },
             dismissButton = {
                 OutlinedButton(
                     onClick = { showFontSizeDialog = false }
                 ) {
-                    Text("取消")
+                    Text(context.getString(com.ai.assistance.operit.terminal.R.string.cancel))
                 }
             },
             containerColor = SettingsTheme.surfaceColor
@@ -698,14 +754,14 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showFontPathDialog = false },
             title = { 
-                Text("设置字体文件路径", color = SettingsTheme.onSurfaceColor, fontWeight = FontWeight.Bold) 
+                Text(context.getString(com.ai.assistance.operit.terminal.R.string.font_path_dialog_title), color = SettingsTheme.onSurfaceColor, fontWeight = FontWeight.Bold) 
             },
             text = { 
                 Column {
                     OutlinedTextField(
                         value = fontPathInput,
                         onValueChange = { fontPathInput = it },
-                        label = { Text("字体文件路径", color = SettingsTheme.onSurfaceVariant) },
+                        label = { Text(context.getString(com.ai.assistance.operit.terminal.R.string.font_path_label), color = SettingsTheme.onSurfaceVariant) },
                         modifier = Modifier.fillMaxWidth(),
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = SettingsTheme.onSurfaceColor,
@@ -716,7 +772,7 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "留空则使用默认字体",
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.font_path_hint),
                         color = SettingsTheme.onSurfaceVariant,
                         fontSize = 12.sp
                     )
@@ -731,14 +787,14 @@ fun SettingsScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = SettingsTheme.primaryColor)
                 ) {
-                    Text("确定")
+                    Text(context.getString(com.ai.assistance.operit.terminal.R.string.confirm))
                 }
             },
             dismissButton = {
                 OutlinedButton(
                     onClick = { showFontPathDialog = false }
                 ) {
-                    Text("取消")
+                    Text(context.getString(com.ai.assistance.operit.terminal.R.string.cancel))
                 }
             },
             containerColor = SettingsTheme.surfaceColor
@@ -751,16 +807,16 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showFontNameDialog = false },
             title = { 
-                Text("设置系统字体名称", color = SettingsTheme.onSurfaceColor, fontWeight = FontWeight.Bold) 
+                Text(context.getString(com.ai.assistance.operit.terminal.R.string.font_name_dialog_title), color = SettingsTheme.onSurfaceColor, fontWeight = FontWeight.Bold) 
             },
             text = { 
                 Column {
                     OutlinedTextField(
                         value = fontNameInput,
                         onValueChange = { fontNameInput = it },
-                        label = { Text("系统字体名称", color = SettingsTheme.onSurfaceVariant) },
+                        label = { Text(context.getString(com.ai.assistance.operit.terminal.R.string.font_name_label), color = SettingsTheme.onSurfaceVariant) },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("例如: monospace, serif, sans-serif", color = SettingsTheme.onSurfaceVariant.copy(alpha = 0.5f)) },
+                        placeholder = { Text(context.getString(com.ai.assistance.operit.terminal.R.string.font_name_placeholder), color = SettingsTheme.onSurfaceVariant.copy(alpha = 0.5f)) },
                         colors = OutlinedTextFieldDefaults.colors(
                             focusedTextColor = SettingsTheme.onSurfaceColor,
                             unfocusedTextColor = SettingsTheme.onSurfaceColor,
@@ -770,7 +826,7 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "留空则使用默认字体。常用值：monospace, serif, sans-serif",
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.font_name_hint),
                         color = SettingsTheme.onSurfaceVariant,
                         fontSize = 12.sp
                     )
@@ -785,14 +841,14 @@ fun SettingsScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = SettingsTheme.primaryColor)
                 ) {
-                    Text("确定")
+                    Text(context.getString(com.ai.assistance.operit.terminal.R.string.confirm))
                 }
             },
             dismissButton = {
                 OutlinedButton(
                     onClick = { showFontNameDialog = false }
                 ) {
-                    Text("取消")
+                    Text(context.getString(com.ai.assistance.operit.terminal.R.string.cancel))
                 }
             },
             containerColor = SettingsTheme.surfaceColor
@@ -860,6 +916,7 @@ fun SettingsScreen(
         val config = sourceConfigs[pm]
         if (config != null) {
             SourceSelectionDialog(
+                context = context,
                 packageManager = pm,
                 config = config,
                 onDismiss = { showSourceDialogFor = null },
@@ -907,6 +964,7 @@ private fun SettingsItem(
 
 @Composable
 private fun SourceSelectionDialog(
+    context: android.content.Context,
     packageManager: PackageManagerType,
     config: SourceConfig,
     onDismiss: () -> Unit,
@@ -925,9 +983,9 @@ private fun SourceSelectionDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("选择 ${packageManager.displayName} 源", color = SettingsTheme.onSurfaceColor)
+                Text(context.getString(com.ai.assistance.operit.terminal.R.string.select_source_title, packageManager.displayName), color = SettingsTheme.onSurfaceColor)
                 IconButton(onClick = { showAddCustomDialog = true }) {
-                    Icon(Icons.Default.Add, "添加自定义源", tint = SettingsTheme.primaryColor)
+                    Icon(Icons.Default.Add, context.getString(com.ai.assistance.operit.terminal.R.string.add), tint = SettingsTheme.primaryColor)
                 }
             }
         },
@@ -959,7 +1017,7 @@ private fun SourceSelectionDialog(
                         // 只有自定义源才显示删除按钮
                         if (source.id.startsWith("custom_")) {
                             IconButton(onClick = { onDeleteCustomSource(source.id) }) {
-                                Icon(Icons.Default.Delete, "删除", tint = SettingsTheme.errorColor)
+                                Icon(Icons.Default.Delete, context.getString(com.ai.assistance.operit.terminal.R.string.delete_source), tint = SettingsTheme.errorColor)
                             }
                         }
                     }
@@ -971,12 +1029,12 @@ private fun SourceSelectionDialog(
                 onClick = { onSourceSelected(selectedId) },
                 colors = ButtonDefaults.buttonColors(containerColor = SettingsTheme.primaryColor)
             ) {
-                Text("确认")
+                Text(context.getString(com.ai.assistance.operit.terminal.R.string.confirm))
             }
         },
         dismissButton = {
             OutlinedButton(onClick = onDismiss) {
-                Text("取消")
+                Text(context.getString(com.ai.assistance.operit.terminal.R.string.cancel))
             }
         },
         containerColor = SettingsTheme.surfaceColor
@@ -985,6 +1043,7 @@ private fun SourceSelectionDialog(
     // 添加自定义源弹窗
     if (showAddCustomDialog) {
         AddCustomSourceDialog(
+            context = context,
             packageManager = packageManager,
             onDismiss = { showAddCustomDialog = false },
             onConfirm = { name, url, isHttps ->
@@ -997,6 +1056,7 @@ private fun SourceSelectionDialog(
 
 @Composable
 private fun AddCustomSourceDialog(
+    context: android.content.Context,
     packageManager: PackageManagerType,
     onDismiss: () -> Unit,
     onConfirm: (name: String, url: String, isHttps: Boolean) -> Unit
@@ -1007,13 +1067,13 @@ private fun AddCustomSourceDialog(
     
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("添加自定义 ${packageManager.displayName} 源", color = SettingsTheme.onSurfaceColor) },
+        title = { Text(context.getString(com.ai.assistance.operit.terminal.R.string.add_custom_source_title, packageManager.displayName), color = SettingsTheme.onSurfaceColor) },
         text = {
             Column {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("源名称") },
+                    label = { Text(context.getString(com.ai.assistance.operit.terminal.R.string.source_name_label)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -1025,7 +1085,7 @@ private fun AddCustomSourceDialog(
                 OutlinedTextField(
                     value = url,
                     onValueChange = { url = it },
-                    label = { Text("源地址") },
+                    label = { Text(context.getString(com.ai.assistance.operit.terminal.R.string.source_url_label)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -1057,12 +1117,12 @@ private fun AddCustomSourceDialog(
                 enabled = name.isNotBlank() && url.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(containerColor = SettingsTheme.primaryColor)
             ) {
-                Text("添加")
+                Text(context.getString(com.ai.assistance.operit.terminal.R.string.add))
             }
         },
         dismissButton = {
             OutlinedButton(onClick = onDismiss) {
-                Text("取消")
+                Text(context.getString(com.ai.assistance.operit.terminal.R.string.cancel))
             }
         },
         containerColor = SettingsTheme.surfaceColor

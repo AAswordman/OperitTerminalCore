@@ -53,6 +53,9 @@ class TerminalManager private constructor(
     private val binDir: File = File(usrDir, "bin")
     private val nativeLibDir: String = context.applicationInfo.nativeLibraryDir
     private val activeSessions = ConcurrentHashMap<String, TerminalSession>()
+    
+    // SharedPreferences for reading settings
+    private val prefs = context.getSharedPreferences("terminal_settings", Context.MODE_PRIVATE)
 
     // 核心组件
     private val sessionManager = SessionManager(this)
@@ -763,6 +766,14 @@ class TerminalManager private constructor(
         }
         """.trimIndent()
 
+        // 读取共享tmp设置
+        val sharedTmpEnabled = prefs.getBoolean("shared_tmp_enabled", true)
+        val tmpBindingLine = if (sharedTmpEnabled) {
+            """-b "${'$'}TMPDIR":/dev/shm \"""
+        } else {
+            ""
+        }
+        
         val loginUbuntu = """
         login_ubuntu(){
           COMMAND_TO_EXEC="$1"
@@ -803,7 +814,7 @@ class TerminalManager private constructor(
             -b /proc \
             -b /sys \
             -b /dev/pts \
-            -b "${'$'}TMPDIR":/dev/shm \
+            $tmpBindingLine
             -b /proc/self/fd:/dev/fd \
             -b /proc/self/fd/0:/dev/stdin \
             -b /proc/self/fd/1:/dev/stdout \

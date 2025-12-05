@@ -28,6 +28,9 @@ class SettingsViewModel(
     private val ftpServerManager = FtpServerManager.getInstance(application)
     private val sourceManager = SourceManager(application)
     private val sshConfigManager = SSHConfigManager(application)
+    
+    // SharedPreferences for shared tmp setting
+    private val prefs = application.getSharedPreferences("terminal_settings", android.content.Context.MODE_PRIVATE)
 
     // 用于跟踪缓存计算任务的Job
     private var cacheSizeCalculationJob: Job? = null
@@ -74,6 +77,10 @@ class SettingsViewModel(
     
     private val _showOpensshMissingDialog = MutableStateFlow(false)
     val showOpensshMissingDialog = _showOpensshMissingDialog.asStateFlow()
+    
+    // Shared tmp setting state
+    private val _sharedTmpEnabled = MutableStateFlow(true)
+    val sharedTmpEnabled = _sharedTmpEnabled.asStateFlow()
 
     // 自动检测更新，但不自动计算缓存大小
     init {
@@ -82,6 +89,7 @@ class SettingsViewModel(
         loadSourceConfigs()
         loadSSHConfigs()
         loadSSHEnabled()
+        loadSharedTmpSetting()
     }
 
     fun onSshToolsMissingDialogDismissed() {
@@ -370,5 +378,20 @@ class SettingsViewModel(
             sshConfigManager.setEnabled(false)
             loadSSHEnabled()
         }
+    }
+    
+    // ==================== Shared TMP 设置管理 ====================
+    
+    private fun loadSharedTmpSetting() {
+        _sharedTmpEnabled.value = prefs.getBoolean("shared_tmp_enabled", true)
+    }
+    
+    fun setSharedTmpEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("shared_tmp_enabled", enabled).apply()
+        _sharedTmpEnabled.value = enabled
+    }
+    
+    fun isSharedTmpEnabled(): Boolean {
+        return prefs.getBoolean("shared_tmp_enabled", true)
     }
 } 

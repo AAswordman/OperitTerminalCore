@@ -141,4 +141,57 @@
     <string name="ssh_tools_missing_message">Enabling SSH connection requires the following tools:\n\n• ssh - SSH client\n• sshpass - SSH password authentication tool\n\n Please go to the "Environment Setup" page to install SSH tools.</string>
     <string name="go_to_setup">Go to Setup</string>
     <string name="checking_ssh_tools">Checking SSH tools...</string>
+    
+    <!-- Shared TMP Settings -->
+    <string name="shared_tmp_title">Shared Temporary Directory</string>
+    <string name="shared_tmp_enabled_desc">Enabled - Android and Ubuntu share /tmp directory</string>
+    <string name="shared_tmp_disabled_desc">Disabled - Ubuntu uses separate /tmp directory</string>
+    <string name="shared_tmp_note">Note: Some devices may experience compatibility issues in shared mode. Try disabling this option if errors occur</string>
+    
+    <!-- SSH Settings -->
+    <string name="ssh_enable_title">Enable SSH Connection</string>
+    <string name="ssh_use_remote_desc">Using remote SSH terminal</string>
+    <string name="ssh_use_local_desc">Using local terminal</string>
+    <string name="ssh_reverse_mount_enabled">✓ Reverse Mount Enabled</string>
+    <string name="ssh_reverse_mount_desc">Remote can access local files via ~/storage and ~/sdcard</string>
+    <string name="ssh_config_required">Please configure SSH connection first</string>
+    <string name="openssh_missing_title">OpenSSH Server Missing</string>
+    <string name="openssh_missing_desc">Enabling reverse mount requires the following components:</string>
+    <string name="openssh_local_component">✓ Local (Android): openssh-server</string>
+    <string name="openssh_go_to_install">  → Go to Environment Setup to install</string>
+    <string name="openssh_remote_component">✓ Remote Server: sshfs</string>
+    <string name="openssh_remote_install">  → Execute on remote server:</string>
+    <string name="openssh_install_ubuntu_cmd">     apt install sshfs  # Ubuntu/Debian</string>
+    <string name="openssh_install_centos_cmd">     yum install fuse-sshfs  # CentOS/RHEL</string>
+    <string name="openssh_install_button">Install openssh-server</string>
+    
+    <!-- Font Settings -->
+    <string name="font_settings_title">Terminal Font Settings</string>
+    <string name="font_size_title">Font Size</string>
+    <string name="font_path_title">Font File Path</string>
+    <string name="font_name_title">System Font Name</string>
+    <string name="font_not_set">Not set (using default font)</string>
+    <string name="font_reset_default">Reset to Default</string>
+    <string name="font_size_dialog_title">Set Font Size</string>
+    <string name="font_size_label">Font Size (sp)</string>
+    <string name="font_path_dialog_title">Set Font File Path</string>
+    <string name="font_path_label">Font File Path</string>
+    <string name="font_path_hint">Leave empty to use default font</string>
+    <string name="font_name_dialog_title">Set System Font Name</string>
+    <string name="font_name_label">System Font Name</string>
+    <string name="font_name_placeholder">e.g.: monospace, serif, sans-serif</string>
+    <string name="font_name_hint">Leave empty to use default font. Common values: monospace, serif, sans-serif</string>
+    
+    <!-- Source Management -->
+    <string name="source_management_title">Software Source Management</string>
+    <string name="source_current">Current Source: %s</string>
+    <string name="select_source_title">Select %s Source</string>
+    
+    <!-- Common Actions -->
+    <string name="confirm">Confirm</string>
+    <string name="add">Add</string>
+    <string name="delete_source">Delete</string>
+    <string name="add_custom_source_title">Add Custom %s Source</string>
+    <string name="source_name_label">Source Name</string>
+    <string name="source_url_label">Source URL</string>
 </resources> 
