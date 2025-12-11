@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.Typeface
 import com.ai.assistance.operit.terminal.view.canvas.RenderConfig
+import com.ai.assistance.operit.terminal.R
 import java.io.File
 
 /**
@@ -11,7 +12,8 @@ import java.io.File
  * 管理终端字体的设置，包括字体大小、字体路径、字体名称等
  */
 class TerminalFontConfigManager private constructor(context: Context) {
-    private val prefs: SharedPreferences = context.getSharedPreferences(
+    private val appContext: Context = context.applicationContext
+    private val prefs: SharedPreferences = appContext.getSharedPreferences(
         "terminal_font_prefs",
         Context.MODE_PRIVATE
     )
@@ -48,12 +50,17 @@ class TerminalFontConfigManager private constructor(context: Context) {
 
     /**
      * 根据保存的路径或名称加载字体
+     *
+     * 优先使用用户指定的字体路径/名称；当用户未显式指定时，
+     * 默认回退到内置的 JetBrains Mono Nerd Font，确保是真正等宽的字体，
+     * 避免各家 ROM 对 "monospace" 映射不一致导致的对齐问题。
      */
     private fun loadTypeface(): Typeface {
         val fontPath = getFontPath()
         val fontName = getFontName()
 
         return try {
+            // 1. 用户显式指定了字体文件路径
             fontPath?.let { path ->
                 val file = File(path)
                 if (file.exists() && file.isFile) {
@@ -61,8 +68,10 @@ class TerminalFontConfigManager private constructor(context: Context) {
                 }
             }
 
+            // 2. 用户显式指定了系统字体名称
             fontName?.let { name ->
                 return when (name.lowercase()) {
+                    // 这里仍然允许用户强制使用系统字体
                     "monospace", "mono" -> Typeface.MONOSPACE
                     "serif" -> Typeface.SERIF
                     "sans-serif", "sans" -> Typeface.SANS_SERIF
@@ -70,10 +79,10 @@ class TerminalFontConfigManager private constructor(context: Context) {
                 }
             }
 
-            // 默认回退
-            Typeface.MONOSPACE
+            // 3. 未指定任何字体时，统一使用内置 JetBrains Mono Nerd Font（真·等宽）
+            appContext.resources.getFont(R.font.jetbrains_mono_nerd_font_regular)
         } catch (e: Exception) {
-            // 加载失败回退
+            // 兜底：如果资源加载或自定义字体失败，仍然回退到系统 MONOSPACE
             Typeface.MONOSPACE
         }
     }
