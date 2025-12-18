@@ -62,6 +62,8 @@ interface FileSystemProvider {
      */
     suspend fun readFileSample(path: String, sampleSize: Int = 512): ByteArray?
     
+    suspend fun readFileBytes(path: String): ByteArray?
+    
     // ==================== 文件写入操作 ====================
     
     /**

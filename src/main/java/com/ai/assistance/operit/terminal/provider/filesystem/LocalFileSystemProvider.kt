@@ -148,6 +148,21 @@ class LocalFileSystemProvider(
         }
     }
     
+    override suspend fun readFileBytes(path: String): ByteArray? = withContext(Dispatchers.IO) {
+        try {
+            val mappedPath = mapPath(path)
+            val file = File(mappedPath)
+            if (!file.exists() || !file.isFile) {
+                Log.w(TAG, "File does not exist or is not a file: $path (mapped to $mappedPath)")
+                return@withContext null
+            }
+            file.readBytes()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading file bytes: $path", e)
+            null
+        }
+    }
+    
     // ==================== 文件写入操作 ====================
     
     override suspend fun writeFile(path: String, content: String, append: Boolean): FileSystemProvider.OperationResult = withContext(Dispatchers.IO) {

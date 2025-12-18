@@ -193,6 +193,19 @@ class SSHFileSystemProvider(
         }
     }
     
+    override suspend fun readFileBytes(path: String): ByteArray? = withContext(Dispatchers.IO) {
+        try {
+            val expandedPath = expandPath(path)
+            val channel = getSftpChannel()
+            val outputStream = ByteArrayOutputStream()
+            channel.get(expandedPath, outputStream)
+            outputStream.toByteArray()
+        } catch (e: Exception) {
+            Log.e(TAG, "[readFileBytes] Failed to read file bytes: $path", e)
+            null
+        }
+    }
+    
     // ==================== 文件写入操作 ====================
     
     override suspend fun writeFile(path: String, content: String, append: Boolean): FileSystemProvider.OperationResult = withContext(Dispatchers.IO) {
