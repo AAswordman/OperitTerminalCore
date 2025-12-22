@@ -1,9 +1,11 @@
 package com.ai.assistance.operit.terminal.view.canvas
 
+import android.content.Context
 import android.graphics.Rect
 import android.os.Bundle
 import android.view.View
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityManager
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityNodeProvider
 import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
@@ -23,6 +25,11 @@ class TerminalAccessibilityDelegate(
 
     private val nodeProvider = TerminalAccessibilityNodeProvider()
 
+    private fun isAccessibilityEnabled(): Boolean {
+        val manager = view.context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
+        return manager?.isEnabled == true
+    }
+
     override fun getAccessibilityNodeProvider(host: View): AccessibilityNodeProvider {
         return nodeProvider
     }
@@ -32,7 +39,11 @@ class TerminalAccessibilityDelegate(
      */
     fun notifyContentChanged() {
         view.post {
-            view.sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
+            if (!isAccessibilityEnabled()) return@post
+            try {
+                view.sendAccessibilityEvent(AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED)
+            } catch (_: IllegalStateException) {
+            }
         }
     }
 
@@ -222,6 +233,10 @@ class TerminalAccessibilityDelegate(
          * 为虚拟视图发送无障碍事件
          */
         private fun sendEventForVirtualView(virtualViewId: Int, eventType: Int) {
+            if (!isAccessibilityEnabled()) {
+                return
+            }
+
             val event = AccessibilityEvent.obtain(eventType)
             event.packageName = view.context.packageName
             event.className = "android.widget.TextView"
@@ -229,7 +244,10 @@ class TerminalAccessibilityDelegate(
             // 设置事件源
             event.setSource(view, virtualViewId)
             
-            view.parent?.requestSendAccessibilityEvent(view, event)
+            try {
+                view.parent?.requestSendAccessibilityEvent(view, event)
+            } catch (_: IllegalStateException) {
+            }
         }
         
         /**

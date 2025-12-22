@@ -20,6 +20,7 @@ import android.view.KeyEvent
 import android.os.Handler
 import android.os.Looper
 import android.widget.OverScroller
+import android.view.accessibility.AccessibilityManager
 import com.ai.assistance.operit.terminal.view.domain.ansi.AnsiTerminalEmulator
 import com.ai.assistance.operit.terminal.view.domain.ansi.TerminalChar
 import kotlin.math.max
@@ -113,6 +114,9 @@ class CanvasTerminalView @JvmOverloads constructor(
     // 输入回调
     private var inputCallback: ((String) -> Unit)? = null
     
+    // 点击请求显示键盘的回调（非全屏模式下由上层控制）
+    private var onRequestShowKeyboard: (() -> Unit)? = null
+    
     // 会话ID和滚动位置回调
     private var sessionId: String? = null
     private var onScrollOffsetChanged: ((String, Float) -> Unit)? = null
@@ -173,6 +177,11 @@ class CanvasTerminalView @JvmOverloads constructor(
         
         // 回退：移除可能导致卡顿的 ZOrderMediaOverlay 设置
         // 保持默认的 SurfaceView 行为
+    }
+
+    private fun isAccessibilityEnabled(): Boolean {
+        val manager = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
+        return manager?.isEnabled == true
     }
     
     /**
@@ -374,6 +383,13 @@ class CanvasTerminalView @JvmOverloads constructor(
      */
     fun setInputCallback(callback: (String) -> Unit) {
         this.inputCallback = callback
+    }
+    
+    /**
+     * 设置点击时请求显示软键盘的回调（仅非全屏模式使用）
+     */
+    fun setOnRequestShowKeyboard(callback: (() -> Unit)?) {
+        this.onRequestShowKeyboard = callback
     }
     
     /**
@@ -1118,6 +1134,10 @@ class CanvasTerminalView @JvmOverloads constructor(
      * 当用户使用TalkBack触摸屏幕时，会触发此方法
      */
     override fun dispatchHoverEvent(event: MotionEvent): Boolean {
+        if (!isAccessibilityEnabled()) {
+            return super.dispatchHoverEvent(event)
+        }
+        
         // 让accessibility delegate处理悬停事件
         // 这样触摸探索时能找到对应的虚拟节点（行）
         // 直接使用成员变量以兼容 API < 29 (getAccessibilityDelegate 是 API 29+)
@@ -1142,7 +1162,10 @@ class CanvasTerminalView @JvmOverloads constructor(
                             android.view.accessibility.AccessibilityEvent.TYPE_VIEW_HOVER_ENTER
                         )
                         hoverEvent.setSource(this, virtualViewId)
-                        parent?.requestSendAccessibilityEvent(this, hoverEvent)
+                        try {
+                            parent?.requestSendAccessibilityEvent(this, hoverEvent)
+                        } catch (_: IllegalStateException) {
+                        }
                     }
                 }
                 MotionEvent.ACTION_HOVER_EXIT -> {
@@ -1162,11 +1185,16 @@ class CanvasTerminalView @JvmOverloads constructor(
             if (!hasFocus()) {
                 requestFocus()
             }
-            // 全屏模式下，单击即显示输入法
-            if (isFullscreenMode && !selectionManager.hasSelection()) {
-                postDelayed({
-                    showSoftKeyboard()
-                }, 100) // 延迟100ms确保焦点已获取
+            if (!selectionManager.hasSelection()) {
+                if (isFullscreenMode) {
+                    // 全屏模式下，单击即显示输入法
+                    postDelayed({
+                        showSoftKeyboard()
+                    }, 100) // 延迟100ms确保焦点已获取
+                } else {
+                    // 非全屏模式下，交给上层决定如何显示输入法
+                    onRequestShowKeyboard?.invoke()
+                }
             }
         }
         

@@ -152,6 +152,7 @@ fun CanvasTerminalOutput(
     modifier: Modifier = Modifier,
     config: RenderConfig = RenderConfig(),
     pty: com.ai.assistance.operit.terminal.Pty? = null,
+    onRequestShowKeyboard: (() -> Unit)? = null,
     sessionId: String? = null,
     onScrollOffsetChanged: ((String, Float) -> Unit)? = null,
     getScrollOffset: ((String) -> Float)? = null
@@ -163,6 +164,7 @@ fun CanvasTerminalOutput(
                 setEmulator(emulator)
                 setPty(pty)
                 setFullscreenMode(false) // 关键：设置为非全屏模式
+                setOnRequestShowKeyboard(onRequestShowKeyboard)
                 setSessionScrollCallbacks(sessionId, onScrollOffsetChanged, getScrollOffset)
                 
                 // 请求父容器不要拦截触摸事件，让终端视图处理滚动手势
@@ -181,6 +183,7 @@ fun CanvasTerminalOutput(
             view.setConfig(config)
             view.setEmulator(emulator)
             view.setPty(pty)
+            view.setOnRequestShowKeyboard(onRequestShowKeyboard)
             view.setSessionScrollCallbacks(sessionId, onScrollOffsetChanged, getScrollOffset)
         },
         onRelease = { view ->
