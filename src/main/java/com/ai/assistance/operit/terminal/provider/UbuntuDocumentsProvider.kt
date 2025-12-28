@@ -118,8 +118,7 @@ class UbuntuDocumentsProvider : DocumentsProvider() {
         
         val files = parent.listFiles() ?: emptyArray()
         for (file in files) {
-            // 跳过隐藏文件（以.开头）
-            if (file.name.startsWith(".")) continue
+            // 显示隐藏文件（以.开头）
             includeFile(result, file)
         }
         
