@@ -5,6 +5,8 @@
 #include <fcntl.h>
 #include <sys/wait.h>
 #include <sys/ioctl.h>
+#include <errno.h>
+#include <stdio.h>
 #include <android/log.h>
 #include <termios.h>
 
@@ -25,6 +27,32 @@ Java_com_ai_assistance_operit_terminal_Pty_00024Companion_createSubprocess(JNIEn
                                                                           jstring workingDir) {
     int master_fd;
     pid_t pid;
+
+    const char *cwd_jni = (*env)->GetStringUTFChars(env, workingDir, 0);
+    char *cwd = strdup(cwd_jni);
+    (*env)->ReleaseStringUTFChars(env, workingDir, cwd_jni);
+
+    int env_len = (*env)->GetArrayLength(env, envarray);
+    char **envp = (char **) malloc(sizeof(char *) * (env_len + 1));
+    for (int i = 0; i < env_len; i++) {
+        jstring j_env_str = (jstring) (*env)->GetObjectArrayElement(env, envarray, i);
+        const char *env_str = (*env)->GetStringUTFChars(env, j_env_str, 0);
+        envp[i] = strdup(env_str);
+        (*env)->ReleaseStringUTFChars(env, j_env_str, env_str);
+        (*env)->DeleteLocalRef(env, j_env_str);
+    }
+    envp[env_len] = NULL;
+
+    int cmd_len = (*env)->GetArrayLength(env, cmdarray);
+    char **argv = (char **) malloc(sizeof(char *) * (cmd_len + 1));
+    for (int i = 0; i < cmd_len; i++) {
+        jstring j_cmd_str = (jstring) (*env)->GetObjectArrayElement(env, cmdarray, i);
+        const char *cmd_str = (*env)->GetStringUTFChars(env, j_cmd_str, 0);
+        argv[i] = strdup(cmd_str);
+        (*env)->ReleaseStringUTFChars(env, j_cmd_str, cmd_str);
+        (*env)->DeleteLocalRef(env, j_cmd_str);
+    }
+    argv[cmd_len] = NULL;
 
     struct termios tt;
     memset(&tt, 0, sizeof(tt));
@@ -53,51 +81,47 @@ Java_com_ai_assistance_operit_terminal_Pty_00024Companion_createSubprocess(JNIEn
 
     if (pid < 0) {
         LOGE("forkpty failed");
+        fprintf(stderr, "forkpty failed: %s\n", strerror(errno));
+
+        free(cwd);
+        for (int i = 0; i < cmd_len; i++) free(argv[i]);
+        free(argv);
+        for (int i = 0; i < env_len; i++) free(envp[i]);
+        free(envp);
         return NULL;
     }
 
     if (pid == 0) { // Child process
-        const char *cwd = (*env)->GetStringUTFChars(env, workingDir, 0);
         if (chdir(cwd) != 0) {
-            LOGE("chdir to %s failed", cwd);
-            exit(1);
+            fprintf(stderr, "chdir to %s failed: %s\n", cwd, strerror(errno));
+            _exit(1);
         }
-        (*env)->ReleaseStringUTFChars(env, workingDir, cwd);
 
-        int env_len = (*env)->GetArrayLength(env, envarray);
-        char **envp = (char **) malloc(sizeof(char *) * (env_len + 1));
-        for (int i = 0; i < env_len; i++) {
-            jstring j_env_str = (jstring) (*env)->GetObjectArrayElement(env, envarray, i);
-            const char *env_str = (*env)->GetStringUTFChars(env, j_env_str, 0);
-            envp[i] = strdup(env_str);
-            (*env)->ReleaseStringUTFChars(env, j_env_str, env_str);
-        }
-        envp[env_len] = NULL;
-        
-        int cmd_len = (*env)->GetArrayLength(env, cmdarray);
-        char **argv = (char **) malloc(sizeof(char *) * (cmd_len + 1));
-        for (int i = 0; i < cmd_len; i++) {
-            jstring j_cmd_str = (jstring) (*env)->GetObjectArrayElement(env, cmdarray, i);
-            const char *cmd_str = (*env)->GetStringUTFChars(env, j_cmd_str, 0);
-            argv[i] = strdup(cmd_str);
-            (*env)->ReleaseStringUTFChars(env, j_cmd_str, cmd_str);
-        }
-        argv[cmd_len] = NULL;
+        execve(argv[0], argv, envp);
 
-        execvpe(argv[0], argv, envp);
-
-        // execvpe should not return
-        LOGE("execvpe failed");
-        exit(1);
+        // execve should not return
+        fprintf(stderr, "execve(%s) failed: %s\n", argv[0], strerror(errno));
+        _exit(1);
     } else { // Parent process
         jintArray result = (*env)->NewIntArray(env, 2);
         if (result == NULL) {
+            free(cwd);
+            for (int i = 0; i < cmd_len; i++) free(argv[i]);
+            free(argv);
+            for (int i = 0; i < env_len; i++) free(envp[i]);
+            free(envp);
             return NULL; // out of memory error thrown
         }
         jint fill[2];
         fill[0] = pid;
         fill[1] = master_fd;
         (*env)->SetIntArrayRegion(env, result, 0, 2, fill);
+
+        free(cwd);
+        for (int i = 0; i < cmd_len; i++) free(argv[i]);
+        free(argv);
+        for (int i = 0; i < env_len; i++) free(envp[i]);
+        free(envp);
         return result;
     }
 }

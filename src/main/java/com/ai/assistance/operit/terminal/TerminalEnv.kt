@@ -83,7 +83,8 @@ fun rememberTerminalEnv(terminalManager: TerminalManager, forceShowSetup: Boolea
     val currentSessionIdState = terminalManager.currentSessionId.collectAsState(initial = null)
     val currentDirectoryState = terminalManager.currentDirectory.collectAsState(initial = "$ ")
     val isFullscreenState = terminalManager.isFullscreen.collectAsState(initial = false)
-    val terminalEmulatorState = terminalManager.terminalEmulator.collectAsState(initial = AnsiTerminalEmulator())
+    val placeholderEmulator = remember { AnsiTerminalEmulator(screenWidth = 1, screenHeight = 1, historySize = 0) }
+    val terminalEmulatorState = terminalManager.terminalEmulator.collectAsState(initial = placeholderEmulator)
 
     return remember(terminalManager, forceShowSetup) {
         TerminalEnv(
