@@ -487,7 +487,7 @@ class TerminalManager private constructor(
 
                     // 4. Generate and write startup script
                     val startScript = generateStartScript()
-                    File(filesDir, "common.sh").writeText(startScript)
+                    File(filesDir, "common.sh").writeText(startScript.replace("\r\n", "\n").replace("\r", "\n"))
 
 
                     Log.d(TAG, "Environment initialization completed successfully.")
@@ -645,9 +645,22 @@ class TerminalManager private constructor(
                 val shouldExtract = !assetFile.exists() || assetName == "setup_fake_sysdata.sh"
 
                 if (shouldExtract) {
-                    context.assets.open(assetName).use { input ->
-                        assetFile.outputStream().use { output ->
-                            input.copyTo(output)
+                    if (assetName.endsWith(".sh")) {
+                        context.assets.open(assetName).use { input ->
+                            val raw = input.readBytes()
+                            val text = raw.toString(Charsets.UTF_8)
+                            val normalized =
+                                text
+                                    .removePrefix("\uFEFF")
+                                    .replace("\r\n", "\n")
+                                    .replace("\r", "\n")
+                            assetFile.writeText(normalized, Charsets.UTF_8)
+                        }
+                    } else {
+                        context.assets.open(assetName).use { input ->
+                            assetFile.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
                         }
                     }
                     Log.d(TAG, "Extracted $assetName")
