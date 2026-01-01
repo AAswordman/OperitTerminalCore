@@ -74,6 +74,11 @@ class CacheManager(private val context: Context) {
         
         // 等待一下确保进程完全停止
         kotlinx.coroutines.delay(1000)
+
+        val prootDistroPath = File(usrDir, "var/lib/proot-distro")
+        val ubuntuPath = File(prootDistroPath, "installed-rootfs/ubuntu")
+        File(ubuntuPath.absolutePath + ".install.lock").deleteRecursively()
+        File(ubuntuPath.absolutePath + ".install.tmp").deleteRecursively()
         
         // 清理文件系统
         usrDir.deleteRecursively()

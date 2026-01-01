@@ -708,25 +708,108 @@ class TerminalManager private constructor(
 
         val installUbuntu = """
         install_ubuntu(){
-          mkdir -p ${'$'}UBUNTU_PATH 2>/dev/null
-          if [ -z "${'$'}(ls -A ${'$'}UBUNTU_PATH)" ]; then
-            progress_echo "Ubuntu ${'$'}L_NOT_INSTALLED, ${'$'}L_INSTALLING..."
-            ls ~/${'$'}UBUNTU
-            progress_echo "Extracting Ubuntu rootfs..."
-            busybox tar xf ~/${'$'}UBUNTU -C ${'$'}UBUNTU_PATH/ >/dev/null 2>&1
-            rm -f ~/${'$'}UBUNTU
-            echo "Extraction complete"
-            mv ${'$'}UBUNTU_PATH/${'$'}UBUNTU_NAME/* ${'$'}UBUNTU_PATH/ 2>/dev/null
-            rm -rf ${'$'}UBUNTU_PATH/${'$'}UBUNTU_NAME
-            echo 'export ANDROID_DATA=/home/' >> ${'$'}UBUNTU_PATH/root/.bashrc
-          else
+          OK_FILE="${'$'}UBUNTU_PATH/.operit_installed_ok"
+          LOCK_DIR="${'$'}UBUNTU_PATH.install.lock"
+          LOCK_PID_FILE="${'$'}LOCK_DIR/pid"
+          TMP_DIR="${'$'}UBUNTU_PATH.install.tmp"
+
+          UBUNTU_PARENT="${'$'}{UBUNTU_PATH%/*}"
+          mkdir -p "${'$'}UBUNTU_PARENT" 2>/dev/null
+
+          attempt=0
+          while true; do
+            if mkdir "${'$'}LOCK_DIR" 2>/dev/null; then
+              echo "${'$'}${'$'}" > "${'$'}LOCK_PID_FILE" 2>/dev/null || true
+              break
+            fi
+
+            if [ -f "${'$'}LOCK_PID_FILE" ]; then
+              lock_pid=${'$'}(cat "${'$'}LOCK_PID_FILE" 2>/dev/null)
+              if [ -z "${'$'}lock_pid" ]; then
+                if [ "${'$'}attempt" -gt 2 ]; then
+                  rm -rf "${'$'}LOCK_DIR" 2>/dev/null
+                  continue
+                fi
+              elif ! kill -0 "${'$'}lock_pid" 2>/dev/null; then
+                rm -rf "${'$'}LOCK_DIR" 2>/dev/null
+                continue
+              fi
+            else
+              if [ "${'$'}attempt" -gt 2 ]; then
+                rm -rf "${'$'}LOCK_DIR" 2>/dev/null
+                continue
+              fi
+            fi
+
+            attempt=${'$'}((attempt + 1))
+            if [ "${'$'}attempt" -gt 120 ]; then
+              progress_echo "Ubuntu install lock timeout"
+              return 1
+            fi
+            sleep 1
+          done
+
+          cleanup_install(){
+            rm -rf "${'$'}TMP_DIR" 2>/dev/null
+            rm -rf "${'$'}LOCK_DIR" 2>/dev/null
+          }
+          trap 'cleanup_install' EXIT INT TERM
+
+          if [ -f "${'$'}OK_FILE" ]; then
             VERSION=`cat ${'$'}UBUNTU_PATH/etc/issue.net 2>/dev/null`
             progress_echo "Ubuntu ${'$'}L_INSTALLED -> ${'$'}VERSION"
+          else
+            if [ -f "${'$'}UBUNTU_PATH/etc/issue.net" ]; then
+              echo "ok" > "${'$'}OK_FILE" 2>/dev/null || true
+              VERSION=`cat ${'$'}UBUNTU_PATH/etc/issue.net 2>/dev/null`
+              progress_echo "Ubuntu ${'$'}L_INSTALLED -> ${'$'}VERSION"
+            else
+              progress_echo "Ubuntu ${'$'}L_NOT_INSTALLED, ${'$'}L_INSTALLING..."
+              if [ ! -f "${'$'}HOME/${'$'}UBUNTU" ]; then
+                cleanup_install
+                trap - EXIT INT TERM
+                return 1
+              fi
+              rm -rf "${'$'}TMP_DIR" 2>/dev/null
+              mkdir -p "${'$'}TMP_DIR" 2>/dev/null
+              progress_echo "Extracting Ubuntu rootfs..."
+              busybox tar xf "${'$'}HOME/${'$'}UBUNTU" -C "${'$'}TMP_DIR"/ >/dev/null 2>&1
+              if [ ${'$'}? -ne 0 ]; then
+                cleanup_install
+                trap - EXIT INT TERM
+                return 1
+              fi
+              echo "Extraction complete"
+              if [ -d "${'$'}TMP_DIR/${'$'}UBUNTU_NAME" ]; then
+                mv "${'$'}TMP_DIR/${'$'}UBUNTU_NAME"/* "${'$'}TMP_DIR"/ 2>/dev/null
+                rm -rf "${'$'}TMP_DIR/${'$'}UBUNTU_NAME" 2>/dev/null
+              fi
+
+              mkdir -p "${'$'}TMP_DIR/root" 2>/dev/null
+              echo 'export ANDROID_DATA=/home/' >> "${'$'}TMP_DIR/root/.bashrc"
+              mkdir -p "${'$'}TMP_DIR/etc" 2>/dev/null
+              echo 'nameserver 8.8.8.8' > "${'$'}TMP_DIR/etc/resolv.conf"
+              echo "ok" > "${'$'}TMP_DIR/.operit_installed_ok" 2>/dev/null || true
+
+              rm -rf "${'$'}UBUNTU_PATH" 2>/dev/null
+              mv "${'$'}TMP_DIR" "${'$'}UBUNTU_PATH" 2>/dev/null
+              if [ ${'$'}? -ne 0 ]; then
+                cleanup_install
+                trap - EXIT INT TERM
+                return 1
+              fi
+              rm -f "${'$'}HOME/${'$'}UBUNTU" 2>/dev/null
+            fi
           fi
+
+          mkdir -p ${'$'}UBUNTU_PATH/etc 2>/dev/null
           echo 'nameserver 8.8.8.8' > ${'$'}UBUNTU_PATH/etc/resolv.conf
+
+          rm -rf "${'$'}LOCK_DIR" 2>/dev/null
+          trap - EXIT INT TERM
         }
         """.trimIndent()
-        
+
         val configureSources = """
         configure_sources(){
           # 配置APT源
