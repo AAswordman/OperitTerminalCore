@@ -130,13 +130,11 @@ class UbuntuDocumentsProvider : DocumentsProvider() {
         mode: String,
         signal: CancellationSignal?
     ): ParcelFileDescriptor {
-        val file = getFileForDocId(documentId)
-        
-        if (!file.exists()) {
-            throw FileNotFoundException("File not found: ${file.absolutePath}")
-        }
-        
+        val file = resolveFileForDocId(documentId)
         val accessMode = ParcelFileDescriptor.parseMode(mode)
+        if ((accessMode and ParcelFileDescriptor.MODE_CREATE) != 0) {
+            file.parentFile?.mkdirs()
+        }
         return ParcelFileDescriptor.open(file, accessMode)
     }
     
@@ -271,19 +269,77 @@ class UbuntuDocumentsProvider : DocumentsProvider() {
      * 根据Document ID获取文件
      */
     private fun getFileForDocId(documentId: String): File {
-        val file = if (documentId == "/") {
-            ubuntuRoot
-        } else {
-            // 移除开头的/，拼接到Ubuntu根目录
-            val relativePath = documentId.trimStart('/')
-            File(ubuntuRoot, relativePath)
-        }
-        
+        val file = resolveFileForDocId(documentId)
         if (!file.exists()) {
             throw FileNotFoundException("File not found: ${file.absolutePath}")
         }
-        
         return file
+    }
+
+    private fun resolveFileForDocId(documentId: String): File {
+        val normalizedId = normalizeDocumentId(documentId)
+        val file = if (normalizedId == "/") {
+            ubuntuRoot
+        } else {
+            val relativePath = normalizedId.trimStart('/')
+            File(ubuntuRoot, relativePath)
+        }
+
+        val canonicalRoot = ubuntuRoot.canonicalFile
+        val canonicalFile = file.canonicalFile
+        val canonicalRootPath = canonicalRoot.path
+        val canonicalFilePath = canonicalFile.path
+        if (canonicalFile != canonicalRoot &&
+            !canonicalFilePath.startsWith(canonicalRootPath + File.separator)
+        ) {
+            throw FileNotFoundException("Invalid documentId: $documentId")
+        }
+
+        return file
+    }
+
+    private fun normalizeDocumentId(documentId: String): String {
+        var id = documentId.trim()
+
+        if (id.startsWith("content://")) {
+            try {
+                val uri = android.net.Uri.parse(id)
+                val treeId = DocumentsContract.getTreeDocumentId(uri)
+                if (!treeId.isNullOrBlank()) {
+                    id = treeId
+                } else {
+                    val docId = DocumentsContract.getDocumentId(uri)
+                    if (!docId.isNullOrBlank()) {
+                        id = docId
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }
+
+        val docMarker = "/document/"
+        val treeMarker = "/tree/"
+
+        val lastDocIdx = id.lastIndexOf(docMarker)
+        if (lastDocIdx >= 0) {
+            id = id.substring(lastDocIdx + docMarker.length)
+        }
+        val lastTreeIdx = id.lastIndexOf(treeMarker)
+        if (lastTreeIdx >= 0) {
+            id = id.substring(lastTreeIdx + treeMarker.length)
+        }
+
+        while (id.startsWith("//")) {
+            id = id.substring(1)
+        }
+
+        if (id.isEmpty()) {
+            return "/"
+        }
+        if (!id.startsWith("/")) {
+            id = "/$id"
+        }
+        return id
     }
     
     /**
