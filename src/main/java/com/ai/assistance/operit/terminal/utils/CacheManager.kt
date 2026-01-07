@@ -5,7 +5,12 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
+import java.nio.file.FileVisitResult
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
 import java.nio.file.Files
+import java.nio.file.attribute.BasicFileAttributes
 import kotlin.math.log10
 import kotlin.math.pow
 import kotlinx.coroutines.ensureActive
@@ -15,6 +20,60 @@ class CacheManager(private val context: Context) {
     private val filesDir: File = context.filesDir
     private val usrDir: File = File(filesDir, "usr")
     private val tmpDir: File = File(filesDir, "tmp")
+    private val binDir: File = File(filesDir, "bin")
+
+    private fun isSymbolicLink(file: File): Boolean {
+        return try {
+            Files.isSymbolicLink(file.toPath())
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun deleteRecursivelyNoFollow(dir: File) {
+        if (!dir.exists()) return
+        val root = dir.toPath()
+        try {
+            Files.walkFileTree(root, object : SimpleFileVisitor<Path>() {
+                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    try {
+                        Files.deleteIfExists(file)
+                    } catch (_: Exception) {
+                    }
+                    return FileVisitResult.CONTINUE
+                }
+
+                override fun postVisitDirectory(dir: Path, exc: IOException?): FileVisitResult {
+                    try {
+                        Files.deleteIfExists(dir)
+                    } catch (_: Exception) {
+                    }
+                    return FileVisitResult.CONTINUE
+                }
+
+                override fun visitFileFailed(file: Path, exc: IOException?): FileVisitResult {
+                    try {
+                        Files.deleteIfExists(file)
+                    } catch (_: Exception) {
+                    }
+                    return FileVisitResult.CONTINUE
+                }
+            })
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun deleteBinLinks() {
+        if (!binDir.exists()) return
+        binDir.listFiles()?.forEach { file ->
+            if (isSymbolicLink(file)) {
+                try {
+                    Files.deleteIfExists(file.toPath())
+                } catch (_: Exception) {
+                }
+            }
+        }
+    }
 
     suspend fun getCacheSize(onProgress: (bytes: Long) -> Unit): Long = withContext(Dispatchers.IO) {
         var totalSize = 0L
@@ -27,10 +86,10 @@ class CacheManager(private val context: Context) {
                 dir.walkTopDown().onEnter {
                     // To prevent visiting directories we don't have permission to read,
                     // which would cause the walk to fail.
-                    it.canRead() 
+                    it.canRead() && !isSymbolicLink(it)
                 }.forEach { file ->
                     ensureActive() // 检查协程是否已被取消
-                    if (file.isFile) {
+                    if (file.isFile && !isSymbolicLink(file)) {
                         try {
                             val path = file.toPath()
                             // On Linux, fileKey() returns an object containing inode and device ID.
@@ -81,8 +140,9 @@ class CacheManager(private val context: Context) {
         File(ubuntuPath.absolutePath + ".install.tmp").deleteRecursively()
         
         // 清理文件系统
-        usrDir.deleteRecursively()
-        tmpDir.deleteRecursively()
+        deleteRecursivelyNoFollow(usrDir)
+        deleteRecursivelyNoFollow(tmpDir)
+        deleteBinLinks()
         
         // 清理其他相关文件
         val filesToClean = listOf(

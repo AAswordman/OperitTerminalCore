@@ -890,23 +890,27 @@ class TerminalManager private constructor(
           fi
 
           # Setup fake sysdata
-          export INSTALLED_ROOTFS_DIR=$(dirname "${'$'}UBUNTU_PATH")
-          export distro_name=$(basename "${'$'}UBUNTU_PATH")
-          
-          if [ -f "${'$'}HOME/setup_fake_sysdata.sh" ]; then
-              source "${'$'}HOME/setup_fake_sysdata.sh"
-              setup_fake_sysdata
+          if [ "${'$'}USE_CHROOT" != "1" ]; then
+            export INSTALLED_ROOTFS_DIR=$(dirname "${'$'}UBUNTU_PATH")
+            export distro_name=$(basename "${'$'}UBUNTU_PATH")
+            
+            if [ -f "${'$'}HOME/setup_fake_sysdata.sh" ]; then
+                source "${'$'}HOME/setup_fake_sysdata.sh"
+                setup_fake_sysdata
+            fi
           fi
 
           # Prepare extra bindings for missing proc files
           PROOT_EXTRA_BINDINGS=""
-          if [ ! -e /proc/stat ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.stat:/proc/stat"; fi
-          if [ ! -e /proc/loadavg ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.loadavg:/proc/loadavg"; fi
-          if [ ! -e /proc/uptime ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.uptime:/proc/uptime"; fi
-          if [ ! -e /proc/version ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.version:/proc/version"; fi
-          if [ ! -e /proc/vmstat ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.vmstat:/proc/vmstat"; fi
-          if [ ! -e /proc/sys/kernel/cap_last_cap ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.sysctl_entry_cap_last_cap:/proc/sys/kernel/cap_last_cap"; fi
-          if [ ! -e /proc/sys/fs/inotify/max_user_watches ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.sysctl_inotify_max_user_watches:/proc/sys/fs/inotify/max_user_watches"; fi
+          if [ "${'$'}USE_CHROOT" != "1" ]; then
+            if [ ! -e /proc/stat ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.stat:/proc/stat"; fi
+            if [ ! -e /proc/loadavg ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.loadavg:/proc/loadavg"; fi
+            if [ ! -e /proc/uptime ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.uptime:/proc/uptime"; fi
+            if [ ! -e /proc/version ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.version:/proc/version"; fi
+            if [ ! -e /proc/vmstat ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.vmstat:/proc/vmstat"; fi
+            if [ ! -e /proc/sys/kernel/cap_last_cap ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.sysctl_entry_cap_last_cap:/proc/sys/kernel/cap_last_cap"; fi
+            if [ ! -e /proc/sys/fs/inotify/max_user_watches ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.sysctl_inotify_max_user_watches:/proc/sys/fs/inotify/max_user_watches"; fi
+          fi
 
           # 使用 proot 直接进入解压的 Ubuntu 根文件系统。
           # - 清理并设置 PATH，避免继承宿主 PATH 造成命令找不到或混用 busybox。
@@ -923,6 +927,15 @@ class TerminalManager private constructor(
         BIN="$1"
         UBUNTU_PATH="$2"
         CMD_FILE="$3"
+        cleanup_mounts(){
+          "${'$'}BIN/busybox" umount "${'$'}UBUNTU_PATH/dev/pts" 2>/dev/null || true
+          "${'$'}BIN/busybox" umount "${'$'}UBUNTU_PATH/dev" 2>/dev/null || true
+          "${'$'}BIN/busybox" umount "${'$'}UBUNTU_PATH/sys" 2>/dev/null || true
+          "${'$'}BIN/busybox" umount "${'$'}UBUNTU_PATH/proc" 2>/dev/null || true
+          "${'$'}BIN/busybox" umount "${'$'}UBUNTU_PATH/sdcard" 2>/dev/null || true
+        }
+        cleanup_mounts
+
         "${'$'}BIN/busybox" mkdir -p "${'$'}UBUNTU_PATH/proc" "${'$'}UBUNTU_PATH/sys" "${'$'}UBUNTU_PATH/dev" "${'$'}UBUNTU_PATH/dev/pts" "${'$'}UBUNTU_PATH/sdcard" 2>/dev/null
         "${'$'}BIN/busybox" mount -t proc proc "${'$'}UBUNTU_PATH/proc" 2>/dev/null || true
         "${'$'}BIN/busybox" mount --bind /dev "${'$'}UBUNTU_PATH/dev" 2>/dev/null || true
@@ -930,7 +943,10 @@ class TerminalManager private constructor(
         "${'$'}BIN/busybox" mount --bind /dev/pts "${'$'}UBUNTU_PATH/dev/pts" 2>/dev/null || true
         "${'$'}BIN/busybox" mount --bind /storage/emulated/0 "${'$'}UBUNTU_PATH/sdcard" 2>/dev/null || true
         COMMAND_TO_EXEC="$(cat "${'$'}CMD_FILE" 2>/dev/null)"
-        exec "${'$'}BIN/busybox" chroot "${'$'}UBUNTU_PATH" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=en_US.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin COMMAND_TO_EXEC="${'$'}COMMAND_TO_EXEC" /bin/bash -lc 'echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; eval "${'$'}COMMAND_TO_EXEC"'
+        "${'$'}BIN/busybox" chroot "${'$'}UBUNTU_PATH" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=en_US.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin COMMAND_TO_EXEC="${'$'}COMMAND_TO_EXEC" /bin/bash -lc 'echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; eval "${'$'}COMMAND_TO_EXEC"'
+        ret=${'$'}?
+        cleanup_mounts
+        exit ${'$'}ret
         EOF
             chmod 700 "${'$'}CHROOT_WRAPPER" 2>/dev/null || true
             exec su -c "sh \"${'$'}CHROOT_WRAPPER\" \"${'$'}BIN\" \"${'$'}UBUNTU_PATH\" \"${'$'}CMD_FILE\""
