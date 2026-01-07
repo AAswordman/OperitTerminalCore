@@ -147,7 +147,12 @@
     <string name="shared_tmp_enabled_desc">已启用 - Android 和 Ubuntu 共享 /tmp 目录</string>
     <string name="shared_tmp_disabled_desc">已禁用 - Ubuntu 使用独立的 /tmp 目录</string>
     <string name="shared_tmp_note">注意：某些设备可能在共享模式下出现兼容性问题，如遇错误可尝试禁用此选项</string>
-    
+
+    <string name="chroot_mode_title">chroot 模式</string>
+    <string name="chroot_mode_enabled_desc">已启用 - 使用 chroot 启动 Ubuntu（需要 Root）</string>
+    <string name="chroot_mode_disabled_desc">已禁用 - 使用 proot 启动 Ubuntu</string>
+    <string name="chroot_mode_note">注意：chroot 模式需要设备已 Root 且授予本应用 Root 权限，否则可能无法启动</string>
+
     <!-- SSH Settings -->
     <string name="ssh_enable_title">启用 SSH 连接</string>
     <string name="ssh_use_remote_desc">使用远程 SSH 终端</string>

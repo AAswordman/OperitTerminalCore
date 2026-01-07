@@ -463,7 +463,18 @@ class TerminalManager private constructor(
     }
 
     suspend fun initializeEnvironment(): Boolean {
-        if (isEnvInitialized) return true
+        if (isEnvInitialized) {
+            return withContext(Dispatchers.IO) {
+                try {
+                    val startScript = generateStartScript()
+                    File(filesDir, "common.sh").writeText(startScript.replace("\r\n", "\n").replace("\r", "\n"))
+                    true
+                } catch (e: Exception) {
+                    Log.e(TAG, "Environment script refresh failed", e)
+                    false
+                }
+            }
+        }
 
         envInitMutex.lock()
         try {
@@ -696,6 +707,7 @@ class TerminalManager private constructor(
         export UBUNTU_PATH=$ubuntuPath
         export UBUNTU=$UBUNTU_FILENAME
         export UBUNTU_NAME=$ubuntuName
+        export USE_CHROOT=${if (prefs.getBoolean("chroot_enabled", false)) "1" else "0"}
         export L_NOT_INSTALLED="not installed"
         export L_INSTALLING="installing"
         export L_INSTALLED="installed"
@@ -902,6 +914,27 @@ class TerminalManager private constructor(
           # 在 proot 环境中创建必要的目录
           mkdir -p "${'$'}UBUNTU_PATH/storage/emulated" 2>/dev/null
           mkdir -p "${'$'}UBUNTU_PATH$homeDir" 2>/dev/null
+
+          if [ "${'$'}USE_CHROOT" = "1" ]; then
+            CMD_FILE="${'$'}TMPDIR/command_to_exec"
+            printf "%s" "${'$'}COMMAND_TO_EXEC" > "${'$'}CMD_FILE" 2>/dev/null || true
+            CHROOT_WRAPPER="${'$'}TMPDIR/operit_chroot_wrapper.sh"
+            cat > "${'$'}CHROOT_WRAPPER" <<'EOF'
+        BIN="$1"
+        UBUNTU_PATH="$2"
+        CMD_FILE="$3"
+        "${'$'}BIN/busybox" mkdir -p "${'$'}UBUNTU_PATH/proc" "${'$'}UBUNTU_PATH/sys" "${'$'}UBUNTU_PATH/dev" "${'$'}UBUNTU_PATH/dev/pts" "${'$'}UBUNTU_PATH/sdcard" 2>/dev/null
+        "${'$'}BIN/busybox" mount -t proc proc "${'$'}UBUNTU_PATH/proc" 2>/dev/null || true
+        "${'$'}BIN/busybox" mount --bind /dev "${'$'}UBUNTU_PATH/dev" 2>/dev/null || true
+        "${'$'}BIN/busybox" mount --bind /sys "${'$'}UBUNTU_PATH/sys" 2>/dev/null || true
+        "${'$'}BIN/busybox" mount --bind /dev/pts "${'$'}UBUNTU_PATH/dev/pts" 2>/dev/null || true
+        "${'$'}BIN/busybox" mount --bind /storage/emulated/0 "${'$'}UBUNTU_PATH/sdcard" 2>/dev/null || true
+        COMMAND_TO_EXEC="$(cat "${'$'}CMD_FILE" 2>/dev/null)"
+        exec "${'$'}BIN/busybox" chroot "${'$'}UBUNTU_PATH" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=en_US.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin COMMAND_TO_EXEC="${'$'}COMMAND_TO_EXEC" /bin/bash -lc 'echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; eval "${'$'}COMMAND_TO_EXEC"'
+        EOF
+            chmod 700 "${'$'}CHROOT_WRAPPER" 2>/dev/null || true
+            exec su -c "sh \"${'$'}CHROOT_WRAPPER\" \"${'$'}BIN\" \"${'$'}UBUNTU_PATH\" \"${'$'}CMD_FILE\""
+          fi
           exec ${'$'}BIN/proot \
             -0 \
             -r "${'$'}UBUNTU_PATH" \

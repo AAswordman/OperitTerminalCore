@@ -147,6 +147,11 @@
     <string name="shared_tmp_enabled_desc">Enabled - Android and Ubuntu share /tmp directory</string>
     <string name="shared_tmp_disabled_desc">Disabled - Ubuntu uses separate /tmp directory</string>
     <string name="shared_tmp_note">Note: Some devices may experience compatibility issues in shared mode. Try disabling this option if errors occur</string>
+
+    <string name="chroot_mode_title">chroot Mode</string>
+    <string name="chroot_mode_enabled_desc">Enabled - Start Ubuntu via chroot (Root required)</string>
+    <string name="chroot_mode_disabled_desc">Disabled - Start Ubuntu via proot</string>
+    <string name="chroot_mode_note">Note: chroot mode requires a rooted device and root permission granted to this app, otherwise startup may fail</string>
     
     <!-- SSH Settings -->
     <string name="ssh_enable_title">Enable SSH Connection</string>

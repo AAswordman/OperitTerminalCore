@@ -82,6 +82,9 @@ class SettingsViewModel(
     private val _sharedTmpEnabled = MutableStateFlow(true)
     val sharedTmpEnabled = _sharedTmpEnabled.asStateFlow()
 
+    private val _chrootEnabled = MutableStateFlow(false)
+    val chrootEnabled = _chrootEnabled.asStateFlow()
+
     // 自动检测更新，但不自动计算缓存大小
     init {
         checkForUpdates()
@@ -90,6 +93,7 @@ class SettingsViewModel(
         loadSSHConfigs()
         loadSSHEnabled()
         loadSharedTmpSetting()
+        loadChrootSetting()
     }
 
     fun onSshToolsMissingDialogDismissed() {
@@ -393,5 +397,18 @@ class SettingsViewModel(
     
     fun isSharedTmpEnabled(): Boolean {
         return prefs.getBoolean("shared_tmp_enabled", true)
+    }
+
+    private fun loadChrootSetting() {
+        _chrootEnabled.value = prefs.getBoolean("chroot_enabled", false)
+    }
+    
+    fun setChrootEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("chroot_enabled", enabled).apply()
+        _chrootEnabled.value = enabled
+    }
+    
+    fun isChrootEnabled(): Boolean {
+        return prefs.getBoolean("chroot_enabled", false)
     }
 } 
