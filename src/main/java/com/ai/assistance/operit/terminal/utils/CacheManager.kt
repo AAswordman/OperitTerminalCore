@@ -94,14 +94,20 @@ class CacheManager(private val context: Context) {
     }
 
     private fun getMountPointsUnder(root: File): List<String> {
-        val rootPath = try {
+        val rootPathAbs = root.absolutePath.trimEnd('/')
+        val rootPathCanonical = try {
             root.canonicalFile.absolutePath.trimEnd('/')
         } catch (_: Exception) {
-            root.absolutePath.trimEnd('/')
+            rootPathAbs
         }
-        val prefix = if (rootPath.isEmpty()) "/" else rootPath
+
+        val prefixes = listOf(rootPathAbs, rootPathCanonical)
+            .map { if (it.isEmpty()) "/" else it }
+            .distinct()
+
         return readMountPoints().filter { mp ->
-            mp == prefix || mp.startsWith("$prefix/")
+            val mpTrimmed = mp.trimEnd('/')
+            prefixes.any { p -> mpTrimmed == p || mpTrimmed.startsWith("$p/") }
         }
     }
 
@@ -252,16 +258,67 @@ class CacheManager(private val context: Context) {
                 .filter { it != rootPathNormalized }
                 .toHashSet()
 
+            val mountPointsUnderRootCanonical = mountPointsUnderRoot.mapNotNull { mp ->
+                try {
+                    File(mp).canonicalFile.absolutePath.trimEnd('/')
+                } catch (_: Exception) {
+                    null
+                }
+            }.toHashSet()
+
+            val skipPathPrefixes = if (dir == usrDir) {
+                val ubuntuPath = File(usrDir, "var/lib/proot-distro/installed-rootfs/ubuntu")
+                val homeDirCandidates = listOf(
+                    filesDir.absolutePath,
+                    try {
+                        filesDir.canonicalFile.absolutePath
+                    } catch (_: Exception) {
+                        null
+                    }
+                ).filterNotNull().distinct()
+
+                val homeBindMountTargets = homeDirCandidates.map { homeDir ->
+                    File(ubuntuPath.absolutePath + homeDir)
+                }
+
+                listOf(
+                    File(ubuntuPath, "sdcard"),
+                    File(ubuntuPath, "storage"),
+                    File(ubuntuPath, "data"),
+                    File(ubuntuPath, "proc"),
+                    File(ubuntuPath, "sys"),
+                    File(ubuntuPath, "dev")
+                ).plus(homeBindMountTargets).flatMap { f ->
+                    val abs = f.absolutePath.trimEnd('/')
+                    val canon = try {
+                        f.canonicalFile.absolutePath.trimEnd('/')
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (canon != null && canon != abs) listOf(abs, canon) else listOf(abs)
+                }.toHashSet()
+            } else {
+                emptySet()
+            }
+
             dir.walkTopDown().onEnter {
                 if (!it.canRead() || isSymbolicLink(it)) return@onEnter false
 
-                val currentPath = try {
+                val currentPathAbs = it.absolutePath.trimEnd('/')
+                val currentPathCanonical = try {
                     it.canonicalFile.absolutePath.trimEnd('/')
                 } catch (_: Exception) {
-                    it.absolutePath.trimEnd('/')
+                    currentPathAbs
                 }
 
-                currentPath !in mountPointsUnderRoot
+                if (currentPathAbs in mountPointsUnderRoot || currentPathCanonical in mountPointsUnderRoot) return@onEnter false
+                if (currentPathAbs in mountPointsUnderRootCanonical || currentPathCanonical in mountPointsUnderRootCanonical) return@onEnter false
+                if (skipPathPrefixes.any { p ->
+                        currentPathAbs == p || currentPathCanonical == p ||
+                        currentPathAbs.startsWith("$p/") || currentPathCanonical.startsWith("$p/")
+                    }) return@onEnter false
+
+                true
             }.forEach { file ->
                 ensureActive() // 检查协程是否已被取消
                 if (file.isFile && !isSymbolicLink(file)) {

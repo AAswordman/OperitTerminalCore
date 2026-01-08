@@ -151,7 +151,7 @@
     <string name="chroot_mode_title">chroot 模式</string>
     <string name="chroot_mode_enabled_desc">已启用 - 使用 chroot 启动 Ubuntu（需要 Root）</string>
     <string name="chroot_mode_disabled_desc">已禁用 - 使用 proot 启动 Ubuntu</string>
-    <string name="chroot_mode_note">注意：chroot 模式需要设备已 Root 且授予本应用 Root 权限，否则可能无法启动</string>
+    <string name="chroot_mode_note">注意：chroot 模式会将 /proc、/sys、/dev（含 /dev/pts）挂载到 Ubuntu 环境中，请各位 Root 用户谨慎对待。并且该模式需要设备已 Root 且授予本应用 Root 权限，否则可能无法启动</string>
 
     <!-- SSH Settings -->
     <string name="ssh_enable_title">启用 SSH 连接</string>

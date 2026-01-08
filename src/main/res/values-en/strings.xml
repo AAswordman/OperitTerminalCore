@@ -151,13 +151,13 @@
     <string name="chroot_mode_title">chroot Mode</string>
     <string name="chroot_mode_enabled_desc">Enabled - Start Ubuntu via chroot (Root required)</string>
     <string name="chroot_mode_disabled_desc">Disabled - Start Ubuntu via proot</string>
-    <string name="chroot_mode_note">Note: chroot mode requires a rooted device and root permission granted to this app, otherwise startup may fail</string>
+    <string name="chroot_mode_note">Note: chroot mode mounts /proc, /sys, /dev (including /dev/pts) into the Ubuntu environment. Root users, please use with caution. This mode requires a rooted device and root permission granted to this app, otherwise startup may fail</string>
     
     <!-- SSH Settings -->
     <string name="ssh_enable_title">Enable SSH Connection</string>
     <string name="ssh_use_remote_desc">Using remote SSH terminal</string>
     <string name="ssh_use_local_desc">Using local terminal</string>
-    <string name="ssh_reverse_mount_enabled">✓ Reverse Mount Enabled</string>
+    <string name="ssh_reverse_mount_enabled"> Reverse Mount Enabled</string>
     <string name="ssh_reverse_mount_desc">Remote can access local files via ~/storage and ~/sdcard</string>
     <string name="ssh_config_required">Please configure SSH connection first</string>
     <string name="openssh_missing_title">OpenSSH Server Missing</string>

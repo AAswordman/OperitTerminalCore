@@ -708,6 +708,9 @@ class TerminalManager private constructor(
         export UBUNTU=$UBUNTU_FILENAME
         export UBUNTU_NAME=$ubuntuName
         export USE_CHROOT=${if (prefs.getBoolean("chroot_enabled", false)) "1" else "0"}
+        export OPERIT_UID=$(id -u)
+        export OPERIT_GID=$(id -g)
+        export OPERIT_GROUPS=$(id -G | tr ' ' ',')
         export L_NOT_INSTALLED="not installed"
         export L_INSTALLING="installing"
         export L_INSTALLED="installed"
@@ -928,6 +931,9 @@ class TerminalManager private constructor(
         UBUNTU_PATH="$2"
         CMD_FILE="$3"
         HOME_DIR="$4"
+        OPERIT_UID="$5"
+        OPERIT_GID="$6"
+        OPERIT_GROUPS="$7"
         cleanup_mounts(){
           "${'$'}BIN/busybox" umount "${'$'}UBUNTU_PATH/dev/pts" 2>/dev/null || true
           "${'$'}BIN/busybox" umount "${'$'}UBUNTU_PATH/dev" 2>/dev/null || true
@@ -946,13 +952,13 @@ class TerminalManager private constructor(
         "${'$'}BIN/busybox" mount --bind /storage/emulated/0 "${'$'}UBUNTU_PATH/sdcard" 2>/dev/null || true
         "${'$'}BIN/busybox" mount --bind "${'$'}HOME_DIR" "${'$'}UBUNTU_PATH${'$'}HOME_DIR" 2>/dev/null || true
         COMMAND_TO_EXEC="$(cat "${'$'}CMD_FILE" 2>/dev/null)"
-        "${'$'}BIN/busybox" chroot "${'$'}UBUNTU_PATH" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=en_US.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin COMMAND_TO_EXEC="${'$'}COMMAND_TO_EXEC" /bin/bash -lc 'echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; eval "${'$'}COMMAND_TO_EXEC"'
+        "${'$'}BIN/busybox" chroot "${'$'}UBUNTU_PATH" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=en_US.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "COMMAND_TO_EXEC=${'$'}COMMAND_TO_EXEC" "OPERIT_UID=${'$'}OPERIT_UID" "OPERIT_GID=${'$'}OPERIT_GID" "OPERIT_GROUPS=${'$'}OPERIT_GROUPS" /bin/bash -lc 'echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; umask 0002; if [ -n "${'$'}OPERIT_GID" ]; then chown 0:"${'$'}OPERIT_GID" /root 2>/dev/null || true; chmod 2775 /root 2>/dev/null || true; fi; eval "${'$'}COMMAND_TO_EXEC"'
         ret=${'$'}?
         cleanup_mounts
         exit ${'$'}ret
         EOF
             chmod 700 "${'$'}CHROOT_WRAPPER" 2>/dev/null || true
-            exec su -c "sh \"${'$'}CHROOT_WRAPPER\" \"${'$'}BIN\" \"${'$'}UBUNTU_PATH\" \"${'$'}CMD_FILE\" \"${homeDir}\""
+            exec su -c "sh \"${'$'}CHROOT_WRAPPER\" \"${'$'}BIN\" \"${'$'}UBUNTU_PATH\" \"${'$'}CMD_FILE\" \"${homeDir}\" \"${'$'}OPERIT_UID\" \"${'$'}OPERIT_GID\" \"${'$'}OPERIT_GROUPS\""
           fi
           exec ${'$'}BIN/proot \
             -0 \
