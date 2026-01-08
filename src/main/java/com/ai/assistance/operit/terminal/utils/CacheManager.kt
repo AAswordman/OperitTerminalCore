@@ -239,42 +239,60 @@ class CacheManager(private val context: Context) {
         onProgress(0L) // Initial progress
 
         listOf(usrDir, tmpDir).forEach { dir ->
-            if (dir.exists()) {
-                dir.walkTopDown().onEnter {
-                    // To prevent visiting directories we don't have permission to read,
-                    // which would cause the walk to fail.
-                    it.canRead() && !isSymbolicLink(it)
-                }.forEach { file ->
-                    ensureActive() // 检查协程是否已被取消
-                    if (file.isFile && !isSymbolicLink(file)) {
-                        try {
-                            val path = file.toPath()
-                            // On Linux, fileKey() returns an object containing inode and device ID.
-                            // This allows us to correctly handle hard links and not double-count them.
-                            val fileKey = try {
-                                Files.readAttributes(path, java.nio.file.attribute.BasicFileAttributes::class.java).fileKey()
-                            } catch (e: Exception) {
-                                null // If we can't read attributes, assume no key.
-                            }
+            if (!dir.exists()) return@forEach
 
-                            if (fileKey != null) {
-                                if (seenFiles.add(fileKey)) {
-                                    totalSize += file.length()
-                                }
-                            } else {
-                                // Fallback for filesystems without fileKey support or if attribute read fails.
-                                // This might overcount hard links, but it's the best we can do.
+            val rootPathNormalized = try {
+                dir.canonicalFile.absolutePath.trimEnd('/')
+            } catch (_: Exception) {
+                dir.absolutePath.trimEnd('/')
+            }
+
+            val mountPointsUnderRoot = getMountPointsUnder(dir)
+                .map { it.trimEnd('/') }
+                .filter { it != rootPathNormalized }
+                .toHashSet()
+
+            dir.walkTopDown().onEnter {
+                if (!it.canRead() || isSymbolicLink(it)) return@onEnter false
+
+                val currentPath = try {
+                    it.canonicalFile.absolutePath.trimEnd('/')
+                } catch (_: Exception) {
+                    it.absolutePath.trimEnd('/')
+                }
+
+                currentPath !in mountPointsUnderRoot
+            }.forEach { file ->
+                ensureActive() // 检查协程是否已被取消
+                if (file.isFile && !isSymbolicLink(file)) {
+                    try {
+                        val path = file.toPath()
+
+                        // On Linux, fileKey() returns an object containing inode and device ID.
+                        // This allows us to correctly handle hard links and not double-count them.
+                        val fileKey = try {
+                            Files.readAttributes(path, java.nio.file.attribute.BasicFileAttributes::class.java).fileKey()
+                        } catch (e: Exception) {
+                            null // If we can't read attributes, assume no key.
+                        }
+
+                        if (fileKey != null) {
+                            if (seenFiles.add(fileKey)) {
                                 totalSize += file.length()
                             }
-
-                            filesProcessed++
-                            // To avoid overwhelming the main thread, update progress periodically.
-                            if (filesProcessed % 200 == 0) {
-                                onProgress(totalSize)
-                            }
-                        } catch (e: Exception) {
-                            // Ignore files that can't be accessed, e.g. broken symlinks
+                        } else {
+                            // Fallback for filesystems without fileKey support or if attribute read fails.
+                            // This might overcount hard links, but it's the best we can do.
+                            totalSize += file.length()
                         }
+
+                        filesProcessed++
+                        // To avoid overwhelming the main thread, update progress periodically.
+                        if (filesProcessed % 200 == 0) {
+                            onProgress(totalSize)
+                        }
+                    } catch (e: Exception) {
+                        // Ignore files that can't be accessed, e.g. broken symlinks
                     }
                 }
             }
