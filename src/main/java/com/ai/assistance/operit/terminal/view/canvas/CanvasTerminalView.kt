@@ -77,6 +77,17 @@ class CanvasTerminalView @JvmOverloads constructor(
     private var emulator: AnsiTerminalEmulator? = null
     private var emulatorChangeListener: (() -> Unit)? = null
     private var emulatorNewOutputListener: (() -> Unit)? = null
+
+    private val newOutputDispatchLock = Any()
+    private var newOutputDispatchPosted = false
+    private val newOutputDispatchRunnable = Runnable {
+        synchronized(newOutputDispatchLock) {
+            newOutputDispatchPosted = false
+        }
+        if (autoScrollToBottom) {
+            scrollToBottom()
+        }
+    }
     
     // 是否自动滚动到底部（当新内容到达时）
     private var autoScrollToBottom = true
@@ -92,7 +103,7 @@ class CanvasTerminalView @JvmOverloads constructor(
     private var renderThread: RenderThread? = null
     private val renderLock = ReentrantLock()
     private val renderCondition = renderLock.newCondition()
-    private var isDirty = true // 是否需要重绘
+    @Volatile private var isDirty = true // 是否需要重绘
     
     // 手势处理
     private lateinit var gestureHandler: GestureHandler
@@ -316,15 +327,9 @@ class CanvasTerminalView @JvmOverloads constructor(
         
         // 添加新输出监听器（用于自动滚动到底部）
         emulatorNewOutputListener = {
-            if (autoScrollToBottom) {
-                scrollToBottom()
-            }
+            scheduleNewOutputDispatch()
         }
-        emulator.addNewOutputListener {
-            post {
-                emulatorNewOutputListener?.invoke()
-            }
-        }
+        emulator.addNewOutputListener(emulatorNewOutputListener!!)
         
         // 如果 Surface 已经创建，立即同步终端大小
         if (width > 0 && height > 0) {
@@ -332,6 +337,22 @@ class CanvasTerminalView @JvmOverloads constructor(
         }
         
         requestRender()
+    }
+
+    private fun scheduleNewOutputDispatch() {
+        var shouldPost = false
+        synchronized(newOutputDispatchLock) {
+            if (!newOutputDispatchPosted) {
+                newOutputDispatchPosted = true
+                shouldPost = true
+            }
+        }
+        if (!shouldPost) return
+        if (isAttachedToWindow) {
+            postOnAnimation(newOutputDispatchRunnable)
+        } else {
+            post(newOutputDispatchRunnable)
+        }
     }
     
     /**
@@ -631,6 +652,14 @@ class CanvasTerminalView @JvmOverloads constructor(
         handleArrowKeyUp()
     }
     
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        removeCallbacks(newOutputDispatchRunnable)
+        synchronized(newOutputDispatchLock) {
+            newOutputDispatchPosted = false
+        }
+    }
+
     // === 渲染线程 ===
     
     private fun startRenderThread() {

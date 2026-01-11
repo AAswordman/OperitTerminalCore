@@ -31,6 +31,9 @@ class OutputProcessor(
     companion object {
         private const val TAG = "OutputProcessor"
         private const val MAX_LINES_PER_HISTORY_ITEM = 10
+
+        private const val MAX_RAW_BUFFER_CHARS = 256 * 1024
+        private const val MAX_OUTPUT_PAGES_PER_COMMAND = 100
     }
 
     /**
@@ -43,6 +46,11 @@ class OutputProcessor(
     ) {
         val session = sessionManager.getSession(sessionId) ?: return
         session.rawBuffer.append(chunk)
+
+        if (session.rawBuffer.length > MAX_RAW_BUFFER_CHARS) {
+            val over = session.rawBuffer.length - MAX_RAW_BUFFER_CHARS
+            session.rawBuffer.delete(0, over)
+        }
 
         Log.d(TAG, "Processing chunk for session $sessionId. New buffer size: ${session.rawBuffer.length}")
 
@@ -489,6 +497,9 @@ class OutputProcessor(
 
             if (session.currentOutputLineCount >= MAX_LINES_PER_HISTORY_ITEM) {
                 // 当前页已满，将其添加到已完成的页面列表并开始新的一页
+                while (currentItem.outputPages.size >= MAX_OUTPUT_PAGES_PER_COMMAND) {
+                    currentItem.outputPages.removeAt(0)
+                }
                 currentItem.outputPages.add(currentItem.output)
                 builder.clear()
                 session.currentOutputLineCount = 0
