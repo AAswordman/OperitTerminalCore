@@ -565,8 +565,21 @@ class LocalFileSystemProvider(
             val results = mutableListOf<String>()
             
             findMatchingFiles(rootDir, regex, results, maxDepth, 0, rootDir.absolutePath)
-            
+
+            // Convert mapped absolute paths back to linux paths under basePath
+            val linuxBase = basePath.trimEnd('/')
             results
+                .asSequence()
+                .mapNotNull { abs ->
+                    if (!abs.startsWith(rootDir.absolutePath)) return@mapNotNull null
+                    val rel = abs.removePrefix(rootDir.absolutePath).trimStart(File.separatorChar)
+                    if (rel.isEmpty()) {
+                        linuxBase
+                    } else {
+                        "$linuxBase/$rel"
+                    }
+                }
+                .toList()
         } catch (e: Exception) {
             Log.e(TAG, "Error finding files in: $basePath", e)
             emptyList()
