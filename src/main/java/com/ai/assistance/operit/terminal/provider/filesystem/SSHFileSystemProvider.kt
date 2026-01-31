@@ -5,6 +5,8 @@ import com.jcraft.jsch.ChannelSftp
 import com.jcraft.jsch.Session
 import com.jcraft.jsch.SftpException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -28,6 +30,10 @@ class SSHFileSystemProvider(
     
     // SFTP通道 - 使用懒加载，在第一次使用时创建
     private var sftpChannel: ChannelSftp? = null
+
+    private val sftpChannelLock = Mutex()
+
+    private val sftpOperationLock = Mutex()
     
     // 远程主目录缓存
     private var remoteHome: String? = null
@@ -36,27 +42,29 @@ class SSHFileSystemProvider(
      * 获取或创建SFTP通道
      */
     private suspend fun getSftpChannel(): ChannelSftp = withContext(Dispatchers.IO) {
-        // 如果通道已存在且连接，直接返回
-        sftpChannel?.let { channel ->
-            if (channel.isConnected) {
-                return@withContext channel
+        sftpChannelLock.withLock {
+            // 如果通道已存在且连接，直接返回
+            sftpChannel?.let { channel ->
+                if (channel.isConnected) {
+                    return@withLock channel
+                }
             }
-        }
-        
-        // 创建新的SFTP通道
-        try {
-            if (!sshSession.isConnected) {
-                throw IllegalStateException("SSH session is not connected")
+
+            // 创建新的SFTP通道
+            try {
+                if (!sshSession.isConnected) {
+                    throw IllegalStateException("SSH session is not connected")
+                }
+
+                val channel = sshSession.openChannel("sftp") as ChannelSftp
+                channel.connect(10000) // 10秒超时
+                sftpChannel = channel
+                Log.d(TAG, "SFTP channel created and connected")
+                channel
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to create SFTP channel", e)
+                throw e
             }
-            
-            val channel = sshSession.openChannel("sftp") as ChannelSftp
-            channel.connect(10000) // 10秒超时
-            sftpChannel = channel
-            Log.d(TAG, "SFTP channel created and connected")
-            channel
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to create SFTP channel", e)
-            throw e
         }
     }
     
@@ -76,8 +84,11 @@ class SSHFileSystemProvider(
         remoteHome?.let { return@withContext it }
         
         try {
-            val channel = getSftpChannel()
-            val home = channel.home
+            val home =
+                sftpOperationLock.withLock {
+                    val channel = getSftpChannel()
+                    channel.home
+                }
             remoteHome = home
             Log.d(TAG, "Remote home directory: $home")
             home
@@ -104,14 +115,15 @@ class SSHFileSystemProvider(
     // ==================== 文件读取操作 ====================
     
     override suspend fun readFile(path: String): String? = withContext(Dispatchers.IO) {
-        Log.d(TAG, "[readFile] Reading file: $path")
         try {
             val expandedPath = expandPath(path)
-            val channel = getSftpChannel()
-            val outputStream = ByteArrayOutputStream()
-            channel.get(expandedPath, outputStream)
-            val content = outputStream.toString("UTF-8")
-            Log.d(TAG, "[readFile] Successfully read file, size: ${content.length} chars")
+            val content =
+                sftpOperationLock.withLock {
+                    val channel = getSftpChannel()
+                    val outputStream = ByteArrayOutputStream()
+                    channel.get(expandedPath, outputStream)
+                    outputStream.toString("UTF-8")
+                }
             content
         } catch (e: SftpException) {
             Log.e(TAG, "[readFile] Failed to read file: $path", e)
@@ -125,22 +137,24 @@ class SSHFileSystemProvider(
     override suspend fun readFileWithLimit(path: String, maxBytes: Int): String? = withContext(Dispatchers.IO) {
         try {
             val expandedPath = expandPath(path)
-            val channel = getSftpChannel()
-            val inputStream = channel.get(expandedPath)
-            val buffer = ByteArray(minOf(maxBytes, BUFFER_SIZE))
-            val outputStream = ByteArrayOutputStream()
-            
-            var totalRead = 0
-            while (totalRead < maxBytes) {
-                val toRead = minOf(buffer.size, maxBytes - totalRead)
-                val bytesRead = inputStream.read(buffer, 0, toRead)
-                if (bytesRead <= 0) break
-                outputStream.write(buffer, 0, bytesRead)
-                totalRead += bytesRead
+            sftpOperationLock.withLock {
+                val channel = getSftpChannel()
+                val inputStream = channel.get(expandedPath)
+                val buffer = ByteArray(minOf(maxBytes, BUFFER_SIZE))
+                val outputStream = ByteArrayOutputStream()
+
+                var totalRead = 0
+                while (totalRead < maxBytes) {
+                    val toRead = minOf(buffer.size, maxBytes - totalRead)
+                    val bytesRead = inputStream.read(buffer, 0, toRead)
+                    if (bytesRead <= 0) break
+                    outputStream.write(buffer, 0, bytesRead)
+                    totalRead += bytesRead
+                }
+                inputStream.close()
+
+                outputStream.toString("UTF-8")
             }
-            inputStream.close()
-            
-            outputStream.toString("UTF-8")
         } catch (e: Exception) {
             Log.e(TAG, "[readFileWithLimit] Failed to read file: $path", e)
             null
@@ -150,27 +164,29 @@ class SSHFileSystemProvider(
     override suspend fun readFileLines(path: String, startLine: Int, endLine: Int): String? = withContext(Dispatchers.IO) {
         try {
             val expandedPath = expandPath(path)
-            val channel = getSftpChannel()
-            val inputStream = channel.get(expandedPath)
-            val reader = inputStream.bufferedReader(Charsets.UTF_8)
-            
-            val result = StringBuilder()
-            var currentLine = 1
-            
-            reader.use { r ->
-                while (currentLine < startLine) {
-                    r.readLine() ?: return@withContext null
-                    currentLine++
+            sftpOperationLock.withLock {
+                val channel = getSftpChannel()
+                val inputStream = channel.get(expandedPath)
+                val reader = inputStream.bufferedReader(Charsets.UTF_8)
+
+                val result = StringBuilder()
+                var currentLine = 1
+
+                reader.use { r ->
+                    while (currentLine < startLine) {
+                        r.readLine() ?: return@withLock null
+                        currentLine++
+                    }
+
+                    while (currentLine <= endLine) {
+                        val line = r.readLine() ?: break
+                        result.append(line).append("\n")
+                        currentLine++
+                    }
                 }
-                
-                while (currentLine <= endLine) {
-                    val line = r.readLine() ?: break
-                    result.append(line).append("\n")
-                    currentLine++
-                }
+
+                result.toString()
             }
-            
-            result.toString()
         } catch (e: Exception) {
             Log.e(TAG, "[readFileLines] Failed to read file lines: $path", e)
             null
@@ -180,13 +196,15 @@ class SSHFileSystemProvider(
     override suspend fun readFileSample(path: String, sampleSize: Int): ByteArray? = withContext(Dispatchers.IO) {
         try {
             val expandedPath = expandPath(path)
-            val channel = getSftpChannel()
-            val inputStream = channel.get(expandedPath)
-            val buffer = ByteArray(sampleSize)
-            val bytesRead = inputStream.read(buffer, 0, sampleSize)
-            inputStream.close()
-            
-            if (bytesRead <= 0) ByteArray(0) else buffer.copyOf(bytesRead)
+            sftpOperationLock.withLock {
+                val channel = getSftpChannel()
+                val inputStream = channel.get(expandedPath)
+                val buffer = ByteArray(sampleSize)
+                val bytesRead = inputStream.read(buffer, 0, sampleSize)
+                inputStream.close()
+
+                if (bytesRead <= 0) ByteArray(0) else buffer.copyOf(bytesRead)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "[readFileSample] Failed to read file sample: $path", e)
             null
@@ -196,10 +214,12 @@ class SSHFileSystemProvider(
     override suspend fun readFileBytes(path: String): ByteArray? = withContext(Dispatchers.IO) {
         try {
             val expandedPath = expandPath(path)
-            val channel = getSftpChannel()
-            val outputStream = ByteArrayOutputStream()
-            channel.get(expandedPath, outputStream)
-            outputStream.toByteArray()
+            sftpOperationLock.withLock {
+                val channel = getSftpChannel()
+                val outputStream = ByteArrayOutputStream()
+                channel.get(expandedPath, outputStream)
+                outputStream.toByteArray()
+            }
         } catch (e: Exception) {
             Log.e(TAG, "[readFileBytes] Failed to read file bytes: $path", e)
             null
@@ -213,25 +233,25 @@ class SSHFileSystemProvider(
         
         try {
             val expandedPath = expandPath(path)
-            val channel = getSftpChannel()
-            
-            // 先创建父目录
-            val parentDir = expandedPath.substringBeforeLast('/')
-            if (parentDir.isNotEmpty() && parentDir != expandedPath) {
-                createDirectoryRecursive(channel, parentDir)
-            }
-            
             val bytes = content.toByteArray(Charsets.UTF_8)
-            val inputStream = ByteArrayInputStream(bytes)
-            
-            if (append) {
-                // SFTP的append模式
-                channel.put(inputStream, expandedPath, ChannelSftp.APPEND)
-            } else {
-                // SFTP的覆盖模式
-                channel.put(inputStream, expandedPath, ChannelSftp.OVERWRITE)
+            sftpOperationLock.withLock {
+                val channel = getSftpChannel()
+
+                // 先创建父目录
+                val parentDir = expandedPath.substringBeforeLast('/')
+                if (parentDir.isNotEmpty() && parentDir != expandedPath) {
+                    createDirectoryRecursive(channel, parentDir)
+                }
+
+                val inputStream = ByteArrayInputStream(bytes)
+
+                if (append) {
+                    channel.put(inputStream, expandedPath, ChannelSftp.APPEND)
+                } else {
+                    channel.put(inputStream, expandedPath, ChannelSftp.OVERWRITE)
+                }
             }
-            
+
             Log.d(TAG, "[writeFile] Successfully wrote ${bytes.size} bytes to $path")
             FileSystemProvider.OperationResult(
                 success = true,
@@ -255,17 +275,19 @@ class SSHFileSystemProvider(
     override suspend fun writeFileBytes(path: String, bytes: ByteArray): FileSystemProvider.OperationResult = withContext(Dispatchers.IO) {
         try {
             val expandedPath = expandPath(path)
-            val channel = getSftpChannel()
-            
-            // 先创建父目录
-            val parentDir = expandedPath.substringBeforeLast('/')
-            if (parentDir.isNotEmpty() && parentDir != expandedPath) {
-                createDirectoryRecursive(channel, parentDir)
+            sftpOperationLock.withLock {
+                val channel = getSftpChannel()
+
+                // 先创建父目录
+                val parentDir = expandedPath.substringBeforeLast('/')
+                if (parentDir.isNotEmpty() && parentDir != expandedPath) {
+                    createDirectoryRecursive(channel, parentDir)
+                }
+
+                val inputStream = ByteArrayInputStream(bytes)
+                channel.put(inputStream, expandedPath, ChannelSftp.OVERWRITE)
             }
-            
-            val inputStream = ByteArrayInputStream(bytes)
-            channel.put(inputStream, expandedPath, ChannelSftp.OVERWRITE)
-            
+
             Log.d(TAG, "[writeFileBytes] Successfully wrote ${bytes.size} bytes to $path")
             FileSystemProvider.OperationResult(
                 success = true,
@@ -321,23 +343,26 @@ class SSHFileSystemProvider(
         Log.d(TAG, "[listDirectory] Listing directory: $path")
         try {
             val expandedPath = expandPath(path)
-            val channel = getSftpChannel()
-            @Suppress("UNCHECKED_CAST")
-            val entries = channel.ls(expandedPath) as Vector<ChannelSftp.LsEntry>
-            
-            val fileInfoList = entries
-                .filter { it.filename != "." && it.filename != ".." }
-                .map { entry ->
-                    val attrs = entry.attrs
-                    FileSystemProvider.FileInfo(
-                        name = entry.filename,
-                        isDirectory = attrs.isDir,
-                        size = attrs.size,
-                        permissions = attrs.permissionsString,
-                        lastModified = (attrs.mTime * 1000L).toString()
-                    )
+            val fileInfoList =
+                sftpOperationLock.withLock {
+                    val channel = getSftpChannel()
+                    @Suppress("UNCHECKED_CAST")
+                    val entries = channel.ls(expandedPath) as Vector<ChannelSftp.LsEntry>
+
+                    entries
+                        .filter { it.filename != "." && it.filename != ".." }
+                        .map { entry ->
+                            val attrs = entry.attrs
+                            FileSystemProvider.FileInfo(
+                                name = entry.filename,
+                                isDirectory = attrs.isDir,
+                                size = attrs.size,
+                                permissions = attrs.permissionsString,
+                                lastModified = (attrs.mTime * 1000L).toString()
+                            )
+                        }
                 }
-            
+
             Log.d(TAG, "[listDirectory] Found ${fileInfoList.size} entries in $path")
             fileInfoList
         } catch (e: SftpException) {
@@ -352,9 +377,11 @@ class SSHFileSystemProvider(
     override suspend fun exists(path: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val expandedPath = expandPath(path)
-            val channel = getSftpChannel()
-            channel.stat(expandedPath)
-            true
+            sftpOperationLock.withLock {
+                val channel = getSftpChannel()
+                channel.stat(expandedPath)
+                true
+            }
         } catch (e: SftpException) {
             false
         } catch (e: Exception) {
@@ -366,9 +393,11 @@ class SSHFileSystemProvider(
     override suspend fun isDirectory(path: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val expandedPath = expandPath(path)
-            val channel = getSftpChannel()
-            val attrs = channel.stat(expandedPath)
-            attrs.isDir
+            sftpOperationLock.withLock {
+                val channel = getSftpChannel()
+                val attrs = channel.stat(expandedPath)
+                attrs.isDir
+            }
         } catch (e: Exception) {
             false
         }
@@ -377,9 +406,11 @@ class SSHFileSystemProvider(
     override suspend fun isFile(path: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val expandedPath = expandPath(path)
-            val channel = getSftpChannel()
-            val attrs = channel.stat(expandedPath)
-            !attrs.isDir && !attrs.isLink
+            sftpOperationLock.withLock {
+                val channel = getSftpChannel()
+                val attrs = channel.stat(expandedPath)
+                !attrs.isDir && !attrs.isLink
+            }
         } catch (e: Exception) {
             false
         }
@@ -388,9 +419,11 @@ class SSHFileSystemProvider(
     override suspend fun getFileSize(path: String): Long = withContext(Dispatchers.IO) {
         try {
             val expandedPath = expandPath(path)
-            val channel = getSftpChannel()
-            val attrs = channel.stat(expandedPath)
-            attrs.size
+            sftpOperationLock.withLock {
+                val channel = getSftpChannel()
+                val attrs = channel.stat(expandedPath)
+                attrs.size
+            }
         } catch (e: Exception) {
             0L
         }
@@ -399,16 +432,18 @@ class SSHFileSystemProvider(
     override suspend fun getLineCount(path: String): Int = withContext(Dispatchers.IO) {
         try {
             val expandedPath = expandPath(path)
-            val channel = getSftpChannel()
-            val inputStream = channel.get(expandedPath)
-            val reader = inputStream.bufferedReader(Charsets.UTF_8)
-            var count = 0
-            reader.use { r ->
-                while (r.readLine() != null) {
-                    count++
+            sftpOperationLock.withLock {
+                val channel = getSftpChannel()
+                val inputStream = channel.get(expandedPath)
+                val reader = inputStream.bufferedReader(Charsets.UTF_8)
+                var count = 0
+                reader.use { r ->
+                    while (r.readLine() != null) {
+                        count++
+                    }
                 }
+                count
             }
-            count
         } catch (e: Exception) {
             Log.e(TAG, "[getLineCount] Failed to count lines: $path", e)
             0
@@ -420,25 +455,27 @@ class SSHFileSystemProvider(
         
         try {
             val expandedPath = expandPath(path)
-            val channel = getSftpChannel()
-            
-            // 检查目录是否已存在
-            try {
-                val attrs = channel.stat(expandedPath)
-                if (attrs.isDir) {
-                    return@withContext FileSystemProvider.OperationResult(
-                        success = true,
-                        message = "Directory already exists: $path"
-                    )
+            sftpOperationLock.withLock {
+                val channel = getSftpChannel()
+
+                // 检查目录是否已存在
+                try {
+                    val attrs = channel.stat(expandedPath)
+                    if (attrs.isDir) {
+                        return@withContext FileSystemProvider.OperationResult(
+                            success = true,
+                            message = "Directory already exists: $path"
+                        )
+                    }
+                } catch (e: SftpException) {
+                    // 目录不存在，继续创建
                 }
-            } catch (e: SftpException) {
-                // 目录不存在，继续创建
-            }
-            
-            if (createParents) {
-                createDirectoryRecursive(channel, expandedPath)
-            } else {
-                channel.mkdir(expandedPath)
+
+                if (createParents) {
+                    createDirectoryRecursive(channel, expandedPath)
+                } else {
+                    channel.mkdir(expandedPath)
+                }
             }
             
             Log.d(TAG, "[createDirectory] Successfully created directory: $path")
@@ -466,17 +503,25 @@ class SSHFileSystemProvider(
         
         try {
             val expandedPath = expandPath(path)
-            val channel = getSftpChannel()
-            
-            if (recursive && isDirectory(path)) {
-                deleteRecursive(channel, expandedPath)
-            } else {
-                // 删除文件或空目录
-                try {
-                    channel.rm(expandedPath)
-                } catch (e: SftpException) {
-                    // 如果是目录，尝试用rmdir
-                    channel.rmdir(expandedPath)
+            sftpOperationLock.withLock {
+                val channel = getSftpChannel()
+
+                val isDir =
+                    if (!recursive) {
+                        false
+                    } else {
+                        runCatching { channel.stat(expandedPath).isDir }.getOrDefault(false)
+                    }
+
+                if (recursive && isDir) {
+                    deleteRecursive(channel, expandedPath)
+                } else {
+                    // 删除文件或空目录
+                    try {
+                        channel.rm(expandedPath)
+                    } catch (e: SftpException) {
+                        channel.rmdir(expandedPath)
+                    }
                 }
             }
             
@@ -525,8 +570,10 @@ class SSHFileSystemProvider(
         try {
             val expandedSourcePath = expandPath(sourcePath)
             val expandedDestPath = expandPath(destPath)
-            val channel = getSftpChannel()
-            channel.rename(expandedSourcePath, expandedDestPath)
+            sftpOperationLock.withLock {
+                val channel = getSftpChannel()
+                channel.rename(expandedSourcePath, expandedDestPath)
+            }
 
             FileSystemProvider.OperationResult(
                 success = true,
@@ -551,47 +598,53 @@ class SSHFileSystemProvider(
         try {
             val expandedSourcePath = expandPath(sourcePath)
             val expandedDestPath = expandPath(destPath)
-            val channel = getSftpChannel()
-            
-            // 检查源路径是否存在
-            val sourceAttrs = try {
-                channel.stat(expandedSourcePath)
-            } catch (e: SftpException) {
-                return@withContext FileSystemProvider.OperationResult(
-                    success = false,
-                    message = "Source path does not exist: $sourcePath"
-                )
-            }
-            
-            // 确保目标父目录存在
-            val destParentDir = expandedDestPath.substringBeforeLast('/')
-            if (destParentDir.isNotEmpty() && destParentDir != expandedDestPath) {
-                createDirectoryRecursive(channel, destParentDir)
-            }
-            
-            if (sourceAttrs.isDir) {
-                if (!recursive) {
+
+            var isSourceDir = false
+            sftpOperationLock.withLock {
+                val channel = getSftpChannel()
+
+                // 检查源路径是否存在
+                val sourceAttrs = try {
+                    channel.stat(expandedSourcePath)
+                } catch (e: SftpException) {
                     return@withContext FileSystemProvider.OperationResult(
                         success = false,
-                        message = "Cannot copy directory without recursive flag"
+                        message = "Source path does not exist: $sourcePath"
                     )
                 }
-                copyDirectoryRecursive(channel, expandedSourcePath, expandedDestPath)
-            } else {
-                // 复制单个文件
-                val inputStream = channel.get(expandedSourcePath)
-                val outputStream = ByteArrayOutputStream()
-                inputStream.copyTo(outputStream)
-                inputStream.close()
-                
-                val bytes = outputStream.toByteArray()
-                val destInputStream = ByteArrayInputStream(bytes)
-                channel.put(destInputStream, expandedDestPath)
+
+                isSourceDir = sourceAttrs.isDir
+
+                // 确保目标父目录存在
+                val destParentDir = expandedDestPath.substringBeforeLast('/')
+                if (destParentDir.isNotEmpty() && destParentDir != expandedDestPath) {
+                    createDirectoryRecursive(channel, destParentDir)
+                }
+
+                if (sourceAttrs.isDir) {
+                    if (!recursive) {
+                        return@withContext FileSystemProvider.OperationResult(
+                            success = false,
+                            message = "Cannot copy directory without recursive flag"
+                        )
+                    }
+                    copyDirectoryRecursive(channel, expandedSourcePath, expandedDestPath)
+                } else {
+                    // 复制单个文件
+                    val inputStream = channel.get(expandedSourcePath)
+                    val outputStream = ByteArrayOutputStream()
+                    inputStream.copyTo(outputStream)
+                    inputStream.close()
+
+                    val bytes = outputStream.toByteArray()
+                    val destInputStream = ByteArrayInputStream(bytes)
+                    channel.put(destInputStream, expandedDestPath)
+                }
             }
 
             FileSystemProvider.OperationResult(
                 success = true,
-                message = "Successfully copied ${if (sourceAttrs.isDir) "directory" else "file"} $sourcePath to $destPath"
+                message = "Successfully copied ${if (isSourceDir) "directory" else "file"} $sourcePath to $destPath"
             )
         } catch (e: SftpException) {
             Log.e(TAG, "[copy] SFTP error copying", e)
@@ -654,13 +707,15 @@ class SSHFileSystemProvider(
     ): List<String> = withContext(Dispatchers.IO) {
         try {
             val expandedBasePath = expandPath(basePath)
-            val channel = getSftpChannel()
             val results = mutableListOf<String>()
             
             // 将glob模式转换为正则表达式
             val regex = globToRegex(pattern, caseInsensitive)
-            
-            searchFilesRecursive(channel, expandedBasePath, regex, maxDepth, 0, results)
+
+            sftpOperationLock.withLock {
+                val channel = getSftpChannel()
+                searchFilesRecursive(channel, expandedBasePath, regex, maxDepth, 0, results)
+            }
             
             results
         } catch (e: Exception) {
@@ -734,8 +789,11 @@ class SSHFileSystemProvider(
     override suspend fun getFileInfo(path: String): FileSystemProvider.FileInfo? = withContext(Dispatchers.IO) {
         try {
             val expandedPath = expandPath(path)
-            val channel = getSftpChannel()
-            val attrs = channel.stat(expandedPath)
+            val attrs =
+                sftpOperationLock.withLock {
+                    val channel = getSftpChannel()
+                    channel.stat(expandedPath)
+                }
             
             val name = path.substringAfterLast('/')
 
@@ -758,9 +816,11 @@ class SSHFileSystemProvider(
     override suspend fun getPermissions(path: String): String = withContext(Dispatchers.IO) {
         try {
             val expandedPath = expandPath(path)
-            val channel = getSftpChannel()
-            val attrs = channel.stat(expandedPath)
-            attrs.permissionsString
+            sftpOperationLock.withLock {
+                val channel = getSftpChannel()
+                val attrs = channel.stat(expandedPath)
+                attrs.permissionsString
+            }
         } catch (e: Exception) {
             ""
         }

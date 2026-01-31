@@ -172,15 +172,19 @@ class SSHFileConnectionManager private constructor(private val context: Context)
                     // 配置会话
                     val sessionConfig = Properties()
                     sessionConfig["StrictHostKeyChecking"] = "no"
-                    
+
                     // 配置心跳包（Keep-Alive）
                     if (config.enableKeepAlive) {
-                        sessionConfig["ServerAliveInterval"] = config.keepAliveInterval.toString()
-                        sessionConfig["ServerAliveCountMax"] = "3"
                         Log.d(TAG, "Keep-Alive enabled: interval=${config.keepAliveInterval}s")
                     }
                     
                     sshSession.setConfig(sessionConfig)
+
+                    if (config.enableKeepAlive) {
+                        // JSch uses milliseconds for interval
+                        sshSession.setServerAliveInterval(config.keepAliveInterval * 1000)
+                        sshSession.setServerAliveCountMax(3)
+                    }
                     
                     // 连接（3分钟超时）
                     sshSession.connect(180000)
