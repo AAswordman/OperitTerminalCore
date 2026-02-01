@@ -1,38 +1,40 @@
 package com.ai.assistance.operit.terminal.view.canvas
-
-import android.content.Context
-import android.graphics.*
-import android.util.AttributeSet
-import android.view.MotionEvent
-import android.view.SurfaceHolder
-import android.view.SurfaceView
-import android.util.Log
-import android.view.ActionMode
-import android.view.Menu
-import android.view.MenuItem
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.view.inputmethod.BaseInputConnection
-import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputConnection
-import android.view.inputmethod.InputMethodManager
-import android.view.KeyEvent
-import android.os.Handler
-import android.os.Looper
-import android.widget.OverScroller
-import android.view.accessibility.AccessibilityManager
-import com.ai.assistance.operit.terminal.view.domain.ansi.AnsiTerminalEmulator
-import com.ai.assistance.operit.terminal.view.domain.ansi.TerminalChar
-import kotlin.math.max
-import kotlin.math.min
-import java.util.concurrent.locks.ReentrantLock
-import kotlin.math.abs
-import java.io.File
-import com.ai.assistance.operit.terminal.R
-
-/**
- * 基于Canvas的高性能终端视图
- * 使用SurfaceView + 独立渲染线程实现
+ 
+ import android.content.ClipData
+ import android.content.ClipboardManager
+ import android.content.Context
+ import android.graphics.*
+ import android.os.Build
+ import android.os.Handler
+ import android.os.Looper
+ import android.util.AttributeSet
+ import android.util.Log
+ import android.view.ActionMode
+ import android.view.KeyEvent
+ import android.view.Menu
+ import android.view.MenuItem
+ import android.view.MotionEvent
+ import android.view.SurfaceHolder
+ import android.view.SurfaceView
+ import android.view.View
+ import android.view.accessibility.AccessibilityManager
+ import android.view.inputmethod.BaseInputConnection
+ import android.view.inputmethod.EditorInfo
+ import android.view.inputmethod.InputConnection
+ import android.view.inputmethod.InputMethodManager
+ import android.widget.OverScroller
+ import com.ai.assistance.operit.terminal.R
+ import com.ai.assistance.operit.terminal.view.domain.ansi.AnsiTerminalEmulator
+ import com.ai.assistance.operit.terminal.view.domain.ansi.TerminalChar
+ import java.io.File
+ import java.util.concurrent.locks.ReentrantLock
+ import kotlin.math.abs
+ import kotlin.math.max
+ import kotlin.math.min
+ 
+ /**
+  * 基于Canvas的高性能终端视图
+  * 使用SurfaceView + 独立渲染线程实现
  */
 class CanvasTerminalView @JvmOverloads constructor(
     context: Context,
@@ -69,6 +71,56 @@ class CanvasTerminalView @JvmOverloads constructor(
         color = Color.argb(100, 100, 149, 237) // 半透明蓝色
         style = Paint.Style.FILL
     }
+
+    private val selectionHandlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#3B82F6")
+        style = Paint.Style.FILL
+    }
+
+    private val selectionHandleStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        alpha = 220
+        style = Paint.Style.STROKE
+        strokeWidth = resources.displayMetrics.density * 1.8f
+    }
+
+    private val selectionHandleRadius: Float = resources.displayMetrics.density * 10f
+
+    private val magnifierBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(220, 20, 20, 20)
+        style = Paint.Style.FILL
+    }
+
+    private val magnifierBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        alpha = 180
+        style = Paint.Style.STROKE
+        strokeWidth = resources.displayMetrics.density * 2f
+    }
+
+    private val magnifierCellStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        alpha = 210
+        style = Paint.Style.STROKE
+        strokeWidth = resources.displayMetrics.density * 1.5f
+    }
+
+    private val magnifierPointerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        alpha = 220
+        style = Paint.Style.FILL
+    }
+
+    private val magnifierRadius: Float = resources.displayMetrics.density * 58f
+    private val magnifierPadding: Float = resources.displayMetrics.density * 10f
+    private var isSelectionDragging: Boolean = false
+    private var lastSelectionTouchX: Float = 0f
+    private var lastSelectionTouchY: Float = 0f
+
+    private val autoScrollEdgeThreshold: Float = resources.displayMetrics.density * 40f
+    private val autoScrollStepPx: Float = resources.displayMetrics.density * 14f
+    private var autoScrollDirection: Int = 0
+    private var autoScrollRunnable: Runnable? = null
     
     // 文本测量工具
     private val textMetrics: TextMetrics
@@ -87,6 +139,264 @@ class CanvasTerminalView @JvmOverloads constructor(
         if (autoScrollToBottom) {
             scrollToBottom()
         }
+    }
+
+    private fun drawSelectionHandles(canvas: Canvas, charWidth: Float, charHeight: Float) {
+        val centers = getSelectionHandleCenters(charWidth, charHeight) ?: return
+        val start = centers.first
+        val end = centers.second
+
+        drawSelectionHandle(canvas, start)
+        drawSelectionHandle(canvas, end)
+    }
+
+    private fun drawSelectionHandle(canvas: Canvas, center: PointF) {
+        val r = selectionHandleRadius
+        val bodyWidth = r * 1.2f
+        val tipHeight = r * 0.9f
+        val bodyHeight = r * 1.8f
+
+        val tipX = center.x.coerceIn(0f, width.toFloat())
+        val tipY = center.y.coerceIn(0f, height.toFloat())
+
+        val baseY = (tipY + tipHeight).coerceIn(0f, height.toFloat())
+        val bodyTop = baseY
+        val bodyBottom = (bodyTop + bodyHeight).coerceIn(bodyTop, height.toFloat())
+
+        val left = (tipX - bodyWidth / 2f).coerceIn(0f, width.toFloat())
+        val right = (tipX + bodyWidth / 2f).coerceIn(0f, width.toFloat())
+
+        val tipPath = Path().apply {
+            moveTo(tipX, tipY)
+            lineTo(left, baseY)
+            lineTo(right, baseY)
+            close()
+        }
+
+        val rect = RectF(left, bodyTop, right, bodyBottom)
+        val rx = bodyWidth / 2f
+        val ry = bodyWidth / 2f
+
+        canvas.drawPath(tipPath, selectionHandlePaint)
+        canvas.drawPath(tipPath, selectionHandleStrokePaint)
+
+        canvas.drawRoundRect(rect, rx, ry, selectionHandlePaint)
+        canvas.drawRoundRect(rect, rx, ry, selectionHandleStrokePaint)
+    }
+
+    private fun drawSelectionMagnifier(canvas: Canvas) {
+        val em = emulator ?: return
+        val fullContent = em.getFullContent()
+        if (fullContent.isEmpty()) return
+
+        val (row, col) = screenToTerminalCoords(lastSelectionTouchX, lastSelectionTouchY)
+        val r = magnifierRadius
+        val bubbleSize = r * 2f
+
+        var cx = lastSelectionTouchX
+        var cy = lastSelectionTouchY - r * 1.9f
+        if (cy < r) {
+            cy = lastSelectionTouchY + r * 1.9f
+        }
+
+        cx = cx.coerceIn(r + 2f, width - r - 2f)
+        cy = cy.coerceIn(r + 2f, height - r - 2f)
+
+        val bubbleRect = RectF(cx - r, cy - r, cx + r, cy + r)
+        val corner = r * 0.32f
+
+        canvas.drawRoundRect(bubbleRect, corner, corner, magnifierBgPaint)
+        canvas.drawRoundRect(bubbleRect, corner, corner, magnifierBorderPaint)
+
+        val inner = RectF(
+            bubbleRect.left + magnifierPadding,
+            bubbleRect.top + magnifierPadding,
+            bubbleRect.right - magnifierPadding,
+            bubbleRect.bottom - magnifierPadding
+        )
+
+        val contextCols = 3
+        val contextRows = 1
+        val cols = contextCols * 2 + 1
+        val rows = contextRows * 2 + 1
+
+        val charWidth = textMetrics.charWidth
+        val charHeight = textMetrics.charHeight
+        val baseline = textMetrics.charBaseline
+
+        val regionWidth = cols * charWidth
+        val regionHeight = rows * charHeight
+
+        val maxScaleX = (inner.width() / regionWidth).coerceAtLeast(1f)
+        val maxScaleY = (inner.height() / regionHeight).coerceAtLeast(1f)
+        val scale = min(3.2f, max(1.6f, min(maxScaleX, maxScaleY)))
+
+        val drawLeft = inner.centerX() - (regionWidth * scale) / 2f
+        val drawTop = inner.centerY() - (regionHeight * scale) / 2f
+
+        val startRow = (row - contextRows).coerceAtLeast(0)
+        val endRow = (row + contextRows).coerceAtMost(fullContent.size - 1)
+
+        canvas.save()
+        val clipPath = Path().apply {
+            addRoundRect(
+                inner,
+                corner * 0.8f,
+                corner * 0.8f,
+                Path.Direction.CW
+            )
+        }
+        canvas.clipPath(clipPath)
+        canvas.translate(drawLeft, drawTop)
+        canvas.scale(scale, scale)
+
+        var localRowIndex = 0
+        for (rr in startRow..endRow) {
+            val srcLine = fullContent.getOrNull(rr) ?: emptyArray()
+            val line = Array(cols) { i ->
+                val srcCol = col - contextCols + i
+                if (srcCol in srcLine.indices) srcLine[srcCol] else TerminalChar()
+            }
+            drawLine(canvas, line, localRowIndex, 0f, localRowIndex * charHeight, charWidth, charHeight, baseline)
+            localRowIndex++
+        }
+
+        val centerLeft = contextCols * charWidth
+        val centerTop = contextRows * charHeight
+        val focusLine = fullContent.getOrNull(row) ?: emptyArray()
+        val safeCol = if (focusLine.isNotEmpty()) col.coerceIn(0, focusLine.size - 1) else 0
+        val cellWidth = if (focusLine.isNotEmpty()) {
+            textMetrics.getCellWidth(focusLine[safeCol].char).toFloat()
+        } else {
+            1f
+        }
+        val cellLeft = if (focusLine.isNotEmpty()) {
+            getXOffsetForCol(focusLine, safeCol, charWidth)
+        } else {
+            0f
+        }
+        val cellRight = cellLeft + charWidth * cellWidth
+        val useRightEdge = when (activeDragHandle) {
+            DragHandle.START -> false
+            DragHandle.END -> true
+            else -> lastSelectionTouchX >= (cellLeft + cellRight) / 2f
+        }
+        val pointerOffset = if (useRightEdge) charWidth * cellWidth else 0f
+        val pointerX = (centerLeft + pointerOffset).coerceIn(0f, cols * charWidth)
+        val pointerTop = centerTop + charHeight * 0.12f
+        val pointerBottom = centerTop + charHeight * 0.88f
+        val pointerWidth = max(2f, charWidth * 0.08f)
+        canvas.drawRect(
+            pointerX - pointerWidth / 2f,
+            pointerTop,
+            pointerX + pointerWidth / 2f,
+            pointerBottom,
+            magnifierPointerPaint
+        )
+
+        val tipHeight = charHeight * 0.2f
+        val tipWidth = charWidth * 0.45f
+        val tipBaseY = pointerBottom
+        val tipY = min(rows * charHeight - 1f, tipBaseY + tipHeight)
+        val tipPath = Path().apply {
+            moveTo(pointerX, tipY)
+            lineTo(pointerX - tipWidth / 2f, tipBaseY)
+            lineTo(pointerX + tipWidth / 2f, tipBaseY)
+            close()
+        }
+        canvas.drawPath(tipPath, magnifierPointerPaint)
+
+        canvas.restore()
+    }
+
+    private fun updateAutoScrollForSelectionDrag() {
+        if (!isSelectionDragging || !selectionManager.hasSelection()) {
+            autoScrollDirection = 0
+            return
+        }
+        val y = lastSelectionTouchY
+        autoScrollDirection = when {
+            y < autoScrollEdgeThreshold -> -1
+            y > height - autoScrollEdgeThreshold -> 1
+            else -> 0
+        }
+
+        if (autoScrollDirection == 0) {
+            autoScrollRunnable?.let { handler.removeCallbacks(it) }
+            autoScrollRunnable = null
+            return
+        }
+
+        if (autoScrollRunnable != null) return
+        autoScrollRunnable = object : Runnable {
+            override fun run() {
+                if (!isSelectionDragging || !selectionManager.hasSelection()) {
+                    autoScrollRunnable = null
+                    autoScrollDirection = 0
+                    return
+                }
+                if (autoScrollDirection == 0) {
+                    autoScrollRunnable = null
+                    return
+                }
+
+                val em = emulator ?: run {
+                    autoScrollRunnable = null
+                    autoScrollDirection = 0
+                    return
+                }
+
+                val maxScrollOffset = max(0f, em.getFullContent().size * textMetrics.charHeight - height)
+                scrollOffsetY = (scrollOffsetY + autoScrollDirection * autoScrollStepPx).coerceIn(0f, maxScrollOffset)
+
+                val (row, col) = screenToTerminalCoords(lastSelectionTouchX, lastSelectionTouchY)
+                when (activeDragHandle) {
+                    DragHandle.START -> selectionManager.setSelectionStart(row, col)
+                    DragHandle.END -> selectionManager.setSelectionEnd(row, col)
+                    else -> selectionManager.updateSelection(row, col)
+                }
+
+                actionMode?.invalidate()
+                requestRender()
+                postOnAnimation(this)
+            }
+        }
+        postOnAnimation(autoScrollRunnable!!)
+    }
+
+    private fun getSelectionHandleCenters(charWidth: Float, charHeight: Float): Pair<PointF, PointF>? {
+        val selection = selectionManager.selection?.normalize() ?: return null
+        val em = emulator ?: return null
+        val fullContent = em.getFullContent()
+        if (fullContent.isEmpty()) return null
+
+        val startRow = selection.startRow.coerceIn(0, fullContent.size - 1)
+        val endRow = selection.endRow.coerceIn(0, fullContent.size - 1)
+
+        val startLine = fullContent.getOrNull(startRow) ?: return null
+        val endLine = fullContent.getOrNull(endRow) ?: return null
+
+        val startCol = selection.startCol.coerceIn(0, max(0, startLine.size - 1))
+        val endCol = selection.endCol.coerceIn(0, max(0, endLine.size - 1))
+
+        val startX = getXOffsetForCol(startLine, startCol, charWidth)
+        val startY = kotlin.math.round(startRow * charHeight - scrollOffsetY + charHeight)
+
+        val endX = run {
+            val x = getXOffsetForCol(endLine, endCol, charWidth)
+            val w = if (endLine.isNotEmpty()) {
+                charWidth * textMetrics.getCellWidth(endLine[endCol].char)
+            } else {
+                charWidth
+            }
+            x + w
+        }
+        val endY = kotlin.math.round(endRow * charHeight - scrollOffsetY + charHeight)
+
+        val start = PointF(startX.coerceIn(0f, width.toFloat()), startY.coerceIn(0f, height.toFloat()))
+        val end = PointF(endX.coerceIn(0f, width.toFloat()), endY.coerceIn(0f, height.toFloat()))
+
+        return Pair(start, end)
     }
     
     // 是否自动滚动到底部（当新内容到达时）
@@ -142,6 +452,12 @@ class CanvasTerminalView @JvmOverloads constructor(
     
     // 文本选择ActionMode
     private var actionMode: ActionMode? = null
+
+    private enum class DragHandle {
+        NONE, START, END
+    }
+
+    private var activeDragHandle: DragHandle = DragHandle.NONE
     
     // 全屏模式标记
     private var isFullscreenMode = true
@@ -860,6 +1176,10 @@ class CanvasTerminalView @JvmOverloads constructor(
         // 绘制选择区域
         if (selectionManager.hasSelection()) {
             drawSelection(canvas, charWidth, charHeight)
+            drawSelectionHandles(canvas, charWidth, charHeight)
+            if (isSelectionDragging) {
+                drawSelectionMagnifier(canvas)
+            }
         }
         
         // 绘制光标（光标只在可见屏幕部分显示，需要考虑历史缓冲区偏移）
@@ -1207,35 +1527,80 @@ class CanvasTerminalView @JvmOverloads constructor(
     }
     
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        val handled = gestureHandler.onTouchEvent(event)
+        var handled = gestureHandler.onTouchEvent(event)
         
-        // 单击时请求焦点并显示输入法（全屏模式下）
+        // 单击时请求焦点；显示输入法延后到 ACTION_UP，避免长按选择时提前弹出输入法造成卡手
         if (event.action == MotionEvent.ACTION_DOWN) {
             if (!hasFocus()) {
                 requestFocus()
             }
-            if (!selectionManager.hasSelection()) {
-                if (isFullscreenMode) {
-                    // 全屏模式下，单击即显示输入法
-                    postDelayed({
-                        showSoftKeyboard()
-                    }, 100) // 延迟100ms确保焦点已获取
+
+            if (selectionManager.hasSelection()) {
+                val charWidth = textMetrics.charWidth
+                val charHeight = textMetrics.charHeight
+                val centers = getSelectionHandleCenters(charWidth, charHeight)
+                if (centers != null) {
+                    val (start, end) = centers
+                    val r = selectionHandleRadius * 2.4f
+                    val r2 = r * r
+                    val ds = (event.x - start.x) * (event.x - start.x) + (event.y - start.y) * (event.y - start.y)
+                    val de = (event.x - end.x) * (event.x - end.x) + (event.y - end.y) * (event.y - end.y)
+                    activeDragHandle = when {
+                        ds <= r2 && de <= r2 -> if (ds <= de) DragHandle.START else DragHandle.END
+                        ds <= r2 -> DragHandle.START
+                        de <= r2 -> DragHandle.END
+                        else -> DragHandle.NONE
+                    }
                 } else {
-                    // 非全屏模式下，交给上层决定如何显示输入法
-                    onRequestShowKeyboard?.invoke()
+                    activeDragHandle = DragHandle.NONE
                 }
+            } else {
+                activeDragHandle = DragHandle.NONE
             }
         }
         
         // 处理选择移动
         if (selectionManager.hasSelection() && event.action == MotionEvent.ACTION_MOVE) {
+            isSelectionDragging = true
+            lastSelectionTouchX = event.x
+            lastSelectionTouchY = event.y
+
             val (row, col) = screenToTerminalCoords(event.x, event.y)
-            selectionManager.updateSelection(row, col)
+            when (activeDragHandle) {
+                DragHandle.START -> selectionManager.setSelectionStart(row, col)
+                DragHandle.END -> selectionManager.setSelectionEnd(row, col)
+                else -> selectionManager.updateSelection(row, col)
+            }
+            actionMode?.invalidate()
             requestRender()
+            updateAutoScrollForSelectionDrag()
+            handled = true
         }
         
-        if (event.action == MotionEvent.ACTION_UP && selectionManager.hasSelection()) {
-            showTextSelectionMenu()
+        if (event.action == MotionEvent.ACTION_UP) {
+            if (selectionManager.hasSelection()) {
+                showTextSelectionMenu()
+            } else {
+                if (isFullscreenMode) {
+                    showSoftKeyboard()
+                } else {
+                    onRequestShowKeyboard?.invoke()
+                }
+            }
+
+            activeDragHandle = DragHandle.NONE
+            isSelectionDragging = false
+            autoScrollDirection = 0
+            autoScrollRunnable?.let { handler.removeCallbacks(it) }
+            autoScrollRunnable = null
+        }
+
+        if (event.action == MotionEvent.ACTION_CANCEL) {
+            activeDragHandle = DragHandle.NONE
+            isSelectionDragging = false
+            autoScrollDirection = 0
+            autoScrollRunnable?.let { handler.removeCallbacks(it) }
+            autoScrollRunnable = null
         }
         
         return handled || super.onTouchEvent(event)
@@ -1294,16 +1659,49 @@ class CanvasTerminalView @JvmOverloads constructor(
     private fun showTextSelectionMenu() {
         if (actionMode != null) return
         
-        actionMode = startActionMode(object : ActionMode.Callback {
+        val callback = object : ActionMode.Callback2() {
+            override fun onGetContentRect(mode: ActionMode, view: View, outRect: Rect) {
+                val selection = selectionManager.selection?.normalize()
+                val em = emulator
+                if (selection == null || em == null) {
+                    outRect.set(0, 0, width, height)
+                    return
+                }
+
+                val fullContent = em.getFullContent()
+                val row = selection.endRow.coerceIn(0, fullContent.size - 1)
+                val line = fullContent.getOrNull(row)
+                if (line == null || line.isEmpty()) {
+                    outRect.set(0, 0, width, height)
+                    return
+                }
+
+                val col = selection.endCol.coerceIn(0, line.size - 1)
+                val charWidth = textMetrics.charWidth
+                val charHeight = textMetrics.charHeight
+
+                val x = getXOffsetForCol(line, col, charWidth)
+                val y = kotlin.math.round(row * charHeight - scrollOffsetY)
+                val cellWidth = textMetrics.getCellWidth(line[col].char)
+                val w = (charWidth * cellWidth).coerceAtLeast(charWidth)
+
+                val left = x.toInt().coerceIn(0, width)
+                val top = y.toInt().coerceIn(0, height)
+                val right = (x + w).toInt().coerceIn(left, width)
+                val bottom = (y + charHeight).toInt().coerceIn(top, height)
+
+                outRect.set(left, top, right, bottom)
+            }
+
             override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
                 menu.add(0, 1, 0, "复制")
                 return true
             }
-            
+
             override fun onPrepareActionMode(mode: ActionMode, menu: Menu): Boolean {
                 return false
             }
-            
+
             override fun onActionItemClicked(mode: ActionMode, item: MenuItem): Boolean {
                 when (item.itemId) {
                     1 -> {
@@ -1314,13 +1712,19 @@ class CanvasTerminalView @JvmOverloads constructor(
                 }
                 return false
             }
-            
+
             override fun onDestroyActionMode(mode: ActionMode) {
                 actionMode = null
                 selectionManager.clearSelection()
                 requestRender()
             }
-        })
+        }
+
+        actionMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            startActionMode(callback, ActionMode.TYPE_FLOATING)
+        } else {
+            startActionMode(callback)
+        }
     }
     
     /**
@@ -1328,15 +1732,27 @@ class CanvasTerminalView @JvmOverloads constructor(
      */
     private fun copySelectedText() {
         val selection = selectionManager.selection?.normalize() ?: return
-        val buffer = emulator?.getScreenContent() ?: return
+        val buffer = emulator?.getFullContent() ?: return
         
         val text = buildString {
             for (row in selection.startRow..selection.endRow) {
                 if (row >= buffer.size) break
-                
+
                 val line = buffer[row]
                 val startCol = if (row == selection.startRow) selection.startCol else 0
                 val endCol = if (row == selection.endRow) selection.endCol else line.size - 1
+                if (line.isEmpty()) {
+                    if (row < selection.endRow) {
+                        append('\n')
+                    }
+                    continue
+                }
+                if (endCol < startCol) {
+                    if (row < selection.endRow) {
+                        append('\n')
+                    }
+                    continue
+                }
                 
                 for (col in startCol..endCol) {
                     if (col < line.size) {

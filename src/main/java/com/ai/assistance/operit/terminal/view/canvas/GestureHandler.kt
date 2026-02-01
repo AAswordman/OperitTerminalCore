@@ -140,6 +140,21 @@ class TextSelectionManager {
             selection = Selection(startRow, startCol, row, col)
         }
     }
+
+    fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int) {
+        selection = Selection(startRow, startCol, endRow, endCol)
+        selectionStart = Pair(startRow, startCol)
+    }
+
+    fun setSelectionStart(row: Int, col: Int) {
+        val current = selection ?: return
+        setSelection(row, col, current.endRow, current.endCol)
+    }
+
+    fun setSelectionEnd(row: Int, col: Int) {
+        val current = selection ?: return
+        setSelection(current.startRow, current.startCol, row, col)
+    }
     
     fun clearSelection() {
         selection = null

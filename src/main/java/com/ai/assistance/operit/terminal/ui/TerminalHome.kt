@@ -139,6 +139,68 @@ fun TerminalHome(
     var showVirtualKeyboard by remember { mutableStateOf(false) }
     var isDirectInputMode by remember { mutableStateOf(false) }
 
+    var ctrlActive by remember { mutableStateOf(false) }
+    var altActive by remember { mutableStateOf(false) }
+
+    fun applyCtrlModifierChar(ch: Char): String? {
+        return when {
+            ch in 'a'..'z' || ch in 'A'..'Z' -> {
+                val code = ch.uppercaseChar().code - 64
+                code.toChar().toString()
+            }
+            ch == ' ' || ch == '@' -> "\u0000"
+            ch == '[' -> "\u001b"
+            ch == '\\' -> "\u001c"
+            ch == ']' -> "\u001d"
+            ch == '^' -> "\u001e"
+            ch == '_' -> "\u001f"
+            else -> null
+        }
+    }
+
+    fun applyCtrlModifierToText(input: String): String {
+        if (!ctrlActive) return input
+        val sb = StringBuilder()
+        input.forEach { ch ->
+            val mapped = applyCtrlModifierChar(ch)
+            if (mapped != null) sb.append(mapped) else sb.append(ch)
+        }
+        return sb.toString()
+    }
+
+    fun applyModifiers(input: String): String {
+        var output = applyCtrlModifierToText(input)
+        if (altActive) {
+            output = if (output.startsWith("\u001b")) output else "\u001b$output"
+        }
+        return output
+    }
+
+    fun consumeModifiers() {
+        if (ctrlActive) ctrlActive = false
+        if (altActive) altActive = false
+    }
+
+    fun sendDirectInput(input: String) {
+        val output = if (ctrlActive || altActive) applyModifiers(input) else input
+        env.onSendInput(output, false)
+        if (ctrlActive || altActive) {
+            consumeModifiers()
+        }
+    }
+
+    fun sendCommandFromInput() {
+        val commandText = env.command
+        if (ctrlActive || altActive) {
+            val output = applyModifiers(commandText)
+            env.onSendInput(output, false)
+            env.onCommandChange("")
+            consumeModifiers()
+        } else {
+            env.onSendInput(commandText, true)
+        }
+    }
+
     // 计算基于缩放因子的字体大小和间距
     val baseFontSize = 14.sp
     val fontSize = with(LocalDensity.current) {
@@ -183,7 +245,7 @@ fun TerminalHome(
                     modifier = Modifier.weight(1f),
                     config = fontConfig,
                     pty = currentPty,
-                    onInput = { env.onSendInput(it, false) },
+                    onInput = { sendDirectInput(it) },
                     sessionId = env.currentSessionId,
                     onScrollOffsetChanged = { id, offset -> env.saveScrollOffset(id, offset) },
                     getScrollOffset = { id -> env.getScrollOffset(id) }
@@ -191,7 +253,11 @@ fun TerminalHome(
                 
                 // 虚拟键盘 - 会随 imePadding 一起上移
                 VirtualKeyboard(
-                    onKeyPress = { key -> env.onSendInput(key, false) },
+                    onKeyPress = { key -> sendDirectInput(key) },
+                    onToggleCtrl = { ctrlActive = !ctrlActive },
+                    onToggleAlt = { altActive = !altActive },
+                    ctrlActive = ctrlActive,
+                    altActive = altActive,
                     fontSize = fontSize * 0.7f,
                     padding = padding * 0.5f
                 )
@@ -216,7 +282,7 @@ fun TerminalHome(
                         modifier = Modifier.weight(1f),
                         config = fontConfig,
                         pty = currentPty,
-                        onInput = { env.onSendInput(it, false) },
+                        onInput = { sendDirectInput(it) },
                         sessionId = env.currentSessionId,
                         onScrollOffsetChanged = { id, offset -> env.saveScrollOffset(id, offset) },
                         getScrollOffset = { id -> env.getScrollOffset(id) }
@@ -284,7 +350,7 @@ fun TerminalHome(
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                         keyboardActions = KeyboardActions(onSend = {
-                            env.onSendInput(env.command, true)
+                            sendCommandFromInput()
                         })
                     )
                     // 虚拟键盘切换按钮
@@ -335,7 +401,11 @@ fun TerminalHome(
                 // 虚拟键盘（当显示时）
                 if (showVirtualKeyboard) {
                     VirtualKeyboard(
-                        onKeyPress = { key -> env.onSendInput(key, false) },
+                        onKeyPress = { key -> sendDirectInput(key) },
+                        onToggleCtrl = { ctrlActive = !ctrlActive },
+                        onToggleAlt = { altActive = !altActive },
+                        ctrlActive = ctrlActive,
+                        altActive = altActive,
                         fontSize = fontSize * 0.7f,
                         padding = padding * 0.5f
                     )
@@ -607,6 +677,10 @@ private fun TerminalToolbar(
 @Composable
 private fun VirtualKeyboard(
     onKeyPress: (String) -> Unit,
+    onToggleCtrl: () -> Unit,
+    onToggleAlt: () -> Unit,
+    ctrlActive: Boolean,
+    altActive: Boolean,
     fontSize: androidx.compose.ui.unit.TextUnit,
     padding: androidx.compose.ui.unit.Dp
 ) {
@@ -641,8 +715,26 @@ private fun VirtualKeyboard(
                 horizontalArrangement = Arrangement.spacedBy(padding * 0.5f)
             ) {
                 KeyButton("⇆", "\t", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
-                KeyButton("CTRL", "\u0003", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
-                KeyButton("ALT", "\u001b", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
+                KeyButton(
+                    label = "CTRL",
+                    key = "",
+                    fontSize = fontSize,
+                    padding = padding,
+                    onKeyPress = onKeyPress,
+                    modifier = Modifier.weight(1f),
+                    isActive = ctrlActive,
+                    onClickOverride = onToggleCtrl
+                )
+                KeyButton(
+                    label = "ALT",
+                    key = "",
+                    fontSize = fontSize,
+                    padding = padding,
+                    onKeyPress = onKeyPress,
+                    modifier = Modifier.weight(1f),
+                    isActive = altActive,
+                    onClickOverride = onToggleAlt
+                )
                 KeyButton("←", "\u001b[D", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
                 KeyButton("↓", "\u001b[B", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
                 KeyButton("→", "\u001b[C", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
@@ -659,12 +751,15 @@ private fun KeyButton(
     fontSize: androidx.compose.ui.unit.TextUnit,
     padding: androidx.compose.ui.unit.Dp,
     onKeyPress: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isActive: Boolean = false,
+    onClickOverride: (() -> Unit)? = null
 ) {
+    val backgroundColor = if (isActive) Color(0xFF2563EB) else Color(0xFF3A3A3A)
     Surface(
         modifier = modifier
-            .clickable { onKeyPress(key) },
-        color = Color(0xFF3A3A3A),
+            .clickable { onClickOverride?.invoke() ?: onKeyPress(key) },
+        color = backgroundColor,
         shape = RoundedCornerShape(4.dp)
     ) {
         Box(
