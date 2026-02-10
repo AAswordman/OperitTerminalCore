@@ -81,9 +81,11 @@ fun SettingsScreen(
     var fontSize by remember { mutableStateOf(fontConfigManager.getFontSize()) }
     var fontPath by remember { mutableStateOf(fontConfigManager.getFontPath() ?: "") }
     var fontName by remember { mutableStateOf(fontConfigManager.getFontName() ?: "") }
+    var targetFps by remember { mutableStateOf(fontConfigManager.getTargetFps()) }
     var showFontSizeDialog by remember { mutableStateOf(false) }
     var showFontPathDialog by remember { mutableStateOf(false) }
     var showFontNameDialog by remember { mutableStateOf(false) }
+    var showTargetFpsDialog by remember { mutableStateOf(false) }
     
     // SSH配置相关状态（单一配置）
     val sshConfig by viewModel.sshConfig.collectAsState()
@@ -569,6 +571,15 @@ fun SettingsScreen(
                         icon = Icons.Default.TextFields
                     )
                     HorizontalDivider(color = SettingsTheme.backgroundColor)
+
+                    // 渲染帧率设置
+                    SettingsItem(
+                        title = context.getString(com.ai.assistance.operit.terminal.R.string.target_fps_title),
+                        subtitle = "${targetFps} FPS",
+                        onClick = { showTargetFpsDialog = true },
+                        icon = Icons.Default.TextFields
+                    )
+                    HorizontalDivider(color = SettingsTheme.backgroundColor)
                     
                     // 字体路径设置
                     SettingsItem(
@@ -596,6 +607,7 @@ fun SettingsScreen(
                             fontSize = fontConfigManager.getFontSize()
                             fontPath = fontConfigManager.getFontPath() ?: ""
                             fontName = fontConfigManager.getFontName() ?: ""
+                            targetFps = fontConfigManager.getTargetFps()
                         },
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.outlinedButtonColors(
@@ -794,6 +806,73 @@ fun SettingsScreen(
             dismissButton = {
                 OutlinedButton(
                     onClick = { showFontSizeDialog = false }
+                ) {
+                    Text(context.getString(com.ai.assistance.operit.terminal.R.string.cancel))
+                }
+            },
+            containerColor = SettingsTheme.surfaceColor
+        )
+    }
+
+    // 渲染帧率设置对话框
+    if (showTargetFpsDialog) {
+        var targetFpsInput by remember { mutableStateOf(targetFps.toString()) }
+        AlertDialog(
+            onDismissRequest = { showTargetFpsDialog = false },
+            title = {
+                Text(
+                    context.getString(com.ai.assistance.operit.terminal.R.string.target_fps_dialog_title),
+                    color = SettingsTheme.onSurfaceColor,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = targetFpsInput,
+                        onValueChange = { targetFpsInput = it },
+                        label = {
+                            Text(
+                                context.getString(com.ai.assistance.operit.terminal.R.string.target_fps_label),
+                                color = SettingsTheme.onSurfaceVariant
+                            )
+                        },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = SettingsTheme.onSurfaceColor,
+                            unfocusedTextColor = SettingsTheme.onSurfaceColor,
+                            focusedBorderColor = SettingsTheme.primaryColor,
+                            unfocusedBorderColor = SettingsTheme.onSurfaceVariant
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.target_fps_hint),
+                        color = SettingsTheme.onSurfaceVariant,
+                        fontSize = 12.sp
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        try {
+                            val fps = targetFpsInput.toInt().coerceIn(15, 120)
+                            fontConfigManager.setTargetFps(fps)
+                            targetFps = fps
+                            showTargetFpsDialog = false
+                        } catch (e: Exception) {
+                            // 忽略无效输入
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = SettingsTheme.primaryColor)
+                ) {
+                    Text(context.getString(com.ai.assistance.operit.terminal.R.string.confirm))
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showTargetFpsDialog = false }
                 ) {
                     Text(context.getString(com.ai.assistance.operit.terminal.R.string.cancel))
                 }

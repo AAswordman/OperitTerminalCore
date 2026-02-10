@@ -552,8 +552,11 @@ class CanvasTerminalView @JvmOverloads constructor(
                         scroller.abortAnimation()
                     }
                     
-                    scrollOffsetY += distanceY
-                    scrollOffsetY = scrollOffsetY.coerceAtLeast(0f)
+                    val newOffset = clampScrollOffset(scrollOffsetY + distanceY)
+                    if (newOffset == scrollOffsetY) {
+                        return@GestureHandler
+                    }
+                    scrollOffsetY = newOffset
                     
                     // 保存滚动位置
                     sessionId?.let { id ->
@@ -578,9 +581,16 @@ class CanvasTerminalView @JvmOverloads constructor(
                     val fullContent = em.getFullContent()
                     val charHeight = textMetrics.charHeight
                     val maxScrollOffset = max(0f, fullContent.size * charHeight - height).toInt()
+                    val startY = clampScrollOffset(scrollOffsetY)
+                    
+                    if ((startY <= 0f && velocityY > 0f) ||
+                        (startY >= maxScrollOffset.toFloat() && velocityY < 0f)
+                    ) {
+                        return@GestureHandler
+                    }
                     
                     scroller.fling(
-                        0, scrollOffsetY.toInt(),  // 起始位置
+                        0, startY.toInt(),  // 起始位置
                         0, (-velocityY).toInt(),    // 速度（Y方向反转）
                         0, 0,                        // X范围
                         0, maxScrollOffset           // Y范围
@@ -627,7 +637,7 @@ class CanvasTerminalView @JvmOverloads constructor(
         // 恢复新模拟器的滚动位置
         sessionId?.let { id ->
             getScrollOffset?.invoke(id)?.let { offset ->
-                scrollOffsetY = offset
+                scrollOffsetY = clampScrollOffset(offset)
             }
         }
         
@@ -670,12 +680,31 @@ class CanvasTerminalView @JvmOverloads constructor(
             post(newOutputDispatchRunnable)
         }
     }
+
+    /**
+     * 计算当前可用的最大滚动偏移
+     */
+    private fun getMaxScrollOffset(): Float {
+        val em = emulator ?: return 0f
+        val contentHeight = em.getFullContent().size * textMetrics.charHeight
+        return max(0f, contentHeight - height)
+    }
+
+    /**
+     * 将滚动偏移限制在合法范围内
+     */
+    private fun clampScrollOffset(offset: Float): Float {
+        if (emulator == null) {
+            return offset.coerceAtLeast(0f)
+        }
+        return offset.coerceIn(0f, getMaxScrollOffset())
+    }
     
     /**
      * 设置滚动偏移（用于恢复会话滚动位置）
      */
     fun setScrollOffset(offset: Float) {
-        scrollOffsetY = offset.coerceAtLeast(0f)
+        scrollOffsetY = clampScrollOffset(offset)
         requestRender()
     }
     
@@ -744,7 +773,7 @@ class CanvasTerminalView @JvmOverloads constructor(
         // 如果设置了sessionId，立即恢复滚动位置
         sessionId?.let { id ->
             getScrollOffset?.invoke(id)?.let { offset ->
-                scrollOffsetY = offset
+                scrollOffsetY = clampScrollOffset(offset)
                 requestRender()
             }
         }
@@ -771,8 +800,11 @@ class CanvasTerminalView @JvmOverloads constructor(
                         scroller.abortAnimation()
                     }
                     
-                    scrollOffsetY += distanceY
-                    scrollOffsetY = scrollOffsetY.coerceAtLeast(0f)
+                    val newOffset = clampScrollOffset(scrollOffsetY + distanceY)
+                    if (newOffset == scrollOffsetY) {
+                        return@GestureHandler
+                    }
+                    scrollOffsetY = newOffset
                     
                     // 保存滚动位置
                     sessionId?.let { id ->
@@ -797,9 +829,16 @@ class CanvasTerminalView @JvmOverloads constructor(
                     val fullContent = em.getFullContent()
                     val charHeight = textMetrics.charHeight
                     val maxScrollOffset = max(0f, fullContent.size * charHeight - height).toInt()
+                    val startY = clampScrollOffset(scrollOffsetY)
+                    
+                    if ((startY <= 0f && velocityY > 0f) ||
+                        (startY >= maxScrollOffset.toFloat() && velocityY < 0f)
+                    ) {
+                        return@GestureHandler
+                    }
                     
                     scroller.fling(
-                        0, scrollOffsetY.toInt(),  // 起始位置
+                        0, startY.toInt(),  // 起始位置
                         0, (-velocityY).toInt(),    // 速度（Y方向反转）
                         0, 0,                        // X范围
                         0, maxScrollOffset           // Y范围
@@ -1025,7 +1064,7 @@ class CanvasTerminalView @JvmOverloads constructor(
         override fun run() {
             Log.d("CanvasTerminalView", "RenderThread started")
             var lastRenderTime = System.currentTimeMillis()
-            val targetFrameTime = 1000L / config.targetFps
+            val targetFrameTime = (1000L / config.targetFps.coerceAtLeast(1))
             
             while (running) {
                 try {
@@ -1107,7 +1146,7 @@ class CanvasTerminalView @JvmOverloads constructor(
         
         // 处理惯性滚动动画
         if (scroller.computeScrollOffset()) {
-            val newScrollY = scroller.currY.toFloat()
+            val newScrollY = clampScrollOffset(scroller.currY.toFloat())
             if (newScrollY != scrollOffsetY) {
                 scrollOffsetY = newScrollY
                 

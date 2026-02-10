@@ -173,12 +173,16 @@
     <!-- Font Settings -->
     <string name="font_settings_title">终端字体设置</string>
     <string name="font_size_title">字体大小</string>
+    <string name="target_fps_title">渲染帧率</string>
     <string name="font_path_title">字体文件路径</string>
     <string name="font_name_title">系统字体名称</string>
     <string name="font_not_set">未设置（使用默认字体）</string>
     <string name="font_reset_default">重置为默认设置</string>
     <string name="font_size_dialog_title">设置字体大小</string>
     <string name="font_size_label">字体大小 (sp)</string>
+    <string name="target_fps_dialog_title">设置渲染帧率</string>
+    <string name="target_fps_label">目标帧率 (FPS)</string>
+    <string name="target_fps_hint">范围：15-120，建议 30-60。数值越高越流畅，但功耗更高。</string>
     <string name="font_path_dialog_title">设置字体文件路径</string>
     <string name="font_path_label">字体文件路径</string>
     <string name="font_path_hint">留空则使用默认字体</string>

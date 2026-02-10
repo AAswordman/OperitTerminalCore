@@ -39,7 +39,7 @@ data class RenderConfig(
     }
 
     fun getFrameDelay(): Long {
-        return 1000L / targetFps
+        return 1000L / targetFps.coerceAtLeast(1)
     }
 }
 

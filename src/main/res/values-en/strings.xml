@@ -173,12 +173,16 @@
     <!-- Font Settings -->
     <string name="font_settings_title">Terminal Font Settings</string>
     <string name="font_size_title">Font Size</string>
+    <string name="target_fps_title">Render Frame Rate</string>
     <string name="font_path_title">Font File Path</string>
     <string name="font_name_title">System Font Name</string>
     <string name="font_not_set">Not set (using default font)</string>
     <string name="font_reset_default">Reset to Default</string>
     <string name="font_size_dialog_title">Set Font Size</string>
     <string name="font_size_label">Font Size (sp)</string>
+    <string name="target_fps_dialog_title">Set Render Frame Rate</string>
+    <string name="target_fps_label">Target Frame Rate (FPS)</string>
+    <string name="target_fps_hint">Range: 15-120. Recommended: 30-60. Higher values are smoother but use more power.</string>
     <string name="font_path_dialog_title">Set Font File Path</string>
     <string name="font_path_label">Font File Path</string>
     <string name="font_path_hint">Leave empty to use default font</string>

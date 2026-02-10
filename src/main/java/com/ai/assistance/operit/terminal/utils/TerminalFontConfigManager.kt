@@ -22,8 +22,12 @@ class TerminalFontConfigManager private constructor(context: Context) {
         private const val KEY_FONT_SIZE = "font_size"
         private const val KEY_FONT_PATH = "font_path"
         private const val KEY_FONT_NAME = "font_name"
+        private const val KEY_TARGET_FPS = "target_fps"
         
         private const val DEFAULT_FONT_SIZE = 42f
+        private const val DEFAULT_TARGET_FPS = 60
+        private const val MIN_TARGET_FPS = 15
+        private const val MAX_TARGET_FPS = 120
         
         @Volatile
         private var INSTANCE: TerminalFontConfigManager? = null
@@ -43,7 +47,8 @@ class TerminalFontConfigManager private constructor(context: Context) {
     fun loadRenderConfig(): RenderConfig {
         return RenderConfig(
             fontSize = getFontSize(),
-            typeface = loadTypeface()
+            typeface = loadTypeface(),
+            targetFps = getTargetFps()
             // nerdFontPath 和其他参数可以使用 RenderConfig 的默认值
         )
     }
@@ -130,6 +135,23 @@ class TerminalFontConfigManager private constructor(context: Context) {
     fun setFontName(name: String?) {
         prefs.edit().putString(KEY_FONT_NAME, name).apply()
     }
+
+    /**
+     * 获取目标帧率
+     */
+    fun getTargetFps(): Int {
+        return prefs.getInt(KEY_TARGET_FPS, DEFAULT_TARGET_FPS)
+            .coerceIn(MIN_TARGET_FPS, MAX_TARGET_FPS)
+    }
+
+    /**
+     * 设置目标帧率
+     */
+    fun setTargetFps(fps: Int) {
+        prefs.edit()
+            .putInt(KEY_TARGET_FPS, fps.coerceIn(MIN_TARGET_FPS, MAX_TARGET_FPS))
+            .apply()
+    }
     
     /**
      * 清除所有字体设置，恢复默认
@@ -139,6 +161,7 @@ class TerminalFontConfigManager private constructor(context: Context) {
             .remove(KEY_FONT_SIZE)
             .remove(KEY_FONT_PATH)
             .remove(KEY_FONT_NAME)
+            .remove(KEY_TARGET_FPS)
             .apply()
     }
 }
