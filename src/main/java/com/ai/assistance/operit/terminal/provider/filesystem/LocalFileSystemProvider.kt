@@ -32,32 +32,39 @@ class LocalFileSystemProvider(
             File(ctx.filesDir, "usr/var/lib/proot-distro/installed-rootfs/ubuntu")
         }
     }
-    
+
+    /**
+     * App files 目录（通常为 /data/user/0/<package>/files）
+     */
+    private val appFilesDir: String? by lazy {
+        context?.filesDir?.absolutePath
+    }
+
     /**
      * 将Linux路径映射到Android文件系统中的实际路径
      * 如果没有提供context，则直接返回原路径
      */
     private fun mapPath(linuxPath: String): String {
         val root = ubuntuRoot ?: return linuxPath
-        
-        // 处理 ~ 展开（~/ 展开为 /root/）
-        val expandedPath = if (linuxPath.startsWith("~/")) {
-            "/root/" + linuxPath.substring(2)
-        } else if (linuxPath == "~") {
-            "/root"
-        } else {
-            linuxPath
+        val homeDir = appFilesDir ?: return linuxPath
+        val expandedPath = expandHomePath(linuxPath)
+
+        return PRootMountMapping.mapLinuxPathToHostPath(
+            linuxPath = expandedPath,
+            ubuntuRoot = root,
+            homeDir = homeDir
+        )
+    }
+
+    /**
+     * 处理 ~ 展开（~/ 展开为 /root/）
+     */
+    private fun expandHomePath(path: String): String {
+        return when {
+            path.startsWith("~/") -> "/root/" + path.substring(2)
+            path == "~" -> "/root"
+            else -> path
         }
-        
-        // 移除路径开头的/，然后拼接到Ubuntu根目录
-        val relativePath = expandedPath.trimStart('/')
-        
-        // 如果输入路径为空或只有/，返回Ubuntu根目录
-        if (relativePath.isEmpty()) {
-            return root.absolutePath
-        }
-        
-        return File(root, relativePath).absolutePath
     }
     
     // ==================== 文件读取操作 ====================
