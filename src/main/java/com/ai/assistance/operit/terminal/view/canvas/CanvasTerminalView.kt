@@ -908,32 +908,12 @@ class CanvasTerminalView @JvmOverloads constructor(
     
     // === SurfaceHolder.Callback 实现 ===
     
-    // 防止死循环的上次重建时间
-    private var lastRecreateTime = 0L
-
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         Log.d("CanvasTerminalView", "onSizeChanged: ${w}x${h} (old: ${oldw}x${oldh})")
         
-        // 只有当从无效尺寸变为有效尺寸时（0x0 -> 正常），才尝试重建
+        // 从无效尺寸恢复时，清空缓存以确保 PTY resize 被触发
         if (w > 0 && h > 0 && (oldw <= 0 || oldh <= 0)) {
-            // 简单的防抖动，避免 GONE/VISIBLE 切换造成的死循环
-            val currentTime = System.currentTimeMillis()
-            if (currentTime - lastRecreateTime > 1000) {
-                Log.d("CanvasTerminalView", "onSizeChanged: Detected 0->Normal transition. Forcing view recreation to fix black screen.")
-                lastRecreateTime = currentTime
-                
-                // 强制重建 SurfaceView 的 Surface
-                // 通过切换可见性 GONE -> VISIBLE，强制 WindowManager 重新组合 Surface
-                post {
-                    visibility = GONE
-                    post {
-                        visibility = VISIBLE
-                    }
-                }
-            }
-            
-            // 从无效尺寸恢复时，清空缓存以确保 PTY resize 被触发
             cachedRows = 0
             cachedCols = 0
             Log.d("CanvasTerminalView", "onSizeChanged: Cleared terminal size cache due to 0->Normal transition")
@@ -2012,4 +1992,3 @@ class CanvasTerminalView @JvmOverloads constructor(
         }.start()
     }
 }
-
