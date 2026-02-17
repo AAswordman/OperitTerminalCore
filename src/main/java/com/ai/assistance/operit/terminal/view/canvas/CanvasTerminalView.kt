@@ -14,10 +14,11 @@ package com.ai.assistance.operit.terminal.view.canvas
  import android.view.Menu
  import android.view.MenuItem
  import android.view.MotionEvent
- import android.view.SurfaceHolder
- import android.view.SurfaceView
- import android.view.View
- import android.view.accessibility.AccessibilityManager
+import android.view.SurfaceHolder
+import android.view.SurfaceView
+import android.view.View
+import android.view.ViewConfiguration
+import android.view.accessibility.AccessibilityManager
  import android.view.inputmethod.BaseInputConnection
  import android.view.inputmethod.EditorInfo
  import android.view.inputmethod.InputConnection
@@ -121,6 +122,11 @@ class CanvasTerminalView @JvmOverloads constructor(
     private val autoScrollStepPx: Float = resources.displayMetrics.density * 14f
     private var autoScrollDirection: Int = 0
     private var autoScrollRunnable: Runnable? = null
+    private val touchSlop: Float = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+    private var touchDownX: Float = 0f
+    private var touchDownY: Float = 0f
+    private var hasMovedBeyondTouchSlop: Boolean = false
+    private var hadMultiTouch: Boolean = false
     
     // 文本测量工具
     private val textMetrics: TextMetrics
@@ -1547,9 +1553,15 @@ class CanvasTerminalView @JvmOverloads constructor(
     
     override fun onTouchEvent(event: MotionEvent): Boolean {
         var handled = gestureHandler.onTouchEvent(event)
+        val action = event.actionMasked
         
         // 单击时请求焦点；显示输入法延后到 ACTION_UP，避免长按选择时提前弹出输入法造成卡手
-        if (event.action == MotionEvent.ACTION_DOWN) {
+        if (action == MotionEvent.ACTION_DOWN) {
+            touchDownX = event.x
+            touchDownY = event.y
+            hasMovedBeyondTouchSlop = false
+            hadMultiTouch = false
+
             if (!hasFocus()) {
                 requestFocus()
             }
@@ -1577,9 +1589,24 @@ class CanvasTerminalView @JvmOverloads constructor(
                 activeDragHandle = DragHandle.NONE
             }
         }
+
+        if (action == MotionEvent.ACTION_POINTER_DOWN) {
+            hadMultiTouch = true
+            hasMovedBeyondTouchSlop = true
+        }
         
         // 处理选择移动
-        if (selectionManager.hasSelection() && event.action == MotionEvent.ACTION_MOVE) {
+        if (action == MotionEvent.ACTION_MOVE) {
+            if (!hasMovedBeyondTouchSlop) {
+                val dx = abs(event.x - touchDownX)
+                val dy = abs(event.y - touchDownY)
+                if (dx > touchSlop || dy > touchSlop) {
+                    hasMovedBeyondTouchSlop = true
+                }
+            }
+        }
+
+        if (selectionManager.hasSelection() && action == MotionEvent.ACTION_MOVE) {
             isSelectionDragging = true
             lastSelectionTouchX = event.x
             lastSelectionTouchY = event.y
@@ -1596,14 +1623,20 @@ class CanvasTerminalView @JvmOverloads constructor(
             handled = true
         }
         
-        if (event.action == MotionEvent.ACTION_UP) {
+        if (action == MotionEvent.ACTION_UP) {
             if (selectionManager.hasSelection()) {
                 showTextSelectionMenu()
             } else {
-                if (isFullscreenMode) {
-                    showSoftKeyboard()
-                } else {
-                    onRequestShowKeyboard?.invoke()
+                val isClickGesture =
+                    !hasMovedBeyondTouchSlop &&
+                        !gestureHandler.isScaling &&
+                        !hadMultiTouch
+                if (isClickGesture) {
+                    if (isFullscreenMode) {
+                        showSoftKeyboard()
+                    } else {
+                        onRequestShowKeyboard?.invoke()
+                    }
                 }
             }
 
@@ -1612,14 +1645,18 @@ class CanvasTerminalView @JvmOverloads constructor(
             autoScrollDirection = 0
             autoScrollRunnable?.let { handler.removeCallbacks(it) }
             autoScrollRunnable = null
+            hasMovedBeyondTouchSlop = false
+            hadMultiTouch = false
         }
 
-        if (event.action == MotionEvent.ACTION_CANCEL) {
+        if (action == MotionEvent.ACTION_CANCEL) {
             activeDragHandle = DragHandle.NONE
             isSelectionDragging = false
             autoScrollDirection = 0
             autoScrollRunnable?.let { handler.removeCallbacks(it) }
             autoScrollRunnable = null
+            hasMovedBeyondTouchSlop = false
+            hadMultiTouch = false
         }
         
         return handled || super.onTouchEvent(event)

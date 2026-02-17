@@ -201,6 +201,20 @@ fun TerminalHome(
         }
     }
 
+    fun toggleDirectInputMode() {
+        isDirectInputMode = !isDirectInputMode
+        if (isDirectInputMode) {
+            // 进入直接输入模式：展开虚拟键盘，清空命令并收起系统键盘
+            showVirtualKeyboard = true
+            env.onCommandChange("")
+            keyboardController?.hide()
+        } else {
+            // 退出直接输入模式：关闭虚拟键盘面板并恢复系统键盘
+            showVirtualKeyboard = false
+            keyboardController?.show()
+        }
+    }
+
     // 计算基于缩放因子的字体大小和间距
     val baseFontSize = 14.sp
     val fontSize = with(LocalDensity.current) {
@@ -264,15 +278,11 @@ fun TerminalHome(
             }
         } else {
             Column(
-                modifier = if (isDirectInputMode) {
-                    // 模式 A：非全屏直接发送模式，跟随 IME 自动调整可见区域
+                modifier =
                     Modifier
                         .fillMaxSize()
                         .imePadding()
-                } else {
-                    // 模式 B：普通输入框模式，不使用 imePadding 策略
-                    Modifier.fillMaxSize()
-                }
+                        .navigationBarsPadding()
             ) {
                 // Canvas输出区域（占满剩余空间）
                 if (isDirectInputMode) {
@@ -311,90 +321,84 @@ fun TerminalHome(
                     fontSize = fontSize * 0.8f,
                     padding = padding,
                     onNavigateToSetup = onNavigateToSetup,
-                    onNavigateToSettings = onNavigateToSettings
+                    onNavigateToSettings = onNavigateToSettings,
+                    isDirectInputMode = isDirectInputMode,
+                    showVirtualKeyboard = showVirtualKeyboard,
+                    onToggleVirtualKeyboard = { showVirtualKeyboard = !showVirtualKeyboard },
+                    onToggleInputMode = { toggleDirectInputMode() }
                 )
-                
-                // 当前输入行
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(padding),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Surface(
-                        modifier = Modifier.padding(end = padding * 0.5f),
-                        color = Color(0xFF006400), // DarkGreen
-                        shape = RoundedCornerShape(4.dp)
-                    ) {
-                        Text(
-                            text = getTruncatedPrompt(env.currentDirectory.ifEmpty { "$ " }),
-                            color = Color.White,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = fontSize,
-                            modifier = Modifier.padding(horizontal = padding * 0.5f, vertical = padding * 0.1f)
-                        )
-                    }
-                    BasicTextField(
-                        value = env.command,
-                        onValueChange = env::onCommandChange,
+
+                // 当前输入行：直接输入映射模式下隐藏（按图示仅保留工具栏右侧快捷按钮）
+                if (!isDirectInputMode) {
+                    Row(
                         modifier = Modifier
-                            .weight(1f)
-                            .focusRequester(inputFocusRequester),
-                        enabled = !isDirectInputMode,
-                        textStyle = TextStyle(
-                            color = SyntaxColors.commandDefault,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = fontSize
-                        ),
-                        cursorBrush = SolidColor(Color.Green),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                        keyboardActions = KeyboardActions(onSend = {
-                            sendCommandFromInput()
-                        })
-                    )
-                    // 虚拟键盘切换按钮
-                    Surface(
-                        modifier = Modifier
-                            .padding(start = padding * 0.5f)
-                            .clickable { showVirtualKeyboard = !showVirtualKeyboard },
-                        color = if (showVirtualKeyboard) Color(0xFF4A4A4A) else Color(0xFF3A3A3A),
-                        shape = RoundedCornerShape(4.dp)
+                            .fillMaxWidth()
+                            .padding(padding),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "⌨",
-                            color = Color.White,
-                            fontFamily = FontFamily.Default,
-                            fontSize = fontSize * 1.2f,
-                            modifier = Modifier.padding(horizontal = padding * 0.75f, vertical = padding * 0.4f)
+                        Surface(
+                            modifier = Modifier.padding(end = padding * 0.5f),
+                            color = Color(0xFF006400), // DarkGreen
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = getTruncatedPrompt(env.currentDirectory.ifEmpty { "$ " }),
+                                color = Color.White,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = fontSize,
+                                modifier = Modifier.padding(horizontal = padding * 0.5f, vertical = padding * 0.1f)
+                            )
+                        }
+                        BasicTextField(
+                            value = env.command,
+                            onValueChange = env::onCommandChange,
+                            modifier = Modifier
+                                .weight(1f)
+                                .focusRequester(inputFocusRequester),
+                            enabled = true,
+                            textStyle = TextStyle(
+                                color = SyntaxColors.commandDefault,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = fontSize
+                            ),
+                            cursorBrush = SolidColor(Color.Green),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = {
+                                sendCommandFromInput()
+                            })
                         )
-                    }
-                    Surface(
-                        modifier = Modifier
-                            .padding(start = padding * 0.5f)
-                            .clickable {
-                                isDirectInputMode = !isDirectInputMode
-                                if (isDirectInputMode) {
-                                    // 进入直接输入模式：展开虚拟键盘，清空命令并收起系统键盘
-                                    showVirtualKeyboard = true
-                                    env.onCommandChange("")
-                                    keyboardController?.hide()
-                                } else {
-                                    // 退出直接输入模式：关闭虚拟键盘面板并恢复系统键盘
-                                    showVirtualKeyboard = false
-                                    keyboardController?.show()
-                                }
-                            },
-                        color = if (isDirectInputMode) Color(0xFF4A4A4A) else Color(0xFF3A3A3A),
-                        shape = RoundedCornerShape(4.dp)
-                    ) {
-                        Text(
-                            text = "⇄",
-                            color = Color.White,
-                            fontFamily = FontFamily.Default,
-                            fontSize = fontSize * 1.1f,
-                            modifier = Modifier.padding(horizontal = padding * 0.75f, vertical = padding * 0.4f)
-                        )
+                        // 虚拟键盘切换按钮
+                        Surface(
+                            modifier = Modifier
+                                .padding(start = padding * 0.5f)
+                                .clickable { showVirtualKeyboard = !showVirtualKeyboard },
+                            color = if (showVirtualKeyboard) Color(0xFF4A4A4A) else Color(0xFF3A3A3A),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "⌨",
+                                color = Color.White,
+                                fontFamily = FontFamily.Default,
+                                fontSize = fontSize * 1.2f,
+                                modifier = Modifier.padding(horizontal = padding * 0.75f, vertical = padding * 0.4f)
+                            )
+                        }
+                        Surface(
+                            modifier = Modifier
+                                .padding(start = padding * 0.5f)
+                                .clickable { toggleDirectInputMode() },
+                            color = if (isDirectInputMode) Color(0xFF4A4A4A) else Color(0xFF3A3A3A),
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "⇄",
+                                color = Color.White,
+                                fontFamily = FontFamily.Default,
+                                fontSize = fontSize * 1.1f,
+                                modifier = Modifier.padding(horizontal = padding * 0.75f, vertical = padding * 0.4f)
+                            )
+                        }
                     }
                 }
                 
@@ -588,7 +592,11 @@ private fun TerminalToolbar(
     fontSize: androidx.compose.ui.unit.TextUnit,
     padding: androidx.compose.ui.unit.Dp,
     onNavigateToSetup: () -> Unit,
-    onNavigateToSettings: () -> Unit
+    onNavigateToSettings: () -> Unit,
+    isDirectInputMode: Boolean,
+    showVirtualKeyboard: Boolean,
+    onToggleVirtualKeyboard: () -> Unit,
+    onToggleInputMode: () -> Unit
 ) {
     val context = LocalContext.current
     Surface(
@@ -603,40 +611,42 @@ private fun TerminalToolbar(
             horizontalArrangement = Arrangement.spacedBy(padding * 0.5f),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Ctrl+C 中断按钮
-            Surface(
-                modifier = Modifier.clickable { onInterrupt() },
-                color = Color(0xFF4A4A4A),
-                shape = RoundedCornerShape(6.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = padding * 0.75f, vertical = padding * 0.4f),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(padding * 0.3f)
+            if (!isDirectInputMode) {
+                // Ctrl+C 中断按钮
+                Surface(
+                    modifier = Modifier.clickable { onInterrupt() },
+                    color = Color(0xFF4A4A4A),
+                    shape = RoundedCornerShape(6.dp)
                 ) {
-                    Text(
-                        text = "Ctrl+C",
-                        color = Color.White,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = fontSize,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = context.getString(com.ai.assistance.operit.terminal.R.string.interrupt),
-                        color = Color.Gray,
-                        fontFamily = FontFamily.Default,
-                        fontSize = fontSize * 0.9f
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = padding * 0.75f, vertical = padding * 0.4f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(padding * 0.3f)
+                    ) {
+                        Text(
+                            text = "Ctrl+C",
+                            color = Color.White,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = fontSize,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = context.getString(com.ai.assistance.operit.terminal.R.string.interrupt),
+                            color = Color.Gray,
+                            fontFamily = FontFamily.Default,
+                            fontSize = fontSize * 0.9f
+                        )
+                    }
                 }
-            }
 
-            // 分隔线
-            Box(
-                modifier = Modifier
-                    .width(1.dp)
-                    .height(padding * 1.5f)
-                    .background(Color(0xFF3A3A3A))
-            )
+                // 分隔线
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(padding * 1.5f)
+                        .background(Color(0xFF3A3A3A))
+                )
+            }
 
             Spacer(Modifier.weight(1f))
 
@@ -656,6 +666,35 @@ private fun TerminalToolbar(
                         fontFamily = FontFamily.Default,
                         fontSize = fontSize,
                         fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            if (isDirectInputMode) {
+                Surface(
+                    modifier = Modifier.clickable { onToggleVirtualKeyboard() },
+                    color = if (showVirtualKeyboard) Color(0xFF4A4A4A) else Color(0xFF3A3A3A),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        text = "⌨",
+                        color = Color.White,
+                        fontFamily = FontFamily.Default,
+                        fontSize = fontSize * 1.15f,
+                        modifier = Modifier.padding(horizontal = padding * 0.75f, vertical = padding * 0.35f)
+                    )
+                }
+                Surface(
+                    modifier = Modifier.clickable { onToggleInputMode() },
+                    color = Color(0xFF4A4A4A),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        text = "⇄",
+                        color = Color.White,
+                        fontFamily = FontFamily.Default,
+                        fontSize = fontSize * 1.05f,
+                        modifier = Modifier.padding(horizontal = padding * 0.75f, vertical = padding * 0.4f)
                     )
                 }
             }
