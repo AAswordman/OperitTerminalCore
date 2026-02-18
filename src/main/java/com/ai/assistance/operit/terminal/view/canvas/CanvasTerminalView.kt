@@ -1879,7 +1879,7 @@ class CanvasTerminalView @JvmOverloads constructor(
                                     return true
                                 }
                                 KeyEvent.KEYCODE_ENTER -> {
-                                    inputCallback?.invoke("\n")
+                                    inputCallback?.invoke("\r")
                                     return true
                                 }
                                 KeyEvent.KEYCODE_DPAD_UP,
