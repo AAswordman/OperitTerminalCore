@@ -101,6 +101,8 @@ class SessionManager(private val terminalManager: TerminalManager) {
                 currentSessionId = newCurrentSessionId
             )
         }
+
+        terminalManager.onSessionClosed(sessionId)
         
         Log.d("SessionManager", "Closed session: $sessionId")
     }

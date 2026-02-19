@@ -557,6 +557,7 @@ class AnsiTerminalEmulator(
         clearScreen()
         // 清除历史缓冲区
         historyBuffer.clear()
+        historyWrapped.clear()
     }
     
     private fun eraseFromCursorToEnd() {

@@ -196,6 +196,13 @@ class TerminalManager private constructor(
     fun closeSession(sessionId: String) {
         sessionManager.closeSession(sessionId)
     }
+
+    /**
+     * 会话关闭后的运行态清理（非持久化状态）。
+     */
+    fun onSessionClosed(sessionId: String) {
+        outputProcessor.clearSessionState(sessionId)
+    }
     
     /**
      * 保存会话的滚动位置

@@ -145,6 +145,13 @@ class OutputProcessor(
         }
     }
 
+    /**
+     * 清理已关闭会话的处理状态，避免状态表长期增长。
+     */
+    fun clearSessionState(sessionId: String) {
+        sessionStates.remove(sessionId)
+    }
+
     private fun handleCarriageReturn(sessionId: String, line: String, sessionManager: SessionManager) {
         val cleanLine = AnsiUtils.stripAnsi(line)
         val session = sessionManager.getSession(sessionId) ?: return

@@ -630,14 +630,7 @@ class CanvasTerminalView @JvmOverloads constructor(
         }
 
         // 移除旧的监听器
-        this.emulator?.let { oldEmulator ->
-            emulatorChangeListener?.let { listener ->
-                oldEmulator.removeChangeListener(listener)
-            }
-            emulatorNewOutputListener?.let { listener ->
-                oldEmulator.removeNewOutputListener(listener)
-            }
-        }
+        removeEmulatorListeners()
         
         this.emulator = emulator
         // 恢复新模拟器的滚动位置
@@ -669,6 +662,18 @@ class CanvasTerminalView @JvmOverloads constructor(
         }
         
         requestRender()
+    }
+
+    private fun removeEmulatorListeners() {
+        val currentEmulator = emulator ?: return
+        emulatorChangeListener?.let { listener ->
+            currentEmulator.removeChangeListener(listener)
+        }
+        emulatorNewOutputListener?.let { listener ->
+            currentEmulator.removeNewOutputListener(listener)
+        }
+        emulatorChangeListener = null
+        emulatorNewOutputListener = null
     }
 
     private fun scheduleNewOutputDispatch() {
@@ -994,11 +999,8 @@ class CanvasTerminalView @JvmOverloads constructor(
     }
     
     override fun onDetachedFromWindow() {
+        release()
         super.onDetachedFromWindow()
-        removeCallbacks(newOutputDispatchRunnable)
-        synchronized(newOutputDispatchLock) {
-            newOutputDispatchPosted = false
-        }
     }
 
     // === 渲染线程 ===
@@ -1030,6 +1032,29 @@ class CanvasTerminalView @JvmOverloads constructor(
             }
         }
         renderThread = null
+    }
+
+    /**
+     * 释放视图运行时资源，避免离开页面后持有外部对象引用。
+     */
+    fun release() {
+        stopRenderThread()
+        handleArrowKeyUp()
+        autoScrollRunnable?.let { handler.removeCallbacks(it) }
+        autoScrollRunnable = null
+        removeCallbacks(newOutputDispatchRunnable)
+        synchronized(newOutputDispatchLock) {
+            newOutputDispatchPosted = false
+        }
+        removeEmulatorListeners()
+        emulator = null
+        actionMode?.finish()
+        actionMode = null
+        inputCallback = null
+        onRequestShowKeyboard = null
+        onScrollOffsetChanged = null
+        getScrollOffset = null
+        sessionId = null
     }
     
     private inner class RenderThread(private val surfaceHolder: SurfaceHolder) : Thread("TerminalRenderThread") {
