@@ -190,6 +190,20 @@
     <string name="font_name_label">System Font Name</string>
     <string name="font_name_placeholder">e.g.: monospace, serif, sans-serif</string>
     <string name="font_name_hint">Leave empty to use default font. Common values: monospace, serif, sans-serif</string>
+
+    <!-- Virtual Keyboard Settings -->
+    <string name="virtual_keyboard_settings_title">Virtual Keyboard Settings</string>
+    <string name="virtual_keyboard_custom_title">Customize Two Rows</string>
+    <string name="virtual_keyboard_dialog_title">Edit Two Keyboard Rows</string>
+    <string name="virtual_keyboard_reset_default">Reset Default</string>
+    <string name="virtual_keyboard_row_one">Row 1</string>
+    <string name="virtual_keyboard_row_two">Row 2</string>
+    <string name="virtual_keyboard_key_label">Display Text</string>
+    <string name="virtual_keyboard_key_value">Send Value</string>
+    <string name="virtual_keyboard_action_send">Send</string>
+    <string name="virtual_keyboard_action_ctrl">CTRL</string>
+    <string name="virtual_keyboard_action_alt">ALT</string>
+    <string name="virtual_keyboard_value_hint">Escape sequences: \\e (ESC), \\t (Tab), \\n, \\r, \\\\.</string>
     
     <!-- Source Management -->
     <string name="source_management_title">Software Source Management</string>

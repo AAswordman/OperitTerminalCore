@@ -190,6 +190,20 @@
     <string name="font_name_label">系统字体名称</string>
     <string name="font_name_placeholder">例如: monospace, serif, sans-serif</string>
     <string name="font_name_hint">留空则使用默认字体。常用值：monospace, serif, sans-serif</string>
+
+    <!-- Virtual Keyboard Settings -->
+    <string name="virtual_keyboard_settings_title">虚拟按键设置</string>
+    <string name="virtual_keyboard_custom_title">两排按键自定义</string>
+    <string name="virtual_keyboard_dialog_title">编辑两排按键</string>
+    <string name="virtual_keyboard_reset_default">恢复默认</string>
+    <string name="virtual_keyboard_row_one">第一排</string>
+    <string name="virtual_keyboard_row_two">第二排</string>
+    <string name="virtual_keyboard_key_label">显示文本</string>
+    <string name="virtual_keyboard_key_value">发送内容</string>
+    <string name="virtual_keyboard_action_send">发送</string>
+    <string name="virtual_keyboard_action_ctrl">CTRL</string>
+    <string name="virtual_keyboard_action_alt">ALT</string>
+    <string name="virtual_keyboard_value_hint">发送内容支持转义：\\e(ESC)、\\t(Tab)、\\n、\\r、\\\\。</string>
     
     <!-- Source Management -->
     <string name="source_management_title">软件源管理</string>

@@ -13,6 +13,8 @@ import com.ai.assistance.operit.terminal.data.SourceConfig
 import com.ai.assistance.operit.terminal.data.SSHConfig
 import com.ai.assistance.operit.terminal.utils.SourceManager
 import com.ai.assistance.operit.terminal.utils.SSHConfigManager
+import com.ai.assistance.operit.terminal.utils.VirtualKeyboardConfigManager
+import com.ai.assistance.operit.terminal.utils.VirtualKeyboardLayoutConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -28,6 +30,7 @@ class SettingsViewModel(
     private val ftpServerManager = FtpServerManager.getInstance(application)
     private val sourceManager = SourceManager(application)
     private val sshConfigManager = SSHConfigManager(application)
+    private val virtualKeyboardConfigManager = VirtualKeyboardConfigManager.getInstance(application)
     
     // SharedPreferences for shared tmp setting
     private val prefs = application.getSharedPreferences("terminal_settings", android.content.Context.MODE_PRIVATE)
@@ -85,6 +88,9 @@ class SettingsViewModel(
     private val _chrootEnabled = MutableStateFlow(false)
     val chrootEnabled = _chrootEnabled.asStateFlow()
 
+    private val _virtualKeyboardLayout = MutableStateFlow(virtualKeyboardConfigManager.loadLayout())
+    val virtualKeyboardLayout = _virtualKeyboardLayout.asStateFlow()
+
     // 自动检测更新，但不自动计算缓存大小
     init {
         checkForUpdates()
@@ -94,6 +100,7 @@ class SettingsViewModel(
         loadSSHEnabled()
         loadSharedTmpSetting()
         loadChrootSetting()
+        loadVirtualKeyboardLayout()
     }
 
     fun onSshToolsMissingDialogDismissed() {
@@ -410,5 +417,14 @@ class SettingsViewModel(
     
     fun isChrootEnabled(): Boolean {
         return prefs.getBoolean("chroot_enabled", false)
+    }
+
+    private fun loadVirtualKeyboardLayout() {
+        _virtualKeyboardLayout.value = virtualKeyboardConfigManager.loadLayout()
+    }
+
+    fun saveVirtualKeyboardLayout(layout: VirtualKeyboardLayoutConfig) {
+        virtualKeyboardConfigManager.saveLayout(layout)
+        loadVirtualKeyboardLayout()
     }
 } 

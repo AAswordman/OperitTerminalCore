@@ -75,6 +75,9 @@ fun SettingsScreen(
     // 源管理相关状态
     val sourceConfigs by viewModel.sourceConfigs.collectAsState()
     var showSourceDialogFor by remember { mutableStateOf<PackageManagerType?>(null) }
+
+    val virtualKeyboardLayout by viewModel.virtualKeyboardLayout.collectAsState()
+    var showVirtualKeyboardDialog by remember { mutableStateOf(false) }
     
     // 字体配置相关状态
     val fontConfigManager = remember { TerminalFontConfigManager.getInstance(context) }
@@ -99,6 +102,12 @@ fun SettingsScreen(
     val chrootEnabled by viewModel.chrootEnabled.collectAsState()
     
     var showClearCacheDialog by remember { mutableStateOf(false) }
+
+    val virtualKeyboardSummary = remember(virtualKeyboardLayout) {
+        virtualKeyboardLayout.rows.joinToString(" | ") { row ->
+            row.joinToString(" ") { it.label }
+        }
+    }
 
     // 当 ViewModel 通知显示对话框时，更新本地状态
     val showSshToolsMissingDialogState by viewModel.showSshToolsMissingDialog.collectAsState()
@@ -543,6 +552,29 @@ fun SettingsScreen(
                         fontSize = 12.sp,
                         color = SettingsTheme.onSurfaceVariant.copy(alpha = 0.8f),
                         lineHeight = 16.sp
+                    )
+                }
+            }
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = SettingsTheme.surfaceColor)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.virtual_keyboard_settings_title),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = SettingsTheme.onSurfaceColor
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    SettingsItem(
+                        title = context.getString(com.ai.assistance.operit.terminal.R.string.virtual_keyboard_custom_title),
+                        subtitle = virtualKeyboardSummary,
+                        onClick = { showVirtualKeyboardDialog = true },
+                        icon = Icons.Default.TextFields
                     )
                 }
             }
@@ -1041,6 +1073,17 @@ fun SettingsScreen(
                 }
             },
             containerColor = SettingsTheme.surfaceColor
+        )
+    }
+
+    if (showVirtualKeyboardDialog) {
+        VirtualKeyboardCustomizationDialog(
+            initialLayout = virtualKeyboardLayout,
+            onDismiss = { showVirtualKeyboardDialog = false },
+            onConfirm = { layout ->
+                viewModel.saveVirtualKeyboardLayout(layout)
+                showVirtualKeyboardDialog = false
+            }
         )
     }
     

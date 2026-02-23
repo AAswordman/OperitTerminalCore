@@ -63,11 +63,13 @@ import kotlin.math.min
 import kotlin.math.abs
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.ai.assistance.operit.terminal.TerminalEnv
+import com.ai.assistance.operit.terminal.utils.VirtualKeyAction
+import com.ai.assistance.operit.terminal.utils.VirtualKeyboardButtonConfig
+import com.ai.assistance.operit.terminal.utils.VirtualKeyboardConfigManager
 import com.ai.assistance.operit.terminal.view.SyntaxColors
 import com.ai.assistance.operit.terminal.view.SyntaxHighlightingVisualTransformation
 import com.ai.assistance.operit.terminal.view.highlight
 import androidx.compose.material.icons.filled.Settings
-import com.ai.assistance.operit.terminal.view.canvas.CanvasTerminalScreen
 import com.ai.assistance.operit.terminal.view.canvas.RenderConfig
 import com.ai.assistance.operit.terminal.utils.TerminalFontConfigManager
 import android.graphics.Typeface
@@ -85,10 +87,14 @@ fun TerminalHome(
     val keyboardController = LocalSoftwareKeyboardController.current
     val rootView = LocalView.current
     val fontConfigManager = remember { TerminalFontConfigManager.getInstance(context) }
+    val virtualKeyboardConfigManager = remember { VirtualKeyboardConfigManager.getInstance(context) }
     
     // 字体配置状态
     var fontConfig by remember { 
         mutableStateOf(fontConfigManager.loadRenderConfig())
+    }
+    var virtualKeyboardLayout by remember {
+        mutableStateOf(virtualKeyboardConfigManager.loadLayout())
     }
     
     // 监听字体配置变化（当从设置界面返回时）
@@ -106,6 +112,20 @@ fun TerminalHome(
         }
         
         onDispose { }
+    }
+
+    DisposableEffect(context, virtualKeyboardConfigManager) {
+        val settingsPrefs =
+            context.getSharedPreferences(VirtualKeyboardConfigManager.PREFS_NAME, Context.MODE_PRIVATE)
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == VirtualKeyboardConfigManager.PREF_KEY_VIRTUAL_KEYBOARD_LAYOUT) {
+                virtualKeyboardLayout = virtualKeyboardConfigManager.loadLayout()
+            }
+        }
+        settingsPrefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            settingsPrefs.unregisterOnSharedPreferenceChangeListener(listener)
+        }
     }
     
     val listState = rememberLazyListState()
@@ -179,6 +199,36 @@ fun TerminalHome(
     fun consumeModifiers() {
         if (ctrlActive) ctrlActive = false
         if (altActive) altActive = false
+    }
+
+    fun decodeVirtualKeyValue(rawValue: String): String {
+        val output = StringBuilder()
+        var index = 0
+
+        while (index < rawValue.length) {
+            val char = rawValue[index]
+            if (char == '\\' && index + 1 < rawValue.length) {
+                val next = rawValue[index + 1]
+                when (next) {
+                    'e' -> output.append('\u001b')
+                    't' -> output.append('\t')
+                    'n' -> output.append('\n')
+                    'r' -> output.append('\r')
+                    '\\' -> output.append('\\')
+                    else -> {
+                        output.append('\\')
+                        output.append(next)
+                    }
+                }
+                index += 2
+                continue
+            }
+
+            output.append(char)
+            index++
+        }
+
+        return output.toString()
     }
 
     fun sendDirectInput(input: String) {
@@ -267,11 +317,12 @@ fun TerminalHome(
                 
                 // 虚拟键盘 - 会随 imePadding 一起上移
                 VirtualKeyboard(
-                    onKeyPress = { key -> sendDirectInput(key) },
+                    onKeyPress = { key -> sendDirectInput(decodeVirtualKeyValue(key)) },
                     onToggleCtrl = { ctrlActive = !ctrlActive },
                     onToggleAlt = { altActive = !altActive },
                     ctrlActive = ctrlActive,
                     altActive = altActive,
+                    keyRows = virtualKeyboardLayout.rows,
                     fontSize = fontSize * 0.7f,
                     padding = padding * 0.5f
                 )
@@ -405,11 +456,12 @@ fun TerminalHome(
                 // 虚拟键盘（当显示时）
                 if (showVirtualKeyboard) {
                     VirtualKeyboard(
-                        onKeyPress = { key -> sendDirectInput(key) },
+                        onKeyPress = { key -> sendDirectInput(decodeVirtualKeyValue(key)) },
                         onToggleCtrl = { ctrlActive = !ctrlActive },
                         onToggleAlt = { altActive = !altActive },
                         ctrlActive = ctrlActive,
                         altActive = altActive,
+                        keyRows = virtualKeyboardLayout.rows,
                         fontSize = fontSize * 0.7f,
                         padding = padding * 0.5f
                     )
@@ -720,6 +772,7 @@ private fun VirtualKeyboard(
     onToggleAlt: () -> Unit,
     ctrlActive: Boolean,
     altActive: Boolean,
+    keyRows: List<List<VirtualKeyboardButtonConfig>>,
     fontSize: androidx.compose.ui.unit.TextUnit,
     padding: androidx.compose.ui.unit.Dp
 ) {
@@ -734,50 +787,35 @@ private fun VirtualKeyboard(
                 .padding(horizontal = padding, vertical = padding * 0.5f),
             verticalArrangement = Arrangement.spacedBy(padding * 0.5f)
         ) {
-            // 第一行：ESC, /, —, HOME, ↑, END, PGUP
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(padding * 0.5f)
-            ) {
-                KeyButton("ESC", "\u001b", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
-                KeyButton("/", "/", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
-                KeyButton("—", "-", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
-                KeyButton("HOME", "\u001b[H", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
-                KeyButton("↑", "\u001b[A", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
-                KeyButton("END", "\u001b[F", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
-                KeyButton("PGUP", "\u001b[5~", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
-            }
-            
-            // 第二行：Tab, CTRL, ALT, ←, ↓, →, PGDN
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(padding * 0.5f)
-            ) {
-                KeyButton("⇆", "\t", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
-                KeyButton(
-                    label = "CTRL",
-                    key = "",
-                    fontSize = fontSize,
-                    padding = padding,
-                    onKeyPress = onKeyPress,
-                    modifier = Modifier.weight(1f),
-                    isActive = ctrlActive,
-                    onClickOverride = onToggleCtrl
-                )
-                KeyButton(
-                    label = "ALT",
-                    key = "",
-                    fontSize = fontSize,
-                    padding = padding,
-                    onKeyPress = onKeyPress,
-                    modifier = Modifier.weight(1f),
-                    isActive = altActive,
-                    onClickOverride = onToggleAlt
-                )
-                KeyButton("←", "\u001b[D", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
-                KeyButton("↓", "\u001b[B", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
-                KeyButton("→", "\u001b[C", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
-                KeyButton("PGDN", "\u001b[6~", fontSize, padding, onKeyPress, modifier = Modifier.weight(1f))
+            keyRows.forEach { rowKeys ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(padding * 0.5f)
+                ) {
+                    rowKeys.forEach { keyConfig ->
+                        val isActive = when (keyConfig.action) {
+                            VirtualKeyAction.TOGGLE_CTRL -> ctrlActive
+                            VirtualKeyAction.TOGGLE_ALT -> altActive
+                            VirtualKeyAction.SEND_TEXT -> false
+                        }
+                        val clickOverride = when (keyConfig.action) {
+                            VirtualKeyAction.TOGGLE_CTRL -> onToggleCtrl
+                            VirtualKeyAction.TOGGLE_ALT -> onToggleAlt
+                            VirtualKeyAction.SEND_TEXT -> null
+                        }
+
+                        KeyButton(
+                            label = keyConfig.label,
+                            key = keyConfig.value,
+                            fontSize = fontSize,
+                            padding = padding,
+                            onKeyPress = onKeyPress,
+                            modifier = Modifier.weight(1f),
+                            isActive = isActive,
+                            onClickOverride = clickOverride
+                        )
+                    }
+                }
             }
         }
     }
