@@ -480,6 +480,11 @@ class CanvasTerminalView @JvmOverloads constructor(
     private val terminalAccessibilityDelegate: TerminalAccessibilityDelegate
     
     init {
+        // 显式固定 SurfaceView 合成行为，减少部分厂商系统上层级异常
+        setZOrderOnTop(false)
+        setZOrderMediaOverlay(false)
+        holder.setFormat(PixelFormat.OPAQUE)
+
         holder.addCallback(this)
         setWillNotDraw(false)
         
@@ -508,8 +513,7 @@ class CanvasTerminalView @JvmOverloads constructor(
         // 重要：启用accessibility以让系统识别虚拟节点
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
         
-        // 回退：移除可能导致卡顿的 ZOrderMediaOverlay 设置
-        // 保持默认的 SurfaceView 行为
+        // 保持 SurfaceView 在默认窗口层，不作为透明/悬浮覆盖层参与合成
     }
 
     private fun isAccessibilityEnabled(): Boolean {
