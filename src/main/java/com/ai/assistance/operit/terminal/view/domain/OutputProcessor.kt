@@ -555,7 +555,18 @@ class OutputProcessor(
         val lastExecutingItem = session.currentExecutingCommand
 
         if (lastExecutingItem != null && lastExecutingItem.isExecuting) {
-            lastExecutingItem.setOutput(session.currentCommandOutput.toString().trim())
+            val finalOutput = buildString {
+                if (lastExecutingItem.outputPages.isNotEmpty()) {
+                    append(lastExecutingItem.outputPages.joinToString("\n"))
+                }
+                val tail = session.currentCommandOutput.toString().trim()
+                if (tail.isNotEmpty()) {
+                    if (isNotEmpty()) append('\n')
+                    append(tail)
+                }
+            }.trim()
+
+            lastExecutingItem.setOutput(finalOutput)
             lastExecutingItem.setExecuting(false)
 
             Log.i(TAG, "Finishing command ${lastExecutingItem.id} for session $sessionId")
@@ -564,7 +575,7 @@ class OutputProcessor(
             onCommandExecutionEvent(CommandExecutionEvent(
                 commandId = lastExecutingItem.id,
                 sessionId = sessionId,
-                outputChunk = "",
+                outputChunk = finalOutput,
                 isCompleted = true
             ))
 

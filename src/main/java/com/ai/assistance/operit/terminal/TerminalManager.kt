@@ -927,6 +927,9 @@ class TerminalManager private constructor(
           # - 绑定常见伪文件系统与外部存储，保障交互和软件包管理工作正常。
           # 在 proot 环境中创建必要的目录
           mkdir -p "${'$'}UBUNTU_PATH/storage/emulated" 2>/dev/null
+          mkdir -p "${'$'}UBUNTU_PATH/data/user/0" 2>/dev/null
+          mkdir -p "${'$'}UBUNTU_PATH/data/data" 2>/dev/null
+          mkdir -p "${'$'}UBUNTU_PATH/data/local/tmp" 2>/dev/null
           mkdir -p "${'$'}UBUNTU_PATH$homeDir" 2>/dev/null
 
           if [ "${'$'}USE_CHROOT" = "1" ]; then
@@ -946,17 +949,23 @@ class TerminalManager private constructor(
           "${'$'}BIN/busybox" umount "${'$'}UBUNTU_PATH/dev" 2>/dev/null || true
           "${'$'}BIN/busybox" umount "${'$'}UBUNTU_PATH/sys" 2>/dev/null || true
           "${'$'}BIN/busybox" umount "${'$'}UBUNTU_PATH/proc" 2>/dev/null || true
+          "${'$'}BIN/busybox" umount "${'$'}UBUNTU_PATH/data/user/0" 2>/dev/null || true
+          "${'$'}BIN/busybox" umount "${'$'}UBUNTU_PATH/data/data" 2>/dev/null || true
+          "${'$'}BIN/busybox" umount "${'$'}UBUNTU_PATH/data/local/tmp" 2>/dev/null || true
           "${'$'}BIN/busybox" umount "${'$'}UBUNTU_PATH${'$'}HOME_DIR" 2>/dev/null || true
           "${'$'}BIN/busybox" umount "${'$'}UBUNTU_PATH/sdcard" 2>/dev/null || true
         }
         cleanup_mounts
 
-        "${'$'}BIN/busybox" mkdir -p "${'$'}UBUNTU_PATH/proc" "${'$'}UBUNTU_PATH/sys" "${'$'}UBUNTU_PATH/dev" "${'$'}UBUNTU_PATH/dev/pts" "${'$'}UBUNTU_PATH/sdcard" "${'$'}UBUNTU_PATH${'$'}HOME_DIR" 2>/dev/null
+        "${'$'}BIN/busybox" mkdir -p "${'$'}UBUNTU_PATH/proc" "${'$'}UBUNTU_PATH/sys" "${'$'}UBUNTU_PATH/dev" "${'$'}UBUNTU_PATH/dev/pts" "${'$'}UBUNTU_PATH/sdcard" "${'$'}UBUNTU_PATH/data/user/0" "${'$'}UBUNTU_PATH/data/data" "${'$'}UBUNTU_PATH/data/local/tmp" "${'$'}UBUNTU_PATH${'$'}HOME_DIR" 2>/dev/null
         "${'$'}BIN/busybox" mount -t proc proc "${'$'}UBUNTU_PATH/proc" 2>/dev/null || true
         "${'$'}BIN/busybox" mount --bind /dev "${'$'}UBUNTU_PATH/dev" 2>/dev/null || true
         "${'$'}BIN/busybox" mount --bind /sys "${'$'}UBUNTU_PATH/sys" 2>/dev/null || true
         "${'$'}BIN/busybox" mount --bind /dev/pts "${'$'}UBUNTU_PATH/dev/pts" 2>/dev/null || true
         "${'$'}BIN/busybox" mount --bind /storage/emulated/0 "${'$'}UBUNTU_PATH/sdcard" 2>/dev/null || true
+        "${'$'}BIN/busybox" mount --bind /data/user/0 "${'$'}UBUNTU_PATH/data/user/0" 2>/dev/null || true
+        "${'$'}BIN/busybox" mount --bind /data/data "${'$'}UBUNTU_PATH/data/data" 2>/dev/null || true
+        "${'$'}BIN/busybox" mount --bind /data/local/tmp "${'$'}UBUNTU_PATH/data/local/tmp" 2>/dev/null || true
         "${'$'}BIN/busybox" mount --bind "${'$'}HOME_DIR" "${'$'}UBUNTU_PATH${'$'}HOME_DIR" 2>/dev/null || true
         COMMAND_TO_EXEC="$(cat "${'$'}CMD_FILE" 2>/dev/null)"
         "${'$'}BIN/busybox" chroot "${'$'}UBUNTU_PATH" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=en_US.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "COMMAND_TO_EXEC=${'$'}COMMAND_TO_EXEC" "OPERIT_UID=${'$'}OPERIT_UID" "OPERIT_GID=${'$'}OPERIT_GID" "OPERIT_GROUPS=${'$'}OPERIT_GROUPS" /bin/bash -lc 'echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; umask 0002; if [ -n "${'$'}OPERIT_GID" ]; then chown 0:"${'$'}OPERIT_GID" /root 2>/dev/null || true; chmod 2775 /root 2>/dev/null || true; fi; eval "${'$'}COMMAND_TO_EXEC"'
@@ -982,6 +991,9 @@ class TerminalManager private constructor(
             -b /proc/self/fd/2:/dev/stderr \
             -b /storage/emulated/0:/sdcard \
             -b /storage/emulated/0:/storage/emulated/0 \
+            -b /data/user/0:/data/user/0 \
+            -b /data/data:/data/data \
+            -b /data/local/tmp:/data/local/tmp \
             -b $homeDir:$homeDir \
             ${'$'}PROOT_EXTRA_BINDINGS \
             -w /root \

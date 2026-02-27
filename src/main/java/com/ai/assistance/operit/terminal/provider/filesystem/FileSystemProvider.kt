@@ -31,7 +31,10 @@ object PRootMountMapping {
         PRootBindMount("/proc/self/fd/1", "/dev/stdout"),
         PRootBindMount("/proc/self/fd/2", "/dev/stderr"),
         PRootBindMount("/storage/emulated/0", "/sdcard"),
-        PRootBindMount("/storage/emulated/0", "/storage/emulated/0")
+        PRootBindMount("/storage/emulated/0", "/storage/emulated/0"),
+        PRootBindMount("/data/user/0", "/data/user/0"),
+        PRootBindMount("/data/data", "/data/data"),
+        PRootBindMount("/data/local/tmp", "/data/local/tmp")
     )
 
     fun buildRuntimeBindMounts(homeDir: String): List<PRootBindMount> {
