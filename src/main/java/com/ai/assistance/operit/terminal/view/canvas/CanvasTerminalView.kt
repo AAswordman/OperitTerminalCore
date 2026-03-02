@@ -1158,122 +1158,138 @@ class CanvasTerminalView @JvmOverloads constructor(
     
     private fun drawTerminal(canvas: Canvas) {
         val em = emulator ?: return
-        
-        // 处理惯性滚动动画
-        if (scroller.computeScrollOffset()) {
-            val newScrollY = clampScrollOffset(scroller.currY.toFloat())
-            if (newScrollY != scrollOffsetY) {
-                scrollOffsetY = newScrollY
-                
-                // 保存滚动位置
-                sessionId?.let { id ->
-                    onScrollOffsetChanged?.invoke(id, scrollOffsetY)
-                }
-                
-                // 更新用户滚动状态
-                if (scrollOffsetY > 0f) {
-                    isUserScrolling = true
-                } else {
-                    isUserScrolling = false
-                }
-                
-                // 继续请求渲染以保持动画流畅
-                isDirty = true
-            }
-        }
-        
-        // 使用完整内容（历史 + 屏幕缓冲）
-        val fullContent = em.getFullContent()
-        val historySize = em.getHistorySize()
-        
-        val charWidth = textMetrics.charWidth
-        val charHeight = textMetrics.charHeight
-        val baseline = textMetrics.charBaseline
-        
-        // 1. 首先全屏清屏（防止前帧内容残留和闪烁）
-        bgPaint.color = config.backgroundColor
-        canvas.drawRect(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat(), bgPaint)
-        
-        // 限制最大滚动偏移（不能超过内容高度）
-        val maxScrollOffset = max(0f, fullContent.size * charHeight - canvas.height)
-        
-        // 如果需要滚动到底部，在渲染时执行（使用正确的 canvas.height）
-        if (needScrollToBottom) {
-            scrollOffsetY = maxScrollOffset
-            needScrollToBottom = false
-        }
-        
-        scrollOffsetY = scrollOffsetY.coerceIn(0f, maxScrollOffset)
-        
-        // 计算可见区域
-        val visibleRows = (canvas.height / charHeight).toInt() + 1
-        val startRow = (scrollOffsetY / charHeight).toInt()
-        val endRow = min(startRow + visibleRows, fullContent.size)
-        
+        if (canvas.width <= 0 || canvas.height <= 0) return
 
-        // 绘制每一行（包括背景）
-        var drawnCharCount = 0
-        for (row in startRow until endRow) {
-            if (row >= fullContent.size) break
-            
-            val line = fullContent[row]
-            drawnCharCount += line.size
-            
-            // 使用绝对坐标计算，避免 startRow 跳变导致的整体偏移
-            val exactY = row * charHeight - scrollOffsetY
-            val y = kotlin.math.round(exactY)
-            
-            // 绘制该行的所有字符
-            drawLine(canvas, line, row, 0f, y, charWidth, charHeight, baseline)
-        }
+        val viewportWidth = canvas.width.toFloat()
+        val viewportHeight = canvas.height.toFloat()
+        canvas.save()
+        canvas.clipRect(0f, 0f, viewportWidth, viewportHeight)
+        try {
         
-        // 绘制选择区域
-        if (selectionManager.hasSelection()) {
-            drawSelection(canvas, charWidth, charHeight)
-            drawSelectionHandles(canvas, charWidth, charHeight)
-            if (isSelectionDragging) {
-                drawSelectionMagnifier(canvas)
+            // 处理惯性滚动动画
+            if (scroller.computeScrollOffset()) {
+                val newScrollY = clampScrollOffset(scroller.currY.toFloat())
+                if (newScrollY != scrollOffsetY) {
+                    scrollOffsetY = newScrollY
+                    
+                    // 保存滚动位置
+                    sessionId?.let { id ->
+                        onScrollOffsetChanged?.invoke(id, scrollOffsetY)
+                    }
+                    
+                    // 更新用户滚动状态
+                    if (scrollOffsetY > 0f) {
+                        isUserScrolling = true
+                    } else {
+                        isUserScrolling = false
+                    }
+                    
+                    // 继续请求渲染以保持动画流畅
+                    isDirty = true
+                }
             }
-        }
-        
-        // 绘制光标（光标只在可见屏幕部分显示，需要考虑历史缓冲区偏移）
-        if (em.isCursorVisible()) {
-            val cursorRow = historySize + em.getCursorY()
-            val cursorCol = em.getCursorX()
             
-            // 只有当光标在可见区域内时才绘制
-            if (cursorRow >= startRow && cursorRow < endRow) {
-                val exactCursorY = cursorRow * charHeight - scrollOffsetY
-                val cursorY = kotlin.math.round(exactCursorY)
+            // 使用完整内容（历史 + 屏幕缓冲）
+            val fullContent = em.getFullContent()
+            val historySize = em.getHistorySize()
+            
+            val charWidth = textMetrics.charWidth
+            val charHeight = textMetrics.charHeight
+            val baseline = textMetrics.charBaseline
+            if (charHeight <= 0f) return
+            
+            // 1. 首先全屏清屏（防止前帧内容残留和闪烁）
+            bgPaint.color = config.backgroundColor
+            canvas.drawRect(0f, 0f, viewportWidth, viewportHeight, bgPaint)
+            
+            // 限制最大滚动偏移（不能超过内容高度）
+            val maxScrollOffset = max(0f, fullContent.size * charHeight - viewportHeight)
+            
+            // 如果需要滚动到底部，在渲染时执行（使用正确的 canvas.height）
+            if (needScrollToBottom) {
+                scrollOffsetY = maxScrollOffset
+                needScrollToBottom = false
+            }
+            
+            scrollOffsetY = scrollOffsetY.coerceIn(0f, maxScrollOffset)
+            
+            // 计算可见区域
+            val visibleRows = (viewportHeight / charHeight).toInt() + 2
+            val startRow = (scrollOffsetY / charHeight).toInt().coerceAtLeast(0)
+            val endRow = min(startRow + visibleRows, fullContent.size)
+            
+            // 绘制每一行（包括背景）
+            for (row in startRow until endRow) {
+                if (row >= fullContent.size) break
                 
-                // 计算光标的 x 坐标，考虑宽字符
-                val line = fullContent.getOrNull(cursorRow) ?: arrayOf()
-                var cursorX = 0f
+                val line = fullContent[row]
                 
-                // 遍历到光标列，累加每个字符的宽度
-                for (col in 0 until cursorCol.coerceAtMost(line.size)) {
-                    val cellWidth = textMetrics.getCellWidth(line[col].char)
-                    cursorX += charWidth * cellWidth
+                // 使用绝对坐标计算，避免 startRow 跳变导致的整体偏移
+                val exactY = row * charHeight - scrollOffsetY
+                val y = kotlin.math.round(exactY)
+                if (y + charHeight <= 0f || y >= viewportHeight) {
+                    continue
                 }
                 
-                // 获取光标所在字符的宽度
-                val cursorCharWidth = if (cursorCol < line.size) {
-                    val cellWidth = textMetrics.getCellWidth(line[cursorCol].char)
-                    charWidth * cellWidth
-                } else {
-                    charWidth
-                }
-                
-                cursorPaint.color = Color.GREEN
-                cursorPaint.alpha = 180
-                canvas.drawRect(
-                    cursorX,
-                    cursorY,
-                    cursorX + cursorCharWidth,
-                    cursorY + charHeight,
-                    cursorPaint
-                )
+                // 绘制该行的所有字符
+                drawLine(canvas, line, row, 0f, y, charWidth, charHeight, baseline)
             }
+            
+            // 绘制选择区域
+            if (selectionManager.hasSelection()) {
+                drawSelection(canvas, charWidth, charHeight)
+                drawSelectionHandles(canvas, charWidth, charHeight)
+                if (isSelectionDragging) {
+                    drawSelectionMagnifier(canvas)
+                }
+            }
+            
+            // 绘制光标（光标只在可见屏幕部分显示，需要考虑历史缓冲区偏移）
+            if (em.isCursorVisible()) {
+                val cursorRow = historySize + em.getCursorY()
+                val cursorCol = em.getCursorX()
+                
+                // 只有当光标在可见区域内时才绘制
+                if (cursorRow >= startRow && cursorRow < endRow) {
+                    val exactCursorY = cursorRow * charHeight - scrollOffsetY
+                    val cursorY = kotlin.math.round(exactCursorY)
+                    if (cursorY + charHeight > 0f && cursorY < viewportHeight) {
+                        // 计算光标的 x 坐标，考虑宽字符
+                        val line = fullContent.getOrNull(cursorRow) ?: arrayOf()
+                        var cursorX = 0f
+                        
+                        // 遍历到光标列，累加每个字符的宽度
+                        for (col in 0 until cursorCol.coerceAtMost(line.size)) {
+                            val cellWidth = textMetrics.getCellWidth(line[col].char)
+                            cursorX += charWidth * cellWidth
+                        }
+                        
+                        // 获取光标所在字符的宽度
+                        val cursorCharWidth = if (cursorCol < line.size) {
+                            val cellWidth = textMetrics.getCellWidth(line[cursorCol].char)
+                            charWidth * cellWidth
+                        } else {
+                            charWidth
+                        }
+
+                        val top = cursorY.coerceAtLeast(0f)
+                        val bottom = (cursorY + charHeight).coerceAtMost(viewportHeight)
+                        if (bottom > top) {
+                            cursorPaint.color = Color.GREEN
+                            cursorPaint.alpha = 180
+                            canvas.drawRect(
+                                cursorX,
+                                top,
+                                cursorX + cursorCharWidth,
+                                bottom,
+                                cursorPaint
+                            )
+                        }
+                    }
+                }
+            }
+        } finally {
+            canvas.restore()
         }
     }
     
@@ -1287,6 +1303,9 @@ class CanvasTerminalView @JvmOverloads constructor(
         charHeight: Float,
         baseline: Float
     ) {
+        if (charHeight <= 0f) return
+        if (y + charHeight <= 0f || y >= canvas.height.toFloat()) return
+
         var x = startX
         
         // Pass 1: Draw Backgrounds (Batching consecutive same-color cells)
@@ -1477,13 +1496,15 @@ class CanvasTerminalView @JvmOverloads constructor(
         val selection = selectionManager.selection?.normalize() ?: return
         val em = emulator ?: return
         val fullContent = em.getFullContent()
-        val historySize = em.getHistorySize()
-        
-        val startRow = (scrollOffsetY / charHeight).toInt()
+        val canvasHeight = canvas.height.toFloat()
+        if (canvasHeight <= 0f || charHeight <= 0f) return
         
         for (row in selection.startRow..selection.endRow) {
             val exactY = row * charHeight - scrollOffsetY
             val y = kotlin.math.round(exactY)
+            val top = y.coerceAtLeast(0f)
+            val bottom = (y + charHeight).coerceAtMost(canvasHeight)
+            if (bottom <= top) continue
             
             val startCol = if (row == selection.startRow) selection.startCol else 0
             val endCol = if (row == selection.endRow) {
@@ -1509,7 +1530,7 @@ class CanvasTerminalView @JvmOverloads constructor(
                 x2 += charWidth * cellWidth
             }
             
-            canvas.drawRect(x1, y, x2, y + charHeight, selectionPaint)
+            canvas.drawRect(x1, top, x2, bottom, selectionPaint)
         }
     }
     
