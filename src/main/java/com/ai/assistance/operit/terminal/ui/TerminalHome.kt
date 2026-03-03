@@ -11,8 +11,6 @@ import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -20,14 +18,11 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -45,17 +40,14 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ai.assistance.operit.terminal.data.CommandHistoryItem
-import com.ai.assistance.operit.terminal.data.TerminalSessionData
 import com.ai.assistance.operit.terminal.view.canvas.CanvasTerminalOutput
 import com.ai.assistance.operit.terminal.view.canvas.CanvasTerminalScreen
+import com.ai.assistance.operit.terminal.view.canvas.TerminalTabRenderItem
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import kotlin.math.max
@@ -270,8 +262,6 @@ fun TerminalHome(
     val fontSize = with(LocalDensity.current) {
         (baseFontSize.toPx() * scaleFactor).toSp()
     }
-    val baseLineHeight = 1.2f
-    val lineHeight = baseLineHeight * scaleFactor
     val basePadding = 8.dp
     val padding = basePadding * scaleFactor
 
@@ -279,24 +269,28 @@ fun TerminalHome(
     val currentPty = remember(env.currentSessionId, env.sessions) {
         env.sessions.find { it.id == env.currentSessionId }?.pty
     }
+    val tabItems = remember(env.sessions) {
+        val closable = env.sessions.size > 1
+        env.sessions.map { session ->
+            TerminalTabRenderItem(
+                id = session.id,
+                title = session.title,
+                canClose = closable
+            )
+        }
+    }
+    val onTabCloseRequest: (String) -> Unit = { sessionId ->
+        if (env.sessions.size > 1) {
+            sessionToDelete = sessionId
+            showDeleteConfirmDialog = true
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // 会话标签页
-        SessionTabBar(
-            sessions = env.sessions,
-            currentSessionId = env.currentSessionId,
-            onSessionClick = env::onSwitchSession,
-            onNewSession = env::onNewSession,
-            onCloseSession = { sessionId ->
-                sessionToDelete = sessionId
-                showDeleteConfirmDialog = true
-            }
-        )
-
         if (env.isFullscreen) {
             Column(
                 modifier = Modifier
@@ -312,7 +306,12 @@ fun TerminalHome(
                     onInput = { sendDirectInput(it) },
                     sessionId = env.currentSessionId,
                     onScrollOffsetChanged = { id, offset -> env.saveScrollOffset(id, offset) },
-                    getScrollOffset = { id -> env.getScrollOffset(id) }
+                    getScrollOffset = { id -> env.getScrollOffset(id) },
+                    tabs = tabItems,
+                    currentTabId = env.currentSessionId,
+                    onTabClick = env::onSwitchSession,
+                    onTabClose = onTabCloseRequest,
+                    onNewTab = env::onNewSession
                 )
                 
                 // 虚拟键盘 - 会随 imePadding 一起上移
@@ -346,7 +345,12 @@ fun TerminalHome(
                         onInput = { sendDirectInput(it) },
                         sessionId = env.currentSessionId,
                         onScrollOffsetChanged = { id, offset -> env.saveScrollOffset(id, offset) },
-                        getScrollOffset = { id -> env.getScrollOffset(id) }
+                        getScrollOffset = { id -> env.getScrollOffset(id) },
+                        tabs = tabItems,
+                        currentTabId = env.currentSessionId,
+                        onTabClick = env::onSwitchSession,
+                        onTabClose = onTabCloseRequest,
+                        onNewTab = env::onNewSession
                     )
                 } else {
                     // 普通命令模式：只显示输出，点击画布时把焦点切到命令输入框并弹出输入法
@@ -361,7 +365,12 @@ fun TerminalHome(
                         },
                         sessionId = env.currentSessionId,
                         onScrollOffsetChanged = { id, offset -> env.saveScrollOffset(id, offset) },
-                        getScrollOffset = { id -> env.getScrollOffset(id) }
+                        getScrollOffset = { id -> env.getScrollOffset(id) },
+                        tabs = tabItems,
+                        currentTabId = env.currentSessionId,
+                        onTabClick = env::onSwitchSession,
+                        onTabClose = onTabCloseRequest,
+                        onNewTab = env::onNewSession
                     )
                 }
                 
@@ -534,106 +543,6 @@ private fun getTruncatedPrompt(prompt: String, maxLength: Int = 16): String {
         "..." + trimmed.takeLast(maxLength - 3)
     } else {
         trimmed
-    }
-}
-
-@Composable
-private fun SessionTabBar(
-    sessions: List<TerminalSessionData>,
-    currentSessionId: String?,
-    onSessionClick: (String) -> Unit,
-    onNewSession: () -> Unit,
-    onCloseSession: (String) -> Unit
-) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = Color(0xFF2D2D2D),
-        shadowElevation = 4.dp
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            // 会话标签页列表
-            LazyRow(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                items(sessions) { session ->
-                    SessionTab(
-                        session = session,
-                        isActive = session.id == currentSessionId,
-                        onClick = { onSessionClick(session.id) },
-                        onClose = if (sessions.size > 1) {
-                            { onCloseSession(session.id) }
-                        } else null
-                    )
-                }
-            }
-
-            // 新建会话按钮
-            IconButton(
-                onClick = onNewSession,
-                modifier = Modifier.size(32.dp)
-            ) {
-                val context = LocalContext.current
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = context.getString(com.ai.assistance.operit.terminal.R.string.new_session),
-                    tint = Color.White,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SessionTab(
-    session: TerminalSessionData,
-    isActive: Boolean,
-    onClick: () -> Unit,
-    onClose: (() -> Unit)?
-) {
-    Surface(
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .clickable { onClick() },
-        color = if (isActive) Color(0xFF4A4A4A) else Color(0xFF3A3A3A),
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = session.title,
-                color = if (isActive) Color.White else Color.Gray,
-                fontSize = 12.sp,
-                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            // 关闭按钮（只有多个会话时才显示）
-            onClose?.let { closeAction ->
-                val context = LocalContext.current
-                IconButton(
-                    onClick = closeAction,
-                    modifier = Modifier.size(16.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = context.getString(com.ai.assistance.operit.terminal.R.string.close_session),
-                        tint = Color.Gray,
-                        modifier = Modifier.size(12.dp)
-                    )
-                }
-            }
-        }
     }
 }
 

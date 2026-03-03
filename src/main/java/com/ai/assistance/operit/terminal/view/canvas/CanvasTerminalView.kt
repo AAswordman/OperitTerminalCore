@@ -13,11 +13,12 @@ package com.ai.assistance.operit.terminal.view.canvas
  import android.view.KeyEvent
  import android.view.Menu
  import android.view.MenuItem
- import android.view.MotionEvent
+import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.VelocityTracker
 import android.view.accessibility.AccessibilityManager
  import android.view.inputmethod.BaseInputConnection
  import android.view.inputmethod.EditorInfo
@@ -205,8 +206,15 @@ class CanvasTerminalView @JvmOverloads constructor(
             cy = lastSelectionTouchY + r * 1.9f
         }
 
+        val contentTop = getTerminalContentTop()
         cx = cx.coerceIn(r + 2f, width - r - 2f)
-        cy = cy.coerceIn(r + 2f, height - r - 2f)
+        val minCy = contentTop + r + 2f
+        val maxCy = height - r - 2f
+        cy = if (minCy <= maxCy) {
+            cy.coerceIn(minCy, maxCy)
+        } else {
+            contentTop + (height - contentTop) / 2f
+        }
 
         val bubbleRect = RectF(cx - r, cy - r, cx + r, cy + r)
         val corner = r * 0.32f
@@ -321,9 +329,11 @@ class CanvasTerminalView @JvmOverloads constructor(
             return
         }
         val y = lastSelectionTouchY
+        val contentTop = getTerminalContentTop()
+        val contentBottom = height.toFloat()
         autoScrollDirection = when {
-            y < autoScrollEdgeThreshold -> -1
-            y > height - autoScrollEdgeThreshold -> 1
+            y < contentTop + autoScrollEdgeThreshold -> -1
+            y > contentBottom - autoScrollEdgeThreshold -> 1
             else -> 0
         }
 
@@ -352,7 +362,7 @@ class CanvasTerminalView @JvmOverloads constructor(
                     return
                 }
 
-                val maxScrollOffset = max(0f, em.getFullContent().size * textMetrics.charHeight - height)
+                val maxScrollOffset = max(0f, em.getFullContent().size * textMetrics.charHeight - getTerminalViewportHeight())
                 scrollOffsetY = (scrollOffsetY + autoScrollDirection * autoScrollStepPx).coerceIn(0f, maxScrollOffset)
 
                 val (row, col) = screenToTerminalCoords(lastSelectionTouchX, lastSelectionTouchY)
@@ -384,9 +394,11 @@ class CanvasTerminalView @JvmOverloads constructor(
 
         val startCol = selection.startCol.coerceIn(0, max(0, startLine.size - 1))
         val endCol = selection.endCol.coerceIn(0, max(0, endLine.size - 1))
+        val contentTop = getTerminalContentTop()
+        val contentBottom = height.toFloat()
 
         val startX = getXOffsetForCol(startLine, startCol, charWidth)
-        val startY = kotlin.math.round(startRow * charHeight - scrollOffsetY + charHeight)
+        val startY = contentTop + kotlin.math.round(startRow * charHeight - scrollOffsetY + charHeight)
 
         val endX = run {
             val x = getXOffsetForCol(endLine, endCol, charWidth)
@@ -397,10 +409,10 @@ class CanvasTerminalView @JvmOverloads constructor(
             }
             x + w
         }
-        val endY = kotlin.math.round(endRow * charHeight - scrollOffsetY + charHeight)
+        val endY = contentTop + kotlin.math.round(endRow * charHeight - scrollOffsetY + charHeight)
 
-        val start = PointF(startX.coerceIn(0f, width.toFloat()), startY.coerceIn(0f, height.toFloat()))
-        val end = PointF(endX.coerceIn(0f, width.toFloat()), endY.coerceIn(0f, height.toFloat()))
+        val start = PointF(startX.coerceIn(0f, width.toFloat()), startY.coerceIn(contentTop, contentBottom))
+        val end = PointF(endX.coerceIn(0f, width.toFloat()), endY.coerceIn(contentTop, contentBottom))
 
         return Pair(start, end)
     }
@@ -411,6 +423,61 @@ class CanvasTerminalView @JvmOverloads constructor(
     private var isUserScrolling = false
     // 是否需要滚动到底部（在渲染时执行）
     private var needScrollToBottom = false
+
+    // Top tab bar rendered inside SurfaceView
+    private var tabs: List<TerminalTabRenderItem> = emptyList()
+    private var currentTabId: String? = null
+    private var onTabClick: ((String) -> Unit)? = null
+    private var onTabClose: ((String) -> Unit)? = null
+    private var onNewTab: (() -> Unit)? = null
+    private val tabNodes = mutableListOf<TabHitNode>()
+    private val addTabButtonRect = RectF()
+    private var tabContentWidth = 0f
+    private var tabScrollOffsetX = 0f
+    private var pendingScrollToEndAfterNewTab = false
+    private var pendingScrollToEndMinTabCount = 0
+    private var activeTabTouchTarget: TabTouchTarget = TabTouchTarget.None
+    private var tabTouchDownX = 0f
+    private var tabTouchDownY = 0f
+    private var tabTouchMoved = false
+    private var isTabTouchActive = false
+    private var tabTouchX = 0f
+    private var tabTouchY = 0f
+    private var tabVelocityTracker: VelocityTracker? = null
+
+    private val tabBarBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val tabPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    private val tabTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = 12f * resources.displayMetrics.scaledDensity
+        isAntiAlias = true
+    }
+    private val tabIconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeWidth = 1.8f * resources.displayMetrics.density
+    }
+
+    private val tabBarBackgroundColor = 0xFF2D2D2D.toInt()
+    private val tabActiveColor = 0xFF4A4A4A.toInt()
+    private val tabInactiveColor = 0xFF3A3A3A.toInt()
+    private val tabActivePressedColor = 0xFF3F3F3F.toInt()
+    private val tabInactivePressedColor = 0xFF323232.toInt()
+    private val tabClosePressedBgColor = Color.argb(70, 255, 255, 255)
+    private val tabAddPressedBgColor = 0xFF2F2F2F.toInt()
+
+    private val tabBarHeightPx = 40f * resources.displayMetrics.density
+    private val tabHorizontalPaddingPx = 8f * resources.displayMetrics.density
+    private val tabVerticalPaddingPx = 4f * resources.displayMetrics.density
+    private val tabSpacingPx = 4f * resources.displayMetrics.density
+    private val tabCornerRadiusPx = 8f * resources.displayMetrics.density
+    private val tabTextHorizontalPaddingPx = 12f * resources.displayMetrics.density
+    private val tabMinWidthPx = 72f * resources.displayMetrics.density
+    private val tabMaxWidthPx = 200f * resources.displayMetrics.density
+    private val closeButtonSizePx = 16f * resources.displayMetrics.density
+    private val addButtonSizePx = 32f * resources.displayMetrics.density
+    private val tabTouchSlopPx = ViewConfiguration.get(context).scaledTouchSlop.toFloat()
+    private val tabMinFlingVelocityPx = ViewConfiguration.get(context).scaledMinimumFlingVelocity.toFloat()
+    private val tabMaxFlingVelocityPx = ViewConfiguration.get(context).scaledMaximumFlingVelocity.toFloat()
     
     // PTY 引用（用于窗口大小同步）
     private var pty: com.ai.assistance.operit.terminal.Pty? = null
@@ -437,6 +504,7 @@ class CanvasTerminalView @JvmOverloads constructor(
     
     // 惯性滚动处理器
     private val scroller: OverScroller by lazy { OverScroller(context) }
+    private val tabScroller: OverScroller by lazy { OverScroller(context) }
     
     // 输入回调
     private var inputCallback: ((String) -> Unit)? = null
@@ -461,6 +529,20 @@ class CanvasTerminalView @JvmOverloads constructor(
 
     private enum class DragHandle {
         NONE, START, END
+    }
+
+    private data class TabHitNode(
+        val tabId: String,
+        val tabRect: RectF,
+        val closeRect: RectF?
+    )
+
+    private sealed interface TabTouchTarget {
+        data object None : TabTouchTarget
+        data object Background : TabTouchTarget
+        data object NewTab : TabTouchTarget
+        data class SelectTab(val tabId: String) : TabTouchTarget
+        data class CloseTab(val tabId: String) : TabTouchTarget
     }
 
     private var activeDragHandle: DragHandle = DragHandle.NONE
@@ -506,7 +588,8 @@ class CanvasTerminalView @JvmOverloads constructor(
             view = this,
             getEmulator = { emulator },
             getTextMetrics = { textMetrics },
-            getScrollOffsetY = { scrollOffsetY }
+            getScrollOffsetY = { scrollOffsetY },
+            getContentTop = { getTerminalContentTop() }
         )
         accessibilityDelegate = terminalAccessibilityDelegate
         
@@ -590,7 +673,7 @@ class CanvasTerminalView @JvmOverloads constructor(
                     val em = emulator ?: return@GestureHandler
                     val fullContent = em.getFullContent()
                     val charHeight = textMetrics.charHeight
-                    val maxScrollOffset = max(0f, fullContent.size * charHeight - height).toInt()
+                    val maxScrollOffset = max(0f, fullContent.size * charHeight - getTerminalViewportHeight()).toInt()
                     val startY = clampScrollOffset(scrollOffsetY)
                     
                     if ((startY <= 0f && velocityY > 0f) ||
@@ -702,7 +785,7 @@ class CanvasTerminalView @JvmOverloads constructor(
     private fun getMaxScrollOffset(): Float {
         val em = emulator ?: return 0f
         val contentHeight = em.getFullContent().size * textMetrics.charHeight
-        return max(0f, contentHeight - height)
+        return max(0f, contentHeight - getTerminalViewportHeight())
     }
 
     /**
@@ -793,6 +876,93 @@ class CanvasTerminalView @JvmOverloads constructor(
             }
         }
     }
+
+    fun setTabBarState(
+        tabs: List<TerminalTabRenderItem>,
+        currentTabId: String?,
+        onTabClick: ((String) -> Unit)?,
+        onTabClose: ((String) -> Unit)?,
+        onNewTab: (() -> Unit)?
+    ) {
+        val newTabCount = tabs.size
+        this.tabs = tabs
+        this.currentTabId = currentTabId
+        this.onTabClick = onTabClick
+        this.onTabClose = onTabClose
+        this.onNewTab = onNewTab
+        if (!hasTabBar()) {
+            recycleTabVelocityTracker()
+            resetTabTouchState()
+            if (!tabScroller.isFinished) {
+                tabScroller.abortAnimation()
+            }
+            pendingScrollToEndAfterNewTab = false
+            pendingScrollToEndMinTabCount = 0
+        }
+        tabContentWidth = measureTabContentWidth()
+        clampTabScrollOffset()
+        if (pendingScrollToEndAfterNewTab && newTabCount >= pendingScrollToEndMinTabCount) {
+            val endOffset = getMaxTabScrollOffset()
+            if (!tabScroller.isFinished) {
+                tabScroller.abortAnimation()
+            }
+            if (endOffset > 0f && endOffset != tabScrollOffsetX) {
+                val delta = (endOffset - tabScrollOffsetX).toInt()
+                if (delta != 0) {
+                    tabScroller.startScroll(tabScrollOffsetX.toInt(), 0, delta, 0, 220)
+                } else {
+                    tabScrollOffsetX = endOffset
+                }
+            } else {
+                tabScrollOffsetX = endOffset
+            }
+            pendingScrollToEndAfterNewTab = false
+            pendingScrollToEndMinTabCount = 0
+            requestRender()
+        }
+        if (getMaxTabScrollOffset() <= 0f && !tabScroller.isFinished) {
+            tabScroller.abortAnimation()
+            tabScrollOffsetX = 0f
+        }
+        if (width > 0 && height > 0 && emulator != null) {
+            updateTerminalSize(width, height)
+        }
+        requestRender()
+    }
+
+    private fun hasTabBar(): Boolean = tabs.isNotEmpty() || onNewTab != null
+    private fun hasAddTabButton(): Boolean = onNewTab != null
+
+    private fun getTerminalContentTop(): Float = if (hasTabBar()) tabBarHeightPx else 0f
+
+    private fun getTerminalViewportHeight(): Float = (height.toFloat() - getTerminalContentTop()).coerceAtLeast(0f)
+
+    private fun getTabsViewportWidth(totalWidth: Float = width.toFloat()): Float {
+        val addButtonArea = if (hasAddTabButton()) addButtonSizePx + tabSpacingPx else 0f
+        return (totalWidth - tabHorizontalPaddingPx * 2f - addButtonArea).coerceAtLeast(0f)
+    }
+
+    private fun measureTabWidth(tab: TerminalTabRenderItem): Float {
+        val textWidth = tabTextPaint.measureText(tab.title)
+        val closeSpace = if (tab.canClose) closeButtonSizePx + tabSpacingPx else 0f
+        val desiredWidth = textWidth + tabTextHorizontalPaddingPx * 2f + closeSpace
+        return desiredWidth.coerceIn(tabMinWidthPx, tabMaxWidthPx)
+    }
+
+    private fun measureTabContentWidth(): Float {
+        if (tabs.isEmpty()) return 0f
+        var width = 0f
+        tabs.forEachIndexed { index, tab ->
+            if (index > 0) width += tabSpacingPx
+            width += measureTabWidth(tab)
+        }
+        return width
+    }
+
+    private fun clampTabScrollOffset() {
+        val maxOffset = max(0f, tabContentWidth - getTabsViewportWidth())
+        tabScrollOffsetX = tabScrollOffsetX.coerceIn(0f, maxOffset)
+    }
     
     /**
      * 设置缩放回调
@@ -843,7 +1013,7 @@ class CanvasTerminalView @JvmOverloads constructor(
                     val em = emulator ?: return@GestureHandler
                     val fullContent = em.getFullContent()
                     val charHeight = textMetrics.charHeight
-                    val maxScrollOffset = max(0f, fullContent.size * charHeight - height).toInt()
+                    val maxScrollOffset = max(0f, fullContent.size * charHeight - getTerminalViewportHeight()).toInt()
                     val startY = clampScrollOffset(scrollOffsetY)
                     
                     if ((startY <= 0f && velocityY > 0f) ||
@@ -950,6 +1120,8 @@ class CanvasTerminalView @JvmOverloads constructor(
             // 这样可以确保终端窗口大小与 View 大小保持一致
             if (oldw != w || oldh != h) {
                 Log.d("CanvasTerminalView", "onSizeChanged: Triggering updateTerminalSize(${w}x${h})")
+                tabContentWidth = measureTabContentWidth()
+                clampTabScrollOffset()
                 updateTerminalSize(w, h)
             }
         }
@@ -990,6 +1162,8 @@ class CanvasTerminalView @JvmOverloads constructor(
         }
 
         // 更新终端窗口大小
+        tabContentWidth = measureTabContentWidth()
+        clampTabScrollOffset()
         updateTerminalSize(width, height)
         
         requestRender()
@@ -1059,6 +1233,20 @@ class CanvasTerminalView @JvmOverloads constructor(
         onScrollOffsetChanged = null
         getScrollOffset = null
         sessionId = null
+        tabs = emptyList()
+        currentTabId = null
+        onTabClick = null
+        onTabClose = null
+        onNewTab = null
+        tabNodes.clear()
+        addTabButtonRect.setEmpty()
+        pendingScrollToEndAfterNewTab = false
+        pendingScrollToEndMinTabCount = 0
+        if (!tabScroller.isFinished) {
+            tabScroller.abortAnimation()
+        }
+        recycleTabVelocityTracker()
+        resetTabTouchState()
     }
     
     private inner class RenderThread(private val surfaceHolder: SurfaceHolder) : Thread("TerminalRenderThread") {
@@ -1154,6 +1342,375 @@ class CanvasTerminalView @JvmOverloads constructor(
         }
     }
     
+    private fun drawTabBar(canvas: Canvas) {
+        if (!hasTabBar()) {
+            tabNodes.clear()
+            addTabButtonRect.setEmpty()
+            tabContentWidth = 0f
+            tabScrollOffsetX = 0f
+            if (!tabScroller.isFinished) {
+                tabScroller.abortAnimation()
+            }
+            return
+        }
+
+        val barHeight = min(tabBarHeightPx, canvas.height.toFloat())
+        if (barHeight <= 0f) return
+
+        tabBarBackgroundPaint.color = tabBarBackgroundColor
+        canvas.drawRect(0f, 0f, canvas.width.toFloat(), barHeight, tabBarBackgroundPaint)
+
+        val rowTop = tabVerticalPaddingPx
+        val rowBottom = (barHeight - tabVerticalPaddingPx).coerceAtLeast(rowTop + 1f)
+        val addButtonLeft: Float
+        if (hasAddTabButton()) {
+            val addButtonRight = (canvas.width.toFloat() - tabHorizontalPaddingPx).coerceAtLeast(0f)
+            addButtonLeft = (addButtonRight - addButtonSizePx).coerceAtLeast(0f)
+            val addButtonTop = rowTop + ((rowBottom - rowTop - addButtonSizePx) / 2f).coerceAtLeast(0f)
+            val addButtonBottom = (addButtonTop + addButtonSizePx).coerceAtMost(rowBottom)
+            addTabButtonRect.set(addButtonLeft, addButtonTop, addButtonRight, addButtonBottom)
+            val isAddPressed =
+                isTabTouchActive &&
+                    !tabTouchMoved &&
+                    activeTabTouchTarget is TabTouchTarget.NewTab &&
+                    addTabButtonRect.contains(tabTouchX, tabTouchY)
+            drawAddTabButton(canvas, addTabButtonRect, isPressed = isAddPressed)
+        } else {
+            addButtonLeft = (canvas.width.toFloat() - tabHorizontalPaddingPx).coerceAtLeast(0f)
+            addTabButtonRect.setEmpty()
+        }
+
+        val tabsLeft = tabHorizontalPaddingPx
+        val tabsRight = if (hasAddTabButton()) {
+            (addButtonLeft - tabSpacingPx).coerceAtLeast(tabsLeft)
+        } else {
+            (canvas.width.toFloat() - tabHorizontalPaddingPx).coerceAtLeast(tabsLeft)
+        }
+        if (tabsRight <= tabsLeft) {
+            tabNodes.clear()
+            tabContentWidth = 0f
+            tabScrollOffsetX = 0f
+            if (!tabScroller.isFinished) {
+                tabScroller.abortAnimation()
+            }
+            return
+        }
+
+        tabContentWidth = measureTabContentWidth()
+        clampTabScrollOffset()
+        if (tabScroller.computeScrollOffset()) {
+            val maxOffset = getMaxTabScrollOffset()
+            val nextOffset = tabScroller.currX.toFloat().coerceIn(0f, maxOffset)
+            if (nextOffset != tabScrollOffsetX) {
+                tabScrollOffsetX = nextOffset
+                isDirty = true
+            }
+            if (maxOffset <= 0f && !tabScroller.isFinished) {
+                tabScroller.abortAnimation()
+                tabScrollOffsetX = 0f
+            }
+        }
+        tabNodes.clear()
+
+        canvas.save()
+        canvas.clipRect(tabsLeft, rowTop, tabsRight, rowBottom)
+        try {
+            var cursorX = tabsLeft - tabScrollOffsetX
+            tabs.forEach { tab ->
+                val tabWidth = measureTabWidth(tab)
+                val tabRect = RectF(cursorX, rowTop, cursorX + tabWidth, rowBottom)
+                val closeRect = if (tab.canClose) {
+                    val closeRight = tabRect.right - tabTextHorizontalPaddingPx * 0.5f
+                    val closeLeft = closeRight - closeButtonSizePx
+                    val closeTop = tabRect.centerY() - closeButtonSizePx / 2f
+                    RectF(closeLeft, closeTop, closeRight, closeTop + closeButtonSizePx)
+                } else {
+                    null
+                }
+
+                tabNodes.add(
+                    TabHitNode(
+                        tabId = tab.id,
+                        tabRect = RectF(tabRect),
+                        closeRect = closeRect?.let { RectF(it) }
+                    )
+                )
+
+                if (tabRect.right >= tabsLeft && tabRect.left <= tabsRight) {
+                    val touchTarget = activeTabTouchTarget
+                    val isTabPressed =
+                        isTabTouchActive &&
+                            !tabTouchMoved &&
+                            touchTarget is TabTouchTarget.SelectTab &&
+                            touchTarget.tabId == tab.id &&
+                            tabRect.contains(tabTouchX, tabTouchY)
+                    val isClosePressed =
+                        isTabTouchActive &&
+                            !tabTouchMoved &&
+                            touchTarget is TabTouchTarget.CloseTab &&
+                            touchTarget.tabId == tab.id &&
+                            (closeRect?.contains(tabTouchX, tabTouchY) == true)
+                    drawTabNode(
+                        canvas = canvas,
+                        tab = tab,
+                        tabRect = tabRect,
+                        closeRect = closeRect,
+                        isActive = tab.id == currentTabId,
+                        isTabPressed = isTabPressed,
+                        isClosePressed = isClosePressed
+                    )
+                }
+                cursorX += tabWidth + tabSpacingPx
+            }
+        } finally {
+            canvas.restore()
+        }
+    }
+
+    private fun drawTabNode(
+        canvas: Canvas,
+        tab: TerminalTabRenderItem,
+        tabRect: RectF,
+        closeRect: RectF?,
+        isActive: Boolean,
+        isTabPressed: Boolean,
+        isClosePressed: Boolean
+    ) {
+        tabPaint.color = when {
+            isTabPressed && isActive -> tabActivePressedColor
+            isTabPressed -> tabInactivePressedColor
+            isActive -> tabActiveColor
+            else -> tabInactiveColor
+        }
+        canvas.drawRoundRect(tabRect, tabCornerRadiusPx, tabCornerRadiusPx, tabPaint)
+
+        val textStartX = tabRect.left + tabTextHorizontalPaddingPx
+        val textEndX = (closeRect?.left ?: (tabRect.right - tabTextHorizontalPaddingPx)) - tabSpacingPx
+        val availableTextWidth = (textEndX - textStartX).coerceAtLeast(0f)
+        val displayText = ellipsizeTabText(tab.title, availableTextWidth)
+
+        tabTextPaint.color = if (isActive) Color.WHITE else Color.GRAY
+        tabTextPaint.isFakeBoldText = isActive
+        val baselineY = tabRect.centerY() - (tabTextPaint.ascent() + tabTextPaint.descent()) / 2f
+        canvas.drawText(displayText, textStartX, baselineY, tabTextPaint)
+        tabTextPaint.isFakeBoldText = false
+
+        if (closeRect != null) {
+            if (isClosePressed) {
+                tabPaint.color = tabClosePressedBgColor
+                canvas.drawRoundRect(
+                    closeRect,
+                    closeRect.height() * 0.45f,
+                    closeRect.height() * 0.45f,
+                    tabPaint
+                )
+            }
+            drawCloseIcon(canvas, closeRect, isActive, isPressed = isClosePressed)
+        }
+    }
+
+    private fun drawAddTabButton(canvas: Canvas, rect: RectF, isPressed: Boolean) {
+        if (rect.isEmpty) return
+        tabPaint.color = if (isPressed) tabAddPressedBgColor else tabInactiveColor
+        canvas.drawRoundRect(rect, tabCornerRadiusPx * 0.8f, tabCornerRadiusPx * 0.8f, tabPaint)
+
+        val cx = rect.centerX()
+        val cy = rect.centerY()
+        val half = min(rect.width(), rect.height()) * 0.22f
+        tabIconPaint.color = Color.WHITE
+        canvas.drawLine(cx - half, cy, cx + half, cy, tabIconPaint)
+        canvas.drawLine(cx, cy - half, cx, cy + half, tabIconPaint)
+    }
+
+    private fun drawCloseIcon(canvas: Canvas, rect: RectF, isActive: Boolean, isPressed: Boolean) {
+        val cx = rect.centerX()
+        val cy = rect.centerY()
+        val half = min(rect.width(), rect.height()) * 0.20f
+        tabIconPaint.color = if (isPressed || isActive) Color.WHITE else Color.GRAY
+        canvas.drawLine(cx - half, cy - half, cx + half, cy + half, tabIconPaint)
+        canvas.drawLine(cx + half, cy - half, cx - half, cy + half, tabIconPaint)
+    }
+
+    private fun ellipsizeTabText(text: String, maxWidth: Float): String {
+        if (maxWidth <= 0f) return ""
+        if (tabTextPaint.measureText(text) <= maxWidth) return text
+        val ellipsis = "..."
+        val ellipsisWidth = tabTextPaint.measureText(ellipsis)
+        if (ellipsisWidth >= maxWidth) return ellipsis
+        val visibleChars = tabTextPaint.breakText(
+            text,
+            true,
+            maxWidth - ellipsisWidth,
+            null
+        ).coerceAtLeast(0)
+        return if (visibleChars == 0) {
+            ellipsis
+        } else {
+            text.substring(0, visibleChars) + ellipsis
+        }
+    }
+
+    private fun getMaxTabScrollOffset(): Float = max(0f, tabContentWidth - getTabsViewportWidth())
+
+    private fun hitTestTabTarget(x: Float, y: Float): TabTouchTarget {
+        if (!hasTabBar() || y < 0f || y > tabBarHeightPx) {
+            return TabTouchTarget.None
+        }
+        if (addTabButtonRect.contains(x, y)) {
+            return TabTouchTarget.NewTab
+        }
+        for (index in tabNodes.indices.reversed()) {
+            val node = tabNodes[index]
+            if (node.closeRect?.contains(x, y) == true) {
+                return TabTouchTarget.CloseTab(node.tabId)
+            }
+            if (node.tabRect.contains(x, y)) {
+                return TabTouchTarget.SelectTab(node.tabId)
+            }
+        }
+        return TabTouchTarget.Background
+    }
+
+    private fun isSameTabTarget(a: TabTouchTarget, b: TabTouchTarget): Boolean {
+        return when {
+            a is TabTouchTarget.SelectTab && b is TabTouchTarget.SelectTab -> a.tabId == b.tabId
+            a is TabTouchTarget.CloseTab && b is TabTouchTarget.CloseTab -> a.tabId == b.tabId
+            a is TabTouchTarget.NewTab && b is TabTouchTarget.NewTab -> true
+            a is TabTouchTarget.Background && b is TabTouchTarget.Background -> true
+            a is TabTouchTarget.None && b is TabTouchTarget.None -> true
+            else -> false
+        }
+    }
+
+    private fun executeTabTouchTarget(target: TabTouchTarget) {
+        when (target) {
+            is TabTouchTarget.SelectTab -> onTabClick?.invoke(target.tabId)
+            is TabTouchTarget.CloseTab -> onTabClose?.invoke(target.tabId)
+            is TabTouchTarget.NewTab -> {
+                pendingScrollToEndAfterNewTab = true
+                pendingScrollToEndMinTabCount = tabs.size + 1
+                onNewTab?.invoke()
+            }
+            TabTouchTarget.Background, TabTouchTarget.None -> Unit
+        }
+    }
+
+    private fun resetTabTouchState() {
+        activeTabTouchTarget = TabTouchTarget.None
+        isTabTouchActive = false
+        tabTouchMoved = false
+        tabTouchDownX = 0f
+        tabTouchDownY = 0f
+        tabTouchX = 0f
+        tabTouchY = 0f
+    }
+
+    private fun recycleTabVelocityTracker() {
+        tabVelocityTracker?.recycle()
+        tabVelocityTracker = null
+    }
+
+    private fun handleTabTouch(event: MotionEvent): Boolean {
+        if (!hasTabBar()) return false
+
+        val action = event.actionMasked
+        val withinTabBar = event.y in 0f..tabBarHeightPx
+
+        if (action == MotionEvent.ACTION_DOWN) {
+            if (!withinTabBar) return false
+            if (!tabScroller.isFinished) {
+                tabScroller.abortAnimation()
+            }
+            recycleTabVelocityTracker()
+            tabVelocityTracker = VelocityTracker.obtain().also { it.addMovement(event) }
+            activeTabTouchTarget = hitTestTabTarget(event.x, event.y)
+            isTabTouchActive = true
+            tabTouchDownX = event.x
+            tabTouchDownY = event.y
+            tabTouchX = event.x
+            tabTouchY = event.y
+            tabTouchMoved = false
+            requestRender()
+            return true
+        }
+
+        if (activeTabTouchTarget == TabTouchTarget.None) {
+            return false
+        }
+
+        when (action) {
+            MotionEvent.ACTION_MOVE -> {
+                tabVelocityTracker?.addMovement(event)
+                tabTouchX = event.x
+                tabTouchY = event.y
+                val dxTotal = event.x - tabTouchDownX
+                val dyTotal = event.y - tabTouchDownY
+                if (!tabTouchMoved && (abs(dxTotal) > tabTouchSlopPx || abs(dyTotal) > tabTouchSlopPx)) {
+                    tabTouchMoved = true
+                }
+                if (tabTouchMoved && (activeTabTouchTarget is TabTouchTarget.Background || activeTabTouchTarget is TabTouchTarget.SelectTab)) {
+                    val maxOffset = getMaxTabScrollOffset()
+                    if (maxOffset > 0f) {
+                        val newOffset = (tabScrollOffsetX - dxTotal).coerceIn(0f, maxOffset)
+                        if (newOffset != tabScrollOffsetX) {
+                            tabScrollOffsetX = newOffset
+                            requestRender()
+                        }
+                    }
+                    tabTouchDownX = event.x
+                    tabTouchDownY = event.y
+                }
+                requestRender()
+                return true
+            }
+            MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_POINTER_UP -> {
+                tabVelocityTracker?.addMovement(event)
+                tabTouchMoved = true
+                requestRender()
+                return true
+            }
+            MotionEvent.ACTION_UP -> {
+                tabVelocityTracker?.addMovement(event)
+                tabTouchX = event.x
+                tabTouchY = event.y
+                val releaseTarget = if (withinTabBar) hitTestTabTarget(event.x, event.y) else TabTouchTarget.None
+                if (!tabTouchMoved && isSameTabTarget(activeTabTouchTarget, releaseTarget)) {
+                    executeTabTouchTarget(activeTabTouchTarget)
+                } else if (tabTouchMoved && (activeTabTouchTarget is TabTouchTarget.Background || activeTabTouchTarget is TabTouchTarget.SelectTab)) {
+                    val maxOffset = getMaxTabScrollOffset()
+                    if (maxOffset > 0f) {
+                        tabVelocityTracker?.computeCurrentVelocity(1000, tabMaxFlingVelocityPx)
+                        val xVelocity = tabVelocityTracker?.xVelocity ?: 0f
+                        if (abs(xVelocity) >= tabMinFlingVelocityPx) {
+                            tabScroller.fling(
+                                tabScrollOffsetX.toInt(),
+                                0,
+                                (-xVelocity).toInt(),
+                                0,
+                                0,
+                                maxOffset.toInt(),
+                                0,
+                                0
+                            )
+                            requestRender()
+                        }
+                    }
+                }
+                recycleTabVelocityTracker()
+                resetTabTouchState()
+                requestRender()
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                recycleTabVelocityTracker()
+                resetTabTouchState()
+                requestRender()
+                return true
+            }
+            else -> return true
+        }
+    }
+
     // === 核心渲染方法 ===
     
     private fun drawTerminal(canvas: Canvas) {
@@ -1161,11 +1718,25 @@ class CanvasTerminalView @JvmOverloads constructor(
         if (canvas.width <= 0 || canvas.height <= 0) return
 
         val viewportWidth = canvas.width.toFloat()
-        val viewportHeight = canvas.height.toFloat()
+        val contentTop = getTerminalContentTop()
+        val viewportHeight = (canvas.height.toFloat() - contentTop).coerceAtLeast(0f)
+        val contentBottom = contentTop + viewportHeight
         canvas.save()
-        canvas.clipRect(0f, 0f, viewportWidth, viewportHeight)
+        canvas.clipRect(0f, 0f, viewportWidth, canvas.height.toFloat())
         try {
-        
+            // 1. 先全屏清屏，防止前帧残留
+            bgPaint.color = config.backgroundColor
+            canvas.drawRect(0f, 0f, viewportWidth, canvas.height.toFloat(), bgPaint)
+
+            // 2. 顶部标签栏
+            drawTabBar(canvas)
+            if (viewportHeight <= 0f) {
+                return
+            }
+
+            canvas.save()
+            canvas.clipRect(0f, contentTop, viewportWidth, contentBottom)
+            try {
             // 处理惯性滚动动画
             if (scroller.computeScrollOffset()) {
                 val newScrollY = clampScrollOffset(scroller.currY.toFloat())
@@ -1188,53 +1759,49 @@ class CanvasTerminalView @JvmOverloads constructor(
                     isDirty = true
                 }
             }
-            
+
             // 使用完整内容（历史 + 屏幕缓冲）
             val fullContent = em.getFullContent()
             val historySize = em.getHistorySize()
-            
+
             val charWidth = textMetrics.charWidth
             val charHeight = textMetrics.charHeight
             val baseline = textMetrics.charBaseline
             if (charHeight <= 0f) return
-            
-            // 1. 首先全屏清屏（防止前帧内容残留和闪烁）
-            bgPaint.color = config.backgroundColor
-            canvas.drawRect(0f, 0f, viewportWidth, viewportHeight, bgPaint)
-            
+
             // 限制最大滚动偏移（不能超过内容高度）
             val maxScrollOffset = max(0f, fullContent.size * charHeight - viewportHeight)
-            
+
             // 如果需要滚动到底部，在渲染时执行（使用正确的 canvas.height）
             if (needScrollToBottom) {
                 scrollOffsetY = maxScrollOffset
                 needScrollToBottom = false
             }
-            
+
             scrollOffsetY = scrollOffsetY.coerceIn(0f, maxScrollOffset)
-            
+
             // 计算可见区域
             val visibleRows = (viewportHeight / charHeight).toInt() + 2
             val startRow = (scrollOffsetY / charHeight).toInt().coerceAtLeast(0)
             val endRow = min(startRow + visibleRows, fullContent.size)
-            
+
             // 绘制每一行（包括背景）
             for (row in startRow until endRow) {
                 if (row >= fullContent.size) break
-                
+
                 val line = fullContent[row]
-                
+
                 // 使用绝对坐标计算，避免 startRow 跳变导致的整体偏移
-                val exactY = row * charHeight - scrollOffsetY
+                val exactY = contentTop + row * charHeight - scrollOffsetY
                 val y = kotlin.math.round(exactY)
-                if (y + charHeight <= 0f || y >= viewportHeight) {
+                if (y + charHeight <= contentTop || y >= contentBottom) {
                     continue
                 }
-                
+
                 // 绘制该行的所有字符
                 drawLine(canvas, line, row, 0f, y, charWidth, charHeight, baseline)
             }
-            
+
             // 绘制选择区域
             if (selectionManager.hasSelection()) {
                 drawSelection(canvas, charWidth, charHeight)
@@ -1248,22 +1815,22 @@ class CanvasTerminalView @JvmOverloads constructor(
             if (em.isCursorVisible()) {
                 val cursorRow = historySize + em.getCursorY()
                 val cursorCol = em.getCursorX()
-                
+
                 // 只有当光标在可见区域内时才绘制
                 if (cursorRow >= startRow && cursorRow < endRow) {
-                    val exactCursorY = cursorRow * charHeight - scrollOffsetY
+                    val exactCursorY = contentTop + cursorRow * charHeight - scrollOffsetY
                     val cursorY = kotlin.math.round(exactCursorY)
-                    if (cursorY + charHeight > 0f && cursorY < viewportHeight) {
+                    if (cursorY + charHeight > contentTop && cursorY < contentBottom) {
                         // 计算光标的 x 坐标，考虑宽字符
                         val line = fullContent.getOrNull(cursorRow) ?: arrayOf()
                         var cursorX = 0f
-                        
+
                         // 遍历到光标列，累加每个字符的宽度
                         for (col in 0 until cursorCol.coerceAtMost(line.size)) {
                             val cellWidth = textMetrics.getCellWidth(line[col].char)
                             cursorX += charWidth * cellWidth
                         }
-                        
+
                         // 获取光标所在字符的宽度
                         val cursorCharWidth = if (cursorCol < line.size) {
                             val cellWidth = textMetrics.getCellWidth(line[cursorCol].char)
@@ -1272,8 +1839,8 @@ class CanvasTerminalView @JvmOverloads constructor(
                             charWidth
                         }
 
-                        val top = cursorY.coerceAtLeast(0f)
-                        val bottom = (cursorY + charHeight).coerceAtMost(viewportHeight)
+                        val top = cursorY.coerceAtLeast(contentTop)
+                        val bottom = (cursorY + charHeight).coerceAtMost(contentBottom)
                         if (bottom > top) {
                             cursorPaint.color = Color.GREEN
                             cursorPaint.alpha = 180
@@ -1287,6 +1854,9 @@ class CanvasTerminalView @JvmOverloads constructor(
                         }
                     }
                 }
+            }
+            } finally {
+                canvas.restore()
             }
         } finally {
             canvas.restore()
@@ -1496,14 +2066,15 @@ class CanvasTerminalView @JvmOverloads constructor(
         val selection = selectionManager.selection?.normalize() ?: return
         val em = emulator ?: return
         val fullContent = em.getFullContent()
-        val canvasHeight = canvas.height.toFloat()
-        if (canvasHeight <= 0f || charHeight <= 0f) return
+        val contentTop = getTerminalContentTop()
+        val contentBottom = canvas.height.toFloat()
+        if (contentBottom <= contentTop || charHeight <= 0f) return
         
         for (row in selection.startRow..selection.endRow) {
-            val exactY = row * charHeight - scrollOffsetY
+            val exactY = contentTop + row * charHeight - scrollOffsetY
             val y = kotlin.math.round(exactY)
-            val top = y.coerceAtLeast(0f)
-            val bottom = (y + charHeight).coerceAtMost(canvasHeight)
+            val top = y.coerceAtLeast(contentTop)
+            val bottom = (y + charHeight).coerceAtMost(contentBottom)
             if (bottom <= top) continue
             
             val startCol = if (row == selection.startRow) selection.startCol else 0
@@ -1602,6 +2173,9 @@ class CanvasTerminalView @JvmOverloads constructor(
     }
     
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (handleTabTouch(event)) {
+            return true
+        }
         var handled = gestureHandler.onTouchEvent(event)
         val action = event.actionMasked
         
@@ -1719,7 +2293,12 @@ class CanvasTerminalView @JvmOverloads constructor(
     private fun screenToTerminalCoords(x: Float, y: Float): Pair<Int, Int> {
         val em = emulator ?: return Pair(0, 0)
         val fullContent = em.getFullContent()
-        val row = ((y + scrollOffsetY) / textMetrics.charHeight).toInt().coerceIn(0, fullContent.size - 1)
+        if (fullContent.isEmpty() || textMetrics.charHeight <= 0f) {
+            return Pair(0, 0)
+        }
+
+        val localY = (y - getTerminalContentTop()).coerceAtLeast(0f)
+        val row = ((localY + scrollOffsetY) / textMetrics.charHeight).toInt().coerceIn(0, fullContent.size - 1)
         
         // 获取该行的内容
         val line = fullContent.getOrNull(row) ?: return Pair(row, 0)
@@ -1747,7 +2326,7 @@ class CanvasTerminalView @JvmOverloads constructor(
             col = i + 1
         }
         
-        return Pair(row, col.coerceIn(0, line.size - 1))
+        return Pair(row, col.coerceIn(0, max(0, line.size - 1)))
     }
     
     /**
@@ -2030,6 +2609,8 @@ class CanvasTerminalView @JvmOverloads constructor(
      */
     private fun updateTerminalSize(width: Int, height: Int) {
         if (width <= 0 || height <= 0) return
+        val contentTop = getTerminalContentTop()
+        val contentHeight = (height - contentTop).toInt().coerceAtLeast(1)
 
         // 1. 记录当前的滚动状态（基于行数，而不是像素）
         // 这样在缩放后可以恢复到相同的逻辑位置
@@ -2042,7 +2623,7 @@ class CanvasTerminalView @JvmOverloads constructor(
         // 计算终端尺寸（行和列）
         // 现在终端模拟器支持重排，可以正常根据字体大小调整列数
         val cols = (width / textMetrics.charWidth).toInt().coerceAtLeast(1)
-        val rows = (height / textMetrics.charHeight).toInt().coerceAtLeast(1)
+        val rows = (contentHeight / textMetrics.charHeight).toInt().coerceAtLeast(1)
         
         // 只有当尺寸真正发生变化时才更新
         if (rows == cachedRows && cols == cachedCols) {
@@ -2061,7 +2642,7 @@ class CanvasTerminalView @JvmOverloads constructor(
             val newCharHeight = textMetrics.charHeight
             // 重新计算最大滚动范围
             val fullContentSize = emulator?.getFullContent()?.size ?: 0
-            val maxScrollOffset = max(0f, fullContentSize * newCharHeight - height)
+            val maxScrollOffset = max(0f, fullContentSize * newCharHeight - contentHeight)
             
             // 恢复之前的行位置
             scrollOffsetY = (currentScrollRows * newCharHeight).coerceIn(0f, maxScrollOffset)

@@ -20,7 +20,12 @@ fun CanvasTerminalScreen(
     onScaleChanged: (Float) -> Unit = {},
     sessionId: String? = null,
     onScrollOffsetChanged: ((String, Float) -> Unit)? = null,
-    getScrollOffset: ((String) -> Float)? = null
+    getScrollOffset: ((String) -> Float)? = null,
+    tabs: List<TerminalTabRenderItem> = emptyList(),
+    currentTabId: String? = null,
+    onTabClick: ((String) -> Unit)? = null,
+    onTabClose: ((String) -> Unit)? = null,
+    onNewTab: (() -> Unit)? = null
 ) {
     AndroidView(
         factory = { context ->
@@ -31,6 +36,7 @@ fun CanvasTerminalScreen(
                 setInputCallback(onInput)
                 setScaleCallback(onScaleChanged)
                 setSessionScrollCallbacks(sessionId, onScrollOffsetChanged, getScrollOffset)
+                setTabBarState(tabs, currentTabId, onTabClick, onTabClose, onNewTab)
                 
                 // 全屏模式下自动请求焦点
                 post {
@@ -55,6 +61,7 @@ fun CanvasTerminalScreen(
             view.setPty(pty)
             view.setInputCallback(onInput)
             view.setSessionScrollCallbacks(sessionId, onScrollOffsetChanged, getScrollOffset)
+            view.setTabBarState(tabs, currentTabId, onTabClick, onTabClose, onNewTab)
         },
         onRelease = { view ->
             // 在视图被移除时释放资源，避免持有渲染线程和监听器引用
@@ -155,7 +162,12 @@ fun CanvasTerminalOutput(
     onRequestShowKeyboard: (() -> Unit)? = null,
     sessionId: String? = null,
     onScrollOffsetChanged: ((String, Float) -> Unit)? = null,
-    getScrollOffset: ((String) -> Float)? = null
+    getScrollOffset: ((String) -> Float)? = null,
+    tabs: List<TerminalTabRenderItem> = emptyList(),
+    currentTabId: String? = null,
+    onTabClick: ((String) -> Unit)? = null,
+    onTabClose: ((String) -> Unit)? = null,
+    onNewTab: (() -> Unit)? = null
 ) {
     AndroidView(
         factory = { context ->
@@ -166,6 +178,7 @@ fun CanvasTerminalOutput(
                 setFullscreenMode(false) // 关键：设置为非全屏模式
                 setOnRequestShowKeyboard(onRequestShowKeyboard)
                 setSessionScrollCallbacks(sessionId, onScrollOffsetChanged, getScrollOffset)
+                setTabBarState(tabs, currentTabId, onTabClick, onTabClose, onNewTab)
                 
                 // 请求父容器不要拦截触摸事件，让终端视图处理滚动手势
                 setOnTouchListener { v, event ->
@@ -185,6 +198,7 @@ fun CanvasTerminalOutput(
             view.setPty(pty)
             view.setOnRequestShowKeyboard(onRequestShowKeyboard)
             view.setSessionScrollCallbacks(sessionId, onScrollOffsetChanged, getScrollOffset)
+            view.setTabBarState(tabs, currentTabId, onTabClick, onTabClose, onNewTab)
         },
         onRelease = { view ->
             // 在视图被移除时释放资源，避免持有渲染线程和监听器引用

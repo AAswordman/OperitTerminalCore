@@ -20,7 +20,8 @@ class TerminalAccessibilityDelegate(
     private val view: CanvasTerminalView,
     private val getEmulator: () -> AnsiTerminalEmulator?,
     private val getTextMetrics: () -> TextMetrics,
-    private val getScrollOffsetY: () -> Float
+    private val getScrollOffsetY: () -> Float,
+    private val getContentTop: () -> Float
 ) : View.AccessibilityDelegate() {
 
     private val nodeProvider = TerminalAccessibilityNodeProvider()
@@ -174,6 +175,7 @@ class TerminalAccessibilityDelegate(
             val metrics = getTextMetrics()
             val charHeight = metrics.charHeight
             val scrollOffset = getScrollOffsetY()
+            val contentTop = getContentTop()
             
             // lineIndex 是相对于屏幕内容的索引
             // 需要转换为绝对行号（包括历史记录）
@@ -181,7 +183,7 @@ class TerminalAccessibilityDelegate(
             val absoluteRow = historySize + lineIndex
             
             // 计算实际显示位置（与渲染逻辑一致）
-            val exactY = absoluteRow * charHeight - scrollOffset
+            val exactY = contentTop + absoluteRow * charHeight - scrollOffset
             val top = exactY.toInt()
             val bottom = (exactY + charHeight).toInt()
             
@@ -279,18 +281,22 @@ class TerminalAccessibilityDelegate(
          */
         fun findVirtualViewAt(x: Float, y: Float): Int {
             val emulator = getEmulator() ?: return HOST_VIEW_ID
-            val fullContent = emulator.getFullContent() // 使用完整内容（包括历史）
             val metrics = getTextMetrics()
             val charHeight = metrics.charHeight
             val scrollOffset = getScrollOffsetY()
-            
+            val contentTop = getContentTop()
+
+            if (y < contentTop) {
+                return HOST_VIEW_ID
+            }
+            val localY = y - contentTop
+             
             // 计算点击位置对应的行号（考虑滚动偏移）
-            val absoluteRow = ((y + scrollOffset) / charHeight).toInt()
-            
+            val absoluteRow = ((localY + scrollOffset) / charHeight).toInt()
+             
             // 转换为屏幕可见区域内的相对行号
             val screenContent = emulator.getScreenContent()
             val historySize = emulator.getHistorySize()
-            val visibleStartRow = (scrollOffset / charHeight).toInt()
             val lineIndex = absoluteRow - historySize
             
             // 检查是否在屏幕可见范围内
