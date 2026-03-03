@@ -2485,7 +2485,10 @@ class CanvasTerminalView @JvmOverloads constructor(
         return object : BaseInputConnection(this, true) {
             override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
                 text?.let {
-                    inputCallback?.invoke(it.toString())
+                    val normalized = it.toString()
+                        .replace("\r\n", "\r")
+                        .replace('\n', '\r')
+                    inputCallback?.invoke(normalized)
                 }
                 return true
             }
