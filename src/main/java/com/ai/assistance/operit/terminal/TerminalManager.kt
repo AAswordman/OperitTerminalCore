@@ -739,6 +739,26 @@ class TerminalManager private constructor(
           next=${'$'}((current + 1))
           printf "${'$'}next" > "${'$'}TMPDIR/progress"
         }
+        sync_android_dns(){
+          target_file="${'$'}1"
+          if [ -z "${'$'}target_file" ]; then
+            return 1
+          fi
+          tmp_dns_file="${'$'}TMPDIR/resolv.conf.dynamic"
+          : > "${'$'}tmp_dns_file"
+          for key in net.dns1 net.dns2 net.dns3 net.dns4; do
+            dns_value=${'$'}(getprop "${'$'}key" 2>/dev/null | tr -d '\r' | tr -d ' ')
+            if [ -n "${'$'}dns_value" ] && [ "${'$'}dns_value" != "0.0.0.0" ] && [ "${'$'}dns_value" != "::" ]; then
+              if ! grep -qx "nameserver ${'$'}dns_value" "${'$'}tmp_dns_file" 2>/dev/null; then
+                echo "nameserver ${'$'}dns_value" >> "${'$'}tmp_dns_file"
+              fi
+            fi
+          done
+          if [ -s "${'$'}tmp_dns_file" ]; then
+            cat "${'$'}tmp_dns_file" > "${'$'}target_file"
+          fi
+          rm -f "${'$'}tmp_dns_file" 2>/dev/null
+        }
         """.trimIndent()
 
         val installUbuntu = """
@@ -823,7 +843,7 @@ class TerminalManager private constructor(
               mkdir -p "${'$'}TMP_DIR/root" 2>/dev/null
               echo 'export ANDROID_DATA=/home/' >> "${'$'}TMP_DIR/root/.bashrc"
               mkdir -p "${'$'}TMP_DIR/etc" 2>/dev/null
-              echo 'nameserver 8.8.8.8' > "${'$'}TMP_DIR/etc/resolv.conf"
+              sync_android_dns "${'$'}TMP_DIR/etc/resolv.conf"
               echo "ok" > "${'$'}TMP_DIR/.operit_installed_ok" 2>/dev/null || true
 
               rm -rf "${'$'}UBUNTU_PATH" 2>/dev/null
@@ -838,7 +858,7 @@ class TerminalManager private constructor(
           fi
 
           mkdir -p ${'$'}UBUNTU_PATH/etc 2>/dev/null
-          echo 'nameserver 8.8.8.8' > ${'$'}UBUNTU_PATH/etc/resolv.conf
+          sync_android_dns "${'$'}UBUNTU_PATH/etc/resolv.conf"
 
           rm -rf "${'$'}LOCK_DIR" 2>/dev/null
           trap - EXIT INT TERM
