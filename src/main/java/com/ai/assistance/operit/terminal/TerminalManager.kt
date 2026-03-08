@@ -244,6 +244,37 @@ class TerminalManager private constructor(
         }
     }
 
+    private fun writeInputToKernel(session: TerminalSessionData, input: String, source: String) {
+        val writer = session.sessionWriter ?: return
+        writer.write(input)
+        writer.flush()
+        Log.d(
+            TAG,
+            "Sent terminal input to kernel [source=$source, sessionId=${session.id}]: '${escapeInputForLog(input)}'"
+        )
+    }
+
+    private fun escapeInputForLog(input: String): String {
+        return buildString(input.length) {
+            input.forEach { char ->
+                when (char) {
+                    '\\' -> append("\\\\")
+                    '\n' -> append("\\n")
+                    '\r' -> append("\\r")
+                    '\t' -> append("\\t")
+                    else -> {
+                        if (char.isISOControl()) {
+                            append("\\u")
+                            append(char.code.toString(16).padStart(4, '0'))
+                        } else {
+                            append(char)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /**
      * 发送命令
      */
@@ -284,8 +315,7 @@ class TerminalManager private constructor(
         if (session.isInteractiveMode) {
             Log.d(TAG, "Session $sessionId in interactive mode, sending as input: $command")
             try {
-                session.sessionWriter?.write(command + "\n")
-                session.sessionWriter?.flush()
+                writeInputToKernel(session, command + "\n", "interactive-session-command")
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending input to session $sessionId", e)
             }
@@ -331,8 +361,7 @@ class TerminalManager private constructor(
     private suspend fun executeCommandInternal(command: String, session: TerminalSessionData, commandId: String) {
         if (command.trim() == "clear") {
             try {
-                session.sessionWriter?.write("clear\n")
-                session.sessionWriter?.flush()
+                writeInputToKernel(session, "clear\n", "command-clear")
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending 'clear' command", e)
             }
@@ -340,8 +369,7 @@ class TerminalManager private constructor(
             handleRegularCommand(command, session, commandId)
             try {
                 val fullInput = "$command\n"
-                session.sessionWriter?.write(fullInput)
-                session.sessionWriter?.flush()
+                writeInputToKernel(session, fullInput, "command")
                 Log.d(TAG, "Sent command to PTY: $command")
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending command", e)
@@ -357,9 +385,7 @@ class TerminalManager private constructor(
             val session = sessionManager.getCurrentSession() ?: return@launch
 
             try {
-                session.sessionWriter?.write(input)
-                session.sessionWriter?.flush()
-                Log.d(TAG, "Sent input: '$input'")
+                writeInputToKernel(session, input, "direct-input")
 
                 // 如果用户提供了交互式输入，则重置等待状态
                 if (session.isWaitingForInteractiveInput) {
@@ -380,14 +406,12 @@ class TerminalManager private constructor(
         coroutineScope.launch(Dispatchers.IO) {
             try {
                 val currentSession = sessionManager.getCurrentSession()
-                currentSession?.sessionWriter?.apply {
-                    write(3) // ETX character (Ctrl+C)
-                    flush()
-                    Log.d(TAG, "Sent interrupt signal (Ctrl+C) to session ${currentSession.id}")
+                currentSession?.let {
+                    writeInputToKernel(it, "\u0003", "interrupt")
+                    Log.d(TAG, "Sent interrupt signal (Ctrl+C) to session ${it.id}")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending interrupt signal", e)
-                val currentSession = sessionManager.getCurrentSession()
             }
         }
     }
