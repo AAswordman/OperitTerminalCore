@@ -18,10 +18,9 @@ data class PRootBindMount(
 object PRootMountMapping {
 
     /**
-     * 非 chroot 模式下固定的 bind 挂载（不含动态 homeDir 和可选 /dev/shm）
-     * 其中动态 homeDir 通常就是 /data/user/0/<package>/files 的 data 路径映射。
+     * 各模式共用的固定 bind 挂载（不含 data 目录、动态 homeDir 和可选 /dev/shm）。
      */
-    val STATIC_BIND_MOUNTS: List<PRootBindMount> = listOf(
+    private val BASE_BIND_MOUNTS: List<PRootBindMount> = listOf(
         PRootBindMount("/dev"),
         PRootBindMount("/proc"),
         PRootBindMount("/sys"),
@@ -32,18 +31,46 @@ object PRootMountMapping {
         PRootBindMount("/proc/self/fd/2", "/dev/stderr"),
         PRootBindMount("/storage/emulated/0", "/sdcard"),
         PRootBindMount("/storage/emulated/0", "/storage/emulated/0"),
-        PRootBindMount("/data/user/0", "/data/user/0"),
-        PRootBindMount("/data/data", "/data/data"),
         PRootBindMount("/data/local/tmp", "/data/local/tmp")
     )
 
-    fun buildRuntimeBindMounts(homeDir: String): List<PRootBindMount> {
-        // 动态挂载：-b $homeDir:$homeDir（通常为 /data/user/0/<package>/files）
-        return STATIC_BIND_MOUNTS + PRootBindMount(homeDir, homeDir)
+    private fun buildDataBindMounts(
+        appDataDir: String,
+        packageName: String,
+        chrootEnabled: Boolean
+    ): List<PRootBindMount> {
+        return if (chrootEnabled) {
+            listOf(
+                PRootBindMount("/data/user/0", "/data/user/0"),
+                PRootBindMount("/data/data", "/data/data")
+            )
+        } else {
+            listOf(
+                PRootBindMount(appDataDir, "/data/user/0/$packageName"),
+                PRootBindMount(appDataDir, "/data/data/$packageName")
+            )
+        }
     }
 
-    fun buildRuntimeProotBindArgs(homeDir: String): List<String> {
-        return buildRuntimeBindMounts(homeDir).map { mount ->
+    fun buildRuntimeBindMounts(
+        homeDir: String,
+        appDataDir: String,
+        packageName: String,
+        chrootEnabled: Boolean
+    ): List<PRootBindMount> {
+        // 动态挂载：-b $homeDir:$homeDir（通常为 /data/user/0/<package>/files）
+        return BASE_BIND_MOUNTS +
+            buildDataBindMounts(appDataDir, packageName, chrootEnabled) +
+            PRootBindMount(homeDir, homeDir)
+    }
+
+    fun buildRuntimeProotBindArgs(
+        homeDir: String,
+        appDataDir: String,
+        packageName: String,
+        chrootEnabled: Boolean
+    ): List<String> {
+        return buildRuntimeBindMounts(homeDir, appDataDir, packageName, chrootEnabled).map { mount ->
             if (mount.sourcePath == mount.targetPath) {
                 "-b ${mount.sourcePath}"
             } else {
@@ -59,11 +86,20 @@ object PRootMountMapping {
     fun mapLinuxPathToHostPath(
         linuxPath: String,
         ubuntuRoot: File,
-        homeDir: String
+        homeDir: String,
+        appDataDir: String,
+        packageName: String,
+        chrootEnabled: Boolean
     ): String {
         val normalizedPath = normalizeLinuxPath(linuxPath)
 
-        resolveSoftMountedSourcePath(normalizedPath, homeDir)?.let { mapped ->
+        resolveSoftMountedSourcePath(
+            normalizedPath,
+            homeDir,
+            appDataDir,
+            packageName,
+            chrootEnabled
+        )?.let { mapped ->
             return mapped
         }
 
@@ -74,10 +110,21 @@ object PRootMountMapping {
         return File(ubuntuRoot, normalizedPath.trimStart('/')).absolutePath
     }
 
-    fun resolveSoftMountedSourcePath(linuxPath: String, homeDir: String): String? {
+    fun resolveSoftMountedSourcePath(
+        linuxPath: String,
+        homeDir: String,
+        appDataDir: String,
+        packageName: String,
+        chrootEnabled: Boolean
+    ): String? {
         val normalizedPath = normalizeLinuxPath(linuxPath)
 
-        val sortedByTargetLengthDesc = buildRuntimeBindMounts(homeDir)
+        val sortedByTargetLengthDesc = buildRuntimeBindMounts(
+            homeDir,
+            appDataDir,
+            packageName,
+            chrootEnabled
+        )
             .sortedByDescending { normalizeLinuxPath(it.targetPath).length }
 
         for (mount in sortedByTargetLengthDesc) {

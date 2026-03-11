@@ -18,6 +18,14 @@ import kotlinx.coroutines.ensureActive
 
 class CacheManager(private val context: Context) {
 
+    data class MountInspectionResult(
+        val rootPath: String,
+        val mountPoints: List<String>
+    ) {
+        val count: Int
+            get() = mountPoints.size
+    }
+
     companion object {
         private const val TAG = "CacheManager"
     }
@@ -238,6 +246,57 @@ class CacheManager(private val context: Context) {
         }
     }
 
+    private fun getUbuntuRootfsDir(): File {
+        return File(File(usrDir, "var/lib/proot-distro"), "installed-rootfs/ubuntu")
+    }
+
+    suspend fun inspectUbuntuMounts(): MountInspectionResult = withContext(Dispatchers.IO) {
+        val ubuntuPath = getUbuntuRootfsDir()
+        val mountPoints = getMountPointsUnder(ubuntuPath)
+            .distinct()
+            .sorted()
+        MountInspectionResult(
+            rootPath = ubuntuPath.absolutePath,
+            mountPoints = mountPoints
+        )
+    }
+
+    suspend fun unmountUbuntuMounts(
+        terminalManager: com.ai.assistance.operit.terminal.TerminalManager? = null
+    ): Int = withContext(Dispatchers.IO) {
+        val ubuntuPath = getUbuntuRootfsDir()
+        Log.w(TAG, "Unmount mounts: start under ${ubuntuPath.absolutePath}")
+
+        terminalManager?.prepareForMaintenance()
+        kotlinx.coroutines.delay(1000)
+
+        val before = getMountPointsUnder(ubuntuPath)
+            .distinct()
+            .sorted()
+        if (before.isEmpty()) {
+            Log.d(TAG, "Unmount mounts: no active mount points under ${ubuntuPath.absolutePath}")
+            return@withContext 0
+        }
+
+        before.sortedByDescending { it.length }.forEach { mp ->
+            tryUnmount(mp)
+        }
+
+        val after = getMountPointsUnder(ubuntuPath)
+            .distinct()
+            .sorted()
+        if (after.isNotEmpty()) {
+            val list = after.joinToString("\n")
+            Log.e(TAG, "Unmount mounts blocked: mount points still active under ${ubuntuPath.absolutePath}:\n$list")
+            throw IllegalStateException(
+                "Mount points still active under ${ubuntuPath.absolutePath}:\n$list"
+            )
+        }
+
+        Log.w(TAG, "Unmount mounts: completed, removed ${before.size} mount points")
+        before.size
+    }
+
     suspend fun getCacheSize(onProgress: (bytes: Long) -> Unit): Long = withContext(Dispatchers.IO) {
         var totalSize = 0L
         var filesProcessed = 0
@@ -363,7 +422,7 @@ class CacheManager(private val context: Context) {
         Log.w(TAG, "Reset: start. filesDir=${filesDir.absolutePath}")
         // 首先停止所有终端会话
         Log.d(TAG, "Reset: stopping terminal sessions...")
-        terminalManager?.cleanup()
+        terminalManager?.prepareForMaintenance()
 
         // 等待一下确保进程完全停止
         kotlinx.coroutines.delay(1000)

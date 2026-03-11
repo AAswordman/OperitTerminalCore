@@ -41,18 +41,39 @@ class LocalFileSystemProvider(
     }
 
     /**
+     * App data 目录（通常为 /data/user/0/<package>）
+     */
+    private val appDataDir: String? by lazy {
+        context?.applicationInfo?.dataDir
+    }
+
+    private val appPackageName: String? by lazy {
+        context?.packageName
+    }
+
+    private val chrootEnabled: Boolean by lazy {
+        context?.getSharedPreferences("terminal_settings", Context.MODE_PRIVATE)
+            ?.getBoolean("chroot_enabled", false) ?: false
+    }
+
+    /**
      * 将Linux路径映射到Android文件系统中的实际路径
      * 如果没有提供context，则直接返回原路径
      */
     private fun mapPath(linuxPath: String): String {
         val root = ubuntuRoot ?: return linuxPath
         val homeDir = appFilesDir ?: return linuxPath
+        val dataDir = appDataDir ?: return linuxPath
+        val packageName = appPackageName ?: return linuxPath
         val expandedPath = expandHomePath(linuxPath)
 
         return PRootMountMapping.mapLinuxPathToHostPath(
             linuxPath = expandedPath,
             ubuntuRoot = root,
-            homeDir = homeDir
+            homeDir = homeDir,
+            appDataDir = dataDir,
+            packageName = packageName,
+            chrootEnabled = chrootEnabled
         )
     }
 
@@ -732,4 +753,3 @@ class LocalFileSystemProvider(
         }
     }
 }
-

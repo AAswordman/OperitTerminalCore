@@ -26,6 +26,7 @@ class SettingsViewModel(
     private val terminalManager: TerminalManager? = null
 ) : AndroidViewModel(application) {
     private val cacheManager = CacheManager(application)
+    private val terminalManagerRef by lazy { terminalManager ?: TerminalManager.getInstance(application) }
     private val updateChecker = UpdateChecker(application)
     private val ftpServerManager = FtpServerManager.getInstance(application)
     private val sourceManager = SourceManager(application)
@@ -87,6 +88,20 @@ class SettingsViewModel(
 
     private val _chrootEnabled = MutableStateFlow(false)
     val chrootEnabled = _chrootEnabled.asStateFlow()
+
+    private val _chrootMountStatus = MutableStateFlow(
+        application.getString(com.ai.assistance.operit.terminal.R.string.chroot_mount_status_idle)
+    )
+    val chrootMountStatus = _chrootMountStatus.asStateFlow()
+
+    private val _chrootMountDetails = MutableStateFlow("")
+    val chrootMountDetails = _chrootMountDetails.asStateFlow()
+
+    private val _isInspectingChrootMounts = MutableStateFlow(false)
+    val isInspectingChrootMounts = _isInspectingChrootMounts.asStateFlow()
+
+    private val _isUnmountingChrootMounts = MutableStateFlow(false)
+    val isUnmountingChrootMounts = _isUnmountingChrootMounts.asStateFlow()
 
     private val _virtualKeyboardLayout = MutableStateFlow(virtualKeyboardConfigManager.loadLayout())
     val virtualKeyboardLayout = _virtualKeyboardLayout.asStateFlow()
@@ -257,7 +272,7 @@ class SettingsViewModel(
                     updateFtpServerStatus()
                 }
                 
-                cacheManager.clearCache(terminalManager)
+                cacheManager.clearCache(terminalManagerRef)
                 _cacheSize.value = getApplication<Application>().getString(com.ai.assistance.operit.terminal.R.string.environment_reset_complete)
             } catch (e: Exception) {
                 _cacheSize.value = getApplication<Application>().getString(com.ai.assistance.operit.terminal.R.string.environment_reset_failed, e.message ?: "")
@@ -409,10 +424,83 @@ class SettingsViewModel(
     private fun loadChrootSetting() {
         _chrootEnabled.value = prefs.getBoolean("chroot_enabled", false)
     }
+
+    private fun updateChrootMountDisplay(result: CacheManager.MountInspectionResult) {
+        val app = getApplication<Application>()
+        if (result.count == 0) {
+            _chrootMountStatus.value = app.getString(com.ai.assistance.operit.terminal.R.string.chroot_mount_status_none)
+            _chrootMountDetails.value = ""
+            return
+        }
+
+        _chrootMountStatus.value = app.getString(
+            com.ai.assistance.operit.terminal.R.string.chroot_mount_status_detected,
+            result.count
+        )
+        _chrootMountDetails.value = result.mountPoints.joinToString("\n")
+    }
+
+    fun inspectChrootMounts() {
+        viewModelScope.launch {
+            _isInspectingChrootMounts.value = true
+            _chrootMountStatus.value = getApplication<Application>()
+                .getString(com.ai.assistance.operit.terminal.R.string.chroot_mount_status_checking)
+            _chrootMountDetails.value = ""
+            try {
+                updateChrootMountDisplay(cacheManager.inspectUbuntuMounts())
+            } catch (e: Exception) {
+                _chrootMountStatus.value = getApplication<Application>().getString(
+                    com.ai.assistance.operit.terminal.R.string.chroot_mount_status_failed,
+                    e.message ?: ""
+                )
+            } finally {
+                _isInspectingChrootMounts.value = false
+            }
+        }
+    }
+
+    fun unmountChrootMounts() {
+        viewModelScope.launch {
+            _isUnmountingChrootMounts.value = true
+            _chrootMountStatus.value = getApplication<Application>()
+                .getString(com.ai.assistance.operit.terminal.R.string.chroot_mount_status_unmounting)
+            try {
+                val removedCount = cacheManager.unmountUbuntuMounts(terminalManagerRef)
+                val result = cacheManager.inspectUbuntuMounts()
+                _chrootMountStatus.value = if (removedCount > 0) {
+                    getApplication<Application>().getString(
+                        com.ai.assistance.operit.terminal.R.string.chroot_mount_status_unmounted,
+                        removedCount
+                    )
+                } else {
+                    getApplication<Application>().getString(
+                        com.ai.assistance.operit.terminal.R.string.chroot_mount_status_none
+                    )
+                }
+                _chrootMountDetails.value = if (result.count > 0) {
+                    result.mountPoints.joinToString("\n")
+                } else {
+                    ""
+                }
+            } catch (e: Exception) {
+                _chrootMountStatus.value = getApplication<Application>().getString(
+                    com.ai.assistance.operit.terminal.R.string.chroot_mount_status_failed,
+                    e.message ?: ""
+                )
+            } finally {
+                _isUnmountingChrootMounts.value = false
+            }
+        }
+    }
     
     fun setChrootEnabled(enabled: Boolean) {
         prefs.edit().putBoolean("chroot_enabled", enabled).apply()
         _chrootEnabled.value = enabled
+        if (!enabled) {
+            _chrootMountStatus.value = getApplication<Application>()
+                .getString(com.ai.assistance.operit.terminal.R.string.chroot_mount_status_idle)
+            _chrootMountDetails.value = ""
+        }
     }
     
     fun isChrootEnabled(): Boolean {

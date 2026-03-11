@@ -34,6 +34,7 @@ import com.ai.assistance.operit.terminal.utils.SSHConfigManager
 import com.ai.assistance.operit.terminal.utils.SSHDServerManager
 import com.ai.assistance.operit.terminal.provider.filesystem.FileSystemProvider
 import com.ai.assistance.operit.terminal.provider.filesystem.LocalFileSystemProvider
+import com.ai.assistance.operit.terminal.provider.filesystem.PRootMountMapping
 import com.ai.assistance.operit.terminal.provider.type.TerminalProvider
 import com.ai.assistance.operit.terminal.provider.type.TerminalType
 import com.ai.assistance.operit.terminal.provider.type.LocalTerminalProvider
@@ -117,6 +118,7 @@ class TerminalManager private constructor(
         private const val UBUNTU_FILENAME = "ubuntu-noble-aarch64-pd-v4.18.0.tar.xz"
         private const val MAX_HISTORY_ITEMS = 500
         private const val MAX_OUTPUT_LINES_PER_ITEM = 1000
+        private const val TERMINAL_ENTER = "\r"
     }
 
     init {
@@ -287,7 +289,7 @@ class TerminalManager private constructor(
         
         if (session.isInteractiveMode || isInitializing) {
             Log.d(TAG, "Session in interactive mode or initializing, sending as input: $command")
-            sendInput(command + "\n")
+            sendInput(command + TERMINAL_ENTER)
             return actualCommandId
         }
 
@@ -315,7 +317,7 @@ class TerminalManager private constructor(
         if (session.isInteractiveMode) {
             Log.d(TAG, "Session $sessionId in interactive mode, sending as input: $command")
             try {
-                writeInputToKernel(session, command + "\n", "interactive-session-command")
+                writeInputToKernel(session, command + TERMINAL_ENTER, "interactive-session-command")
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending input to session $sessionId", e)
             }
@@ -361,14 +363,14 @@ class TerminalManager private constructor(
     private suspend fun executeCommandInternal(command: String, session: TerminalSessionData, commandId: String) {
         if (command.trim() == "clear") {
             try {
-                writeInputToKernel(session, "clear\n", "command-clear")
+                writeInputToKernel(session, "clear$TERMINAL_ENTER", "command-clear")
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending 'clear' command", e)
             }
         } else {
             handleRegularCommand(command, session, commandId)
             try {
-                val fullInput = "$command\n"
+                val fullInput = "$command$TERMINAL_ENTER"
                 writeInputToKernel(session, fullInput, "command")
                 Log.d(TAG, "Sent command to PTY: $command")
             } catch (e: Exception) {
@@ -724,6 +726,10 @@ class TerminalManager private constructor(
         val usrDir = usrDir.absolutePath
         val prootDistroPath = "$usrDir/var/lib/proot-distro"
         val ubuntuPath = "$prootDistroPath/installed-rootfs/ubuntu"
+        val operitPackage = context.packageName
+        val operitDataDir = context.applicationInfo.dataDir
+        val operitUserDataMountPath = "/data/user/0/$operitPackage"
+        val operitLegacyDataMountPath = "/data/data/$operitPackage"
 
         // 获取当前选择的源
         val aptSource = sourceManager.getSelectedSource(PackageManagerType.APT)
@@ -924,11 +930,19 @@ EOF
 
         // 读取共享tmp设置
         val sharedTmpEnabled = prefs.getBoolean("shared_tmp_enabled", true)
-        val tmpBindingLine = if (sharedTmpEnabled) {
-            """-b "${'$'}TMPDIR":/dev/shm \"""
-        } else {
-            ""
-        }
+        val prootBindArgs = PRootMountMapping.buildRuntimeProotBindArgs(
+            homeDir = homeDir,
+            appDataDir = operitDataDir,
+            packageName = operitPackage,
+            chrootEnabled = false
+        ).toMutableList().apply {
+            if (sharedTmpEnabled) {
+                add(4, """-b "${'$'}TMPDIR":/dev/shm""")
+            }
+        }.joinToString(
+            separator = " \\\n            ",
+            postfix = " \\"
+        )
         
         val loginUbuntu = """
         login_ubuntu(){
@@ -962,11 +976,11 @@ EOF
 
           # 使用 proot 直接进入解压的 Ubuntu 根文件系统。
           # - 清理并设置 PATH，避免继承宿主 PATH 造成命令找不到或混用 busybox。
-          # - 绑定常见伪文件系统与外部存储，保障交互和软件包管理工作正常。
+          # - 绑定常见伪文件系统、外部存储与 Operit 应用沙箱，保障交互和软件包管理工作正常。
           # 在 proot 环境中创建必要的目录
           mkdir -p "${'$'}UBUNTU_PATH/storage/emulated" 2>/dev/null
-          mkdir -p "${'$'}UBUNTU_PATH/data/user/0" 2>/dev/null
-          mkdir -p "${'$'}UBUNTU_PATH/data/data" 2>/dev/null
+          mkdir -p "${'$'}UBUNTU_PATH$operitUserDataMountPath" 2>/dev/null
+          mkdir -p "${'$'}UBUNTU_PATH$operitLegacyDataMountPath" 2>/dev/null
           mkdir -p "${'$'}UBUNTU_PATH/data/local/tmp" 2>/dev/null
           mkdir -p "${'$'}UBUNTU_PATH$homeDir" 2>/dev/null
 
@@ -1018,21 +1032,7 @@ EOF
             -0 \
             -r "${'$'}UBUNTU_PATH" \
             --link2symlink \
-            -b /dev \
-            -b /proc \
-            -b /sys \
-            -b /dev/pts \
-            $tmpBindingLine
-            -b /proc/self/fd:/dev/fd \
-            -b /proc/self/fd/0:/dev/stdin \
-            -b /proc/self/fd/1:/dev/stdout \
-            -b /proc/self/fd/2:/dev/stderr \
-            -b /storage/emulated/0:/sdcard \
-            -b /storage/emulated/0:/storage/emulated/0 \
-            -b /data/user/0:/data/user/0 \
-            -b /data/data:/data/data \
-            -b /data/local/tmp:/data/local/tmp \
-            -b $homeDir:$homeDir \
+            $prootBindArgs
             ${'$'}PROOT_EXTRA_BINDINGS \
             -w /root \
             /usr/bin/env -i \
@@ -1122,7 +1122,7 @@ EOF
         }
     }
 
-    fun cleanup() {
+    fun prepareForMaintenance() {
         // 释放 provider 连接
         kotlinx.coroutines.runBlocking {
             terminalProvider?.disconnect()
@@ -1134,10 +1134,15 @@ EOF
         }
         terminalProvider = null
         
-        activeSessions.keys.forEach { sessionId ->
+        activeSessions.keys.toList().forEach { sessionId ->
             closeTerminalSession(sessionId)
         }
         sessionManager.cleanup()
+        Log.d(TAG, "Prepared terminal manager for maintenance.")
+    }
+
+    fun cleanup() {
+        prepareForMaintenance()
         coroutineScope.cancel()
         Log.d(TAG, "All active sessions cleaned up.")
     }

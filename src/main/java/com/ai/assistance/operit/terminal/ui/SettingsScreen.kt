@@ -100,6 +100,10 @@ fun SettingsScreen(
     val sharedTmpEnabled by viewModel.sharedTmpEnabled.collectAsState()
     
     val chrootEnabled by viewModel.chrootEnabled.collectAsState()
+    val chrootMountStatus by viewModel.chrootMountStatus.collectAsState()
+    val chrootMountDetails by viewModel.chrootMountDetails.collectAsState()
+    val isInspectingChrootMounts by viewModel.isInspectingChrootMounts.collectAsState()
+    val isUnmountingChrootMounts by viewModel.isUnmountingChrootMounts.collectAsState()
     
     var showClearCacheDialog by remember { mutableStateOf(false) }
 
@@ -553,6 +557,80 @@ fun SettingsScreen(
                         color = SettingsTheme.onSurfaceVariant.copy(alpha = 0.8f),
                         lineHeight = 16.sp
                     )
+
+                    if (chrootEnabled) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = chrootMountStatus,
+                            fontSize = 14.sp,
+                            color = SettingsTheme.primaryColor
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { viewModel.inspectChrootMounts() },
+                                enabled = !isInspectingChrootMounts && !isUnmountingChrootMounts,
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = SettingsTheme.primaryColor
+                                ),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, SettingsTheme.primaryColor)
+                            ) {
+                                if (isInspectingChrootMounts) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = SettingsTheme.primaryColor
+                                    )
+                                } else {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(context.getString(com.ai.assistance.operit.terminal.R.string.chroot_mount_check))
+                            }
+
+                            Button(
+                                onClick = { viewModel.unmountChrootMounts() },
+                                enabled = !isInspectingChrootMounts && !isUnmountingChrootMounts,
+                                colors = ButtonDefaults.buttonColors(containerColor = SettingsTheme.errorColor),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                if (isUnmountingChrootMounts) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = SettingsTheme.onSurfaceColor
+                                    )
+                                } else {
+                                    Icon(Icons.Default.Stop, contentDescription = null, modifier = Modifier.size(16.dp))
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(context.getString(com.ai.assistance.operit.terminal.R.string.chroot_mount_unmount))
+                            }
+                        }
+
+                        if (chrootMountDetails.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = context.getString(com.ai.assistance.operit.terminal.R.string.chroot_mount_details_title),
+                                fontSize = 12.sp,
+                                color = SettingsTheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = chrootMountDetails,
+                                fontSize = 12.sp,
+                                color = SettingsTheme.onSurfaceColor,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(SettingsTheme.backgroundColor.copy(alpha = 0.5f), MaterialTheme.shapes.small)
+                                    .padding(12.dp)
+                            )
+                        }
+                    }
                 }
             }
 

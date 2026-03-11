@@ -152,6 +152,16 @@
     <string name="chroot_mode_enabled_desc">Enabled - Start Ubuntu via chroot (Root required)</string>
     <string name="chroot_mode_disabled_desc">Disabled - Start Ubuntu via proot</string>
     <string name="chroot_mode_note">Note: chroot mode mounts /proc, /sys, /dev (including /dev/pts) into the Ubuntu environment. Root users, please use with caution. This mode requires a rooted device and root permission granted to this app, otherwise startup may fail</string>
+    <string name="chroot_mount_check">Inspect Mounts</string>
+    <string name="chroot_mount_unmount">Unmount</string>
+    <string name="chroot_mount_status_idle">chroot mounts have not been inspected yet</string>
+    <string name="chroot_mount_status_checking">Inspecting chroot mounts…</string>
+    <string name="chroot_mount_status_unmounting">Unmounting chroot mounts…</string>
+    <string name="chroot_mount_status_none">No active chroot hard mounts detected</string>
+    <string name="chroot_mount_status_detected">Detected %1$d active chroot hard mounts</string>
+    <string name="chroot_mount_status_unmounted">Unmounted %1$d chroot hard mounts</string>
+    <string name="chroot_mount_status_failed">Mount operation failed: %1$s</string>
+    <string name="chroot_mount_details_title">Current mount points:</string>
     
     <!-- SSH Settings -->
     <string name="ssh_enable_title">Enable SSH Connection</string>
