@@ -35,6 +35,7 @@ import com.ai.assistance.operit.terminal.utils.SSHDServerManager
 import com.ai.assistance.operit.terminal.provider.filesystem.FileSystemProvider
 import com.ai.assistance.operit.terminal.provider.filesystem.LocalFileSystemProvider
 import com.ai.assistance.operit.terminal.provider.filesystem.PRootMountMapping
+import com.ai.assistance.operit.terminal.provider.type.HiddenExecResult
 import com.ai.assistance.operit.terminal.provider.type.TerminalProvider
 import com.ai.assistance.operit.terminal.provider.type.TerminalType
 import com.ai.assistance.operit.terminal.provider.type.LocalTerminalProvider
@@ -1145,6 +1146,28 @@ EOF
         prepareForMaintenance()
         coroutineScope.cancel()
         Log.d(TAG, "All active sessions cleaned up.")
+    }
+
+    suspend fun executeHiddenCommand(
+        command: String,
+        executorKey: String = "default",
+        timeoutMs: Long = 120000L
+    ): HiddenExecResult {
+        val initialized = initializeEnvironment()
+        if (!initialized) {
+            return HiddenExecResult(
+                output = "",
+                exitCode = -1,
+                state = HiddenExecResult.State.SHELL_START_FAILED,
+                error = "Terminal environment initialization failed"
+            )
+        }
+
+        return getTerminalProvider().executeHiddenCommand(
+            command = command,
+            executorKey = executorKey,
+            timeoutMs = timeoutMs
+        )
     }
 
     /**

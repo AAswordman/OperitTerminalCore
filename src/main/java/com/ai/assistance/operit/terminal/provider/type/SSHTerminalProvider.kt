@@ -156,6 +156,34 @@ class SSHTerminalProvider(
             Log.d(TAG, "Closed SSH terminal session (process): $sessionId")
         }
     }
+
+    override suspend fun executeHiddenCommand(
+        command: String,
+        executorKey: String,
+        timeoutMs: Long
+    ): HiddenExecResult {
+        val id = sshConnectionId
+            ?: return HiddenExecResult(
+                output = "",
+                exitCode = -1,
+                state = HiddenExecResult.State.EXECUTION_ERROR,
+                error = "SSH connection not established"
+            )
+
+        return sshFileManager.executeCommand(
+            command = command,
+            timeoutMs = timeoutMs,
+            connectionId = id
+        ).getOrElse { error ->
+            Log.e(TAG, "Failed to execute hidden SSH command", error)
+            HiddenExecResult(
+                output = "",
+                exitCode = -1,
+                state = HiddenExecResult.State.EXECUTION_ERROR,
+                error = error.message ?: "Failed to execute hidden SSH command"
+            )
+        }
+    }
     
     override fun getFileSystemProvider(): FileSystemProvider {
         // 从管理器获取文件系统提供者

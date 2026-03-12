@@ -5,12 +5,15 @@ import android.util.Log
 import com.ai.assistance.operit.terminal.data.SSHAuthType
 import com.ai.assistance.operit.terminal.data.SSHConfig
 import com.ai.assistance.operit.terminal.provider.filesystem.SSHFileSystemProvider
+import com.ai.assistance.operit.terminal.provider.type.HiddenExecResult
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.util.Properties
 import java.util.concurrent.ConcurrentHashMap
 
@@ -335,6 +338,99 @@ class SSHFileConnectionManager private constructor(private val context: Context)
                 hasReverseTunnel = conn.reverseTunnelActive,
                 mountedPaths = conn.mountedPaths.toList()
             )
+        }
+    }
+
+    suspend fun executeCommand(
+        command: String,
+        timeoutMs: Long = 120000L,
+        connectionId: String? = null
+    ): Result<HiddenExecResult> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val id = connectionId ?: currentConnectionId
+                    ?: return@withContext Result.failure(Exception("No active SSH connection"))
+                val connection = connections[id]
+                    ?: return@withContext Result.failure(Exception("Connection not found: $id"))
+
+                val channel = connection.session.openChannel("exec") as com.jcraft.jsch.ChannelExec
+                val stderrBuffer = ByteArrayOutputStream()
+                val stdoutStream = channel.inputStream
+
+                channel.setInputStream(null)
+                channel.setErrStream(stderrBuffer, true)
+                channel.setCommand(command)
+                channel.connect()
+
+                val stdoutBuilder = StringBuilder()
+                val buffer = ByteArray(4096)
+                val deadline = System.currentTimeMillis() + timeoutMs
+
+                while (true) {
+                    while (stdoutStream.available() > 0) {
+                        val bytesToRead = minOf(buffer.size, stdoutStream.available())
+                        val count = stdoutStream.read(buffer, 0, bytesToRead)
+                        if (count <= 0) {
+                            break
+                        }
+                        stdoutBuilder.append(String(buffer, 0, count, Charsets.UTF_8))
+                    }
+
+                    if (channel.isClosed) {
+                        while (stdoutStream.available() > 0) {
+                            val bytesToRead = minOf(buffer.size, stdoutStream.available())
+                            val count = stdoutStream.read(buffer, 0, bytesToRead)
+                            if (count <= 0) {
+                                break
+                            }
+                            stdoutBuilder.append(String(buffer, 0, count, Charsets.UTF_8))
+                        }
+
+                        val stderrText = stderrBuffer.toString(Charsets.UTF_8.name()).trimEnd()
+                        val stdoutText = stdoutBuilder.toString().trimEnd()
+                        val combinedOutput =
+                            buildString {
+                                if (stdoutText.isNotBlank()) {
+                                    append(stdoutText)
+                                }
+                                if (stderrText.isNotBlank()) {
+                                    if (isNotEmpty()) append('\n')
+                                    append(stderrText)
+                                }
+                            }
+
+                        val exitCode = channel.exitStatus
+                        channel.disconnect()
+                        return@withContext Result.success(
+                            HiddenExecResult(
+                                output = combinedOutput,
+                                exitCode = exitCode
+                            )
+                        )
+                    }
+
+                    if (System.currentTimeMillis() >= deadline) {
+                        val preview = stdoutBuilder.toString().takeLast(1200)
+                        channel.disconnect()
+                        return@withContext Result.success(
+                            HiddenExecResult(
+                                output = stdoutBuilder.toString(),
+                                exitCode = -1,
+                                state = HiddenExecResult.State.TIMEOUT,
+                                error = "SSH hidden exec timed out after ${timeoutMs}ms",
+                                rawOutputPreview = preview
+                            )
+                        )
+                    }
+
+                    delay(20)
+                }
+
+                Result.failure(Exception("SSH command loop terminated unexpectedly"))
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to execute SSH command", e)
+                Result.failure(e)
+            }
         }
     }
     

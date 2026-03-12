@@ -4,6 +4,29 @@ import com.ai.assistance.operit.terminal.Pty
 import com.ai.assistance.operit.terminal.TerminalSession
 import com.ai.assistance.operit.terminal.provider.filesystem.FileSystemProvider
 
+data class HiddenExecResult(
+    val output: String,
+    val exitCode: Int,
+    val state: State = State.OK,
+    val error: String = "",
+    val rawOutputPreview: String = ""
+) {
+    enum class State {
+        OK,
+        SHELL_START_FAILED,
+        SHELL_NOT_READY,
+        PROCESS_EXITED,
+        MISSING_BEGIN_MARKER,
+        MISSING_END_MARKER,
+        INVALID_EXIT_CODE,
+        TIMEOUT,
+        EXECUTION_ERROR
+    }
+
+    val isOk: Boolean
+        get() = state == State.OK
+}
+
 /**
  * 终端提供者抽象接口
  * 
@@ -40,6 +63,18 @@ interface TerminalProvider {
      * @param sessionId 会话ID
      */
     suspend fun closeSession(sessionId: String)
+
+    /**
+     * 在不可见的执行上下文中执行命令。
+     *
+     * 本地终端会复用后台 shell，避免每次命令重新 login/proot。
+     * SSH 终端可映射到 exec channel。
+     */
+    suspend fun executeHiddenCommand(
+        command: String,
+        executorKey: String = "default",
+        timeoutMs: Long = 120000L
+    ): HiddenExecResult
     
     /**
      * 获取文件系统提供者
