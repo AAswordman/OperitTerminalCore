@@ -55,6 +55,7 @@ class TerminalManager private constructor(
     private val binDir: File = File(usrDir, "bin")
     private val nativeLibDir: String = context.applicationInfo.nativeLibraryDir
     private val activeSessions = ConcurrentHashMap<String, TerminalSession>()
+    private val closingSessions = ConcurrentHashMap.newKeySet<String>()
     
     // SharedPreferences for reading settings
     private val prefs = context.getSharedPreferences("terminal_settings", Context.MODE_PRIVATE)
@@ -432,6 +433,7 @@ class TerminalManager private constructor(
         coroutineScope.launch(Dispatchers.IO) {
             try {
                 Log.d(TAG, "Starting session...")
+                closingSessions.remove(sessionId)
 
                 // 获取单例的终端提供者
                 val provider = getTerminalProvider()
@@ -443,6 +445,7 @@ class TerminalManager private constructor(
 
                 // 启动读取协程
                 val readJob = launch {
+                    var reachedEof = false
                     try {
                         terminalSession.stdout.use { inputStream ->
                             val buffer = ByteArray(4096)
@@ -452,11 +455,19 @@ class TerminalManager private constructor(
                                 Log.d(TAG, "Read chunk: '$chunk'")
                                 outputProcessor.processOutput(sessionId, chunk, sessionManager)
                             }
+                            reachedEof = true
                         }
                     } catch (e: java.io.InterruptedIOException) {
                         Log.i(TAG, "Read job interrupted for session $sessionId.")
                     } catch (e: Exception) {
                         Log.e(TAG, "Error in read job for session $sessionId", e)
+                    } finally {
+                        if (closingSessions.remove(sessionId)) {
+                            return@launch
+                        }
+                        if (reachedEof || !terminalSession.process.isAlive) {
+                            handleTerminalSessionExit(sessionId, terminalSession)
+                        }
                     }
                 }
 
@@ -473,6 +484,30 @@ class TerminalManager private constructor(
                 Log.e(TAG, "Error starting session", e)
             }
         }
+    }
+
+    private fun handleTerminalSessionExit(sessionId: String, terminalSession: TerminalSession) {
+        if (sessionManager.getSession(sessionId) == null) {
+            return
+        }
+
+        val exitCode =
+            if (terminalSession.process.isAlive) {
+                -1
+            } else {
+                runCatching { terminalSession.process.waitFor() }
+                    .getOrElse {
+                        Log.w(TAG, "Failed to read exit code for session $sessionId", it)
+                        -1
+                    }
+            }
+
+        Log.i(TAG, "Terminal session $sessionId exited with code $exitCode")
+        outputProcessor.handleSessionExit(
+            sessionId = sessionId,
+            message = context.getString(R.string.terminal_exited_with_code, exitCode),
+            sessionManager = sessionManager
+        )
     }
     
     /**
@@ -1081,6 +1116,7 @@ EOF
     }
 
     fun closeTerminalSession(sessionId: String) {
+        closingSessions.add(sessionId)
         // Delegate to provider to ensure underlying process is killed
         coroutineScope.launch {
             try {

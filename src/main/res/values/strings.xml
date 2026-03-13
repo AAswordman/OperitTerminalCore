@@ -126,6 +126,7 @@
     <string name="interrupt_key">Ctrl+C</string>
     <string name="interrupt">中断</string>
     <string name="environment_setup">环境配置</string>
+    <string name="terminal_exited_with_code">终端已退出，退出码：%1$d</string>
     <string name="settings">设置</string>
     
     <!-- Additional new strings -->

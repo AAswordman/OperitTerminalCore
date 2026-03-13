@@ -588,6 +588,63 @@ class OutputProcessor(
         }
     }
 
+    fun handleSessionExit(
+        sessionId: String,
+        message: String,
+        sessionManager: SessionManager
+    ) {
+        sessionManager.updateSession(sessionId) {
+            it.copy(
+                isWaitingForInteractiveInput = false,
+                lastInteractivePrompt = "",
+                isInteractiveMode = false,
+                interactivePrompt = ""
+            )
+        }
+
+        val session = sessionManager.getSession(sessionId) ?: return
+        session.rawBuffer.clear()
+        session.ansiParser.parse("\r\n$message\r\n")
+
+        val lastExecutingItem = session.currentExecutingCommand
+        if (lastExecutingItem != null && lastExecutingItem.isExecuting) {
+            val builder = session.currentCommandOutput
+            if (builder.isNotEmpty() && builder.last() != '\n') {
+                builder.append('\n')
+            }
+            builder.append(message)
+
+            val finalOutput = buildString {
+                if (lastExecutingItem.outputPages.isNotEmpty()) {
+                    append(lastExecutingItem.outputPages.joinToString("\n"))
+                }
+                val tail = builder.toString().trim()
+                if (tail.isNotEmpty()) {
+                    if (isNotEmpty()) append('\n')
+                    append(tail)
+                }
+            }.trim()
+
+            lastExecutingItem.setOutput(finalOutput)
+            lastExecutingItem.setExecuting(false)
+
+            onCommandExecutionEvent(
+                CommandExecutionEvent(
+                    commandId = lastExecutingItem.id,
+                    sessionId = sessionId,
+                    outputChunk = finalOutput,
+                    isCompleted = true
+                )
+            )
+
+            session.currentExecutingCommand = null
+        }
+
+        session.currentCommandOutput.clear()
+        session.currentOutputLineCount = 0
+        session.commandQueue.clear()
+    }
+
     /**
      * 检测并处理全屏模式切换
      * @return 如果处理了全屏模式切换，则返回 true

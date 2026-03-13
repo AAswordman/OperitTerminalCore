@@ -128,6 +128,8 @@ class CanvasTerminalView @JvmOverloads constructor(
     private var touchDownY: Float = 0f
     private var hasMovedBeyondTouchSlop: Boolean = false
     private var hadMultiTouch: Boolean = false
+    private var imeAnimationOffsetPx: Int = 0
+    private var committedImeBottomInsetPx: Int = 0
     
     // 文本测量工具
     private val textMetrics: TextMetrics
@@ -162,13 +164,14 @@ class CanvasTerminalView @JvmOverloads constructor(
         val bodyWidth = r * 1.2f
         val tipHeight = r * 0.9f
         val bodyHeight = r * 1.8f
+        val viewportBottom = getTerminalViewportBottom()
 
         val tipX = center.x.coerceIn(0f, width.toFloat())
-        val tipY = center.y.coerceIn(0f, height.toFloat())
+        val tipY = center.y.coerceIn(0f, viewportBottom)
 
-        val baseY = (tipY + tipHeight).coerceIn(0f, height.toFloat())
+        val baseY = (tipY + tipHeight).coerceIn(0f, viewportBottom)
         val bodyTop = baseY
-        val bodyBottom = (bodyTop + bodyHeight).coerceIn(bodyTop, height.toFloat())
+        val bodyBottom = (bodyTop + bodyHeight).coerceIn(bodyTop, viewportBottom)
 
         val left = (tipX - bodyWidth / 2f).coerceIn(0f, width.toFloat())
         val right = (tipX + bodyWidth / 2f).coerceIn(0f, width.toFloat())
@@ -209,11 +212,11 @@ class CanvasTerminalView @JvmOverloads constructor(
         val contentTop = getTerminalContentTop()
         cx = cx.coerceIn(r + 2f, width - r - 2f)
         val minCy = contentTop + r + 2f
-        val maxCy = height - r - 2f
+        val maxCy = getTerminalViewportBottom() - r - 2f
         cy = if (minCy <= maxCy) {
             cy.coerceIn(minCy, maxCy)
         } else {
-            contentTop + (height - contentTop) / 2f
+            contentTop + (getTerminalViewportBottom() - contentTop) / 2f
         }
 
         val bubbleRect = RectF(cx - r, cy - r, cx + r, cy + r)
@@ -330,7 +333,7 @@ class CanvasTerminalView @JvmOverloads constructor(
         }
         val y = lastSelectionTouchY
         val contentTop = getTerminalContentTop()
-        val contentBottom = height.toFloat()
+        val contentBottom = getTerminalViewportBottom()
         autoScrollDirection = when {
             y < contentTop + autoScrollEdgeThreshold -> -1
             y > contentBottom - autoScrollEdgeThreshold -> 1
@@ -395,10 +398,14 @@ class CanvasTerminalView @JvmOverloads constructor(
         val startCol = selection.startCol.coerceIn(0, max(0, startLine.size - 1))
         val endCol = selection.endCol.coerceIn(0, max(0, endLine.size - 1))
         val contentTop = getTerminalContentTop()
-        val contentBottom = height.toFloat()
+        val contentBottom = getTerminalViewportBottom()
+        val visualShiftY = getTerminalVisualOffsetY()
 
         val startX = getXOffsetForCol(startLine, startCol, charWidth)
-        val startY = contentTop + kotlin.math.round(startRow * charHeight - scrollOffsetY + charHeight)
+        val startY =
+            contentTop +
+                kotlin.math.round(startRow * charHeight - scrollOffsetY + charHeight) -
+                visualShiftY
 
         val endX = run {
             val x = getXOffsetForCol(endLine, endCol, charWidth)
@@ -409,7 +416,10 @@ class CanvasTerminalView @JvmOverloads constructor(
             }
             x + w
         }
-        val endY = contentTop + kotlin.math.round(endRow * charHeight - scrollOffsetY + charHeight)
+        val endY =
+            contentTop +
+                kotlin.math.round(endRow * charHeight - scrollOffsetY + charHeight) -
+                visualShiftY
 
         val start = PointF(startX.coerceIn(0f, width.toFloat()), startY.coerceIn(contentTop, contentBottom))
         val end = PointF(endX.coerceIn(0f, width.toFloat()), endY.coerceIn(contentTop, contentBottom))
@@ -930,12 +940,42 @@ class CanvasTerminalView @JvmOverloads constructor(
         requestRender()
     }
 
+    fun setImeViewportState(animationOffsetPx: Int, committedBottomInsetPx: Int) {
+        val normalizedAnimationOffsetPx = animationOffsetPx.coerceAtLeast(0)
+        val normalizedCommittedInsetPx = committedBottomInsetPx.coerceAtLeast(0)
+        var sizeChanged = false
+        var renderChanged = false
+
+        if (imeAnimationOffsetPx != normalizedAnimationOffsetPx) {
+            imeAnimationOffsetPx = normalizedAnimationOffsetPx
+            renderChanged = true
+        }
+        if (this.committedImeBottomInsetPx != normalizedCommittedInsetPx) {
+            this.committedImeBottomInsetPx = normalizedCommittedInsetPx
+            sizeChanged = true
+            renderChanged = true
+        }
+
+        if (sizeChanged && width > 0 && height > 0 && emulator != null) {
+            updateTerminalSize(width, height)
+        }
+        if (renderChanged) {
+            requestRender()
+        }
+    }
+
     private fun hasTabBar(): Boolean = tabs.isNotEmpty() || onNewTab != null
     private fun hasAddTabButton(): Boolean = onNewTab != null
 
     private fun getTerminalContentTop(): Float = if (hasTabBar()) tabBarHeightPx else 0f
+    private fun getTerminalVisualOffsetY(): Int =
+        (imeAnimationOffsetPx - committedImeBottomInsetPx).coerceAtLeast(0)
 
-    private fun getTerminalViewportHeight(): Float = (height.toFloat() - getTerminalContentTop()).coerceAtLeast(0f)
+    private fun getTerminalViewportBottom(totalHeight: Float = height.toFloat()): Float =
+        (totalHeight - committedImeBottomInsetPx).coerceAtLeast(getTerminalContentTop())
+
+    private fun getTerminalViewportHeight(totalHeight: Float = height.toFloat()): Float =
+        (getTerminalViewportBottom(totalHeight) - getTerminalContentTop()).coerceAtLeast(0f)
 
     private fun getTabsViewportWidth(totalWidth: Float = width.toFloat()): Float {
         val addButtonArea = if (hasAddTabButton()) addButtonSizePx + tabSpacingPx else 0f
@@ -1719,8 +1759,8 @@ class CanvasTerminalView @JvmOverloads constructor(
 
         val viewportWidth = canvas.width.toFloat()
         val contentTop = getTerminalContentTop()
-        val viewportHeight = (canvas.height.toFloat() - contentTop).coerceAtLeast(0f)
-        val contentBottom = contentTop + viewportHeight
+        val viewportHeight = getTerminalViewportHeight(canvas.height.toFloat())
+        val contentBottom = getTerminalViewportBottom(canvas.height.toFloat())
         canvas.save()
         canvas.clipRect(0f, 0f, viewportWidth, canvas.height.toFloat())
         try {
@@ -1737,124 +1777,129 @@ class CanvasTerminalView @JvmOverloads constructor(
             canvas.save()
             canvas.clipRect(0f, contentTop, viewportWidth, contentBottom)
             try {
-            // 处理惯性滚动动画
-            if (scroller.computeScrollOffset()) {
-                val newScrollY = clampScrollOffset(scroller.currY.toFloat())
-                if (newScrollY != scrollOffsetY) {
-                    scrollOffsetY = newScrollY
-                    
-                    // 保存滚动位置
-                    sessionId?.let { id ->
-                        onScrollOffsetChanged?.invoke(id, scrollOffsetY)
-                    }
-                    
-                    // 更新用户滚动状态
-                    if (scrollOffsetY > 0f) {
-                        isUserScrolling = true
-                    } else {
-                        isUserScrolling = false
-                    }
-                    
-                    // 继续请求渲染以保持动画流畅
-                    isDirty = true
-                }
-            }
+                // 处理惯性滚动动画
+                if (scroller.computeScrollOffset()) {
+                    val newScrollY = clampScrollOffset(scroller.currY.toFloat())
+                    if (newScrollY != scrollOffsetY) {
+                        scrollOffsetY = newScrollY
 
-            // 使用完整内容（历史 + 屏幕缓冲）
-            val fullContent = em.getFullContent()
-            val historySize = em.getHistorySize()
-
-            val charWidth = textMetrics.charWidth
-            val charHeight = textMetrics.charHeight
-            val baseline = textMetrics.charBaseline
-            if (charHeight <= 0f) return
-
-            // 限制最大滚动偏移（不能超过内容高度）
-            val maxScrollOffset = max(0f, fullContent.size * charHeight - viewportHeight)
-
-            // 如果需要滚动到底部，在渲染时执行（使用正确的 canvas.height）
-            if (needScrollToBottom) {
-                scrollOffsetY = maxScrollOffset
-                needScrollToBottom = false
-            }
-
-            scrollOffsetY = scrollOffsetY.coerceIn(0f, maxScrollOffset)
-
-            // 计算可见区域
-            val visibleRows = (viewportHeight / charHeight).toInt() + 2
-            val startRow = (scrollOffsetY / charHeight).toInt().coerceAtLeast(0)
-            val endRow = min(startRow + visibleRows, fullContent.size)
-
-            // 绘制每一行（包括背景）
-            for (row in startRow until endRow) {
-                if (row >= fullContent.size) break
-
-                val line = fullContent[row]
-
-                // 使用绝对坐标计算，避免 startRow 跳变导致的整体偏移
-                val exactY = contentTop + row * charHeight - scrollOffsetY
-                val y = kotlin.math.round(exactY)
-                if (y + charHeight <= contentTop || y >= contentBottom) {
-                    continue
-                }
-
-                // 绘制该行的所有字符
-                drawLine(canvas, line, row, 0f, y, charWidth, charHeight, baseline)
-            }
-
-            // 绘制选择区域
-            if (selectionManager.hasSelection()) {
-                drawSelection(canvas, charWidth, charHeight)
-                drawSelectionHandles(canvas, charWidth, charHeight)
-                if (isSelectionDragging) {
-                    drawSelectionMagnifier(canvas)
-                }
-            }
-            
-            // 绘制光标（光标只在可见屏幕部分显示，需要考虑历史缓冲区偏移）
-            if (em.isCursorVisible()) {
-                val cursorRow = historySize + em.getCursorY()
-                val cursorCol = em.getCursorX()
-
-                // 只有当光标在可见区域内时才绘制
-                if (cursorRow >= startRow && cursorRow < endRow) {
-                    val exactCursorY = contentTop + cursorRow * charHeight - scrollOffsetY
-                    val cursorY = kotlin.math.round(exactCursorY)
-                    if (cursorY + charHeight > contentTop && cursorY < contentBottom) {
-                        // 计算光标的 x 坐标，考虑宽字符
-                        val line = fullContent.getOrNull(cursorRow) ?: arrayOf()
-                        var cursorX = 0f
-
-                        // 遍历到光标列，累加每个字符的宽度
-                        for (col in 0 until cursorCol.coerceAtMost(line.size)) {
-                            val cellWidth = textMetrics.getCellWidth(line[col].char)
-                            cursorX += charWidth * cellWidth
+                        // 保存滚动位置
+                        sessionId?.let { id ->
+                            onScrollOffsetChanged?.invoke(id, scrollOffsetY)
                         }
 
-                        // 获取光标所在字符的宽度
-                        val cursorCharWidth = if (cursorCol < line.size) {
-                            val cellWidth = textMetrics.getCellWidth(line[cursorCol].char)
-                            charWidth * cellWidth
-                        } else {
-                            charWidth
-                        }
+                        // 更新用户滚动状态
+                        isUserScrolling = scrollOffsetY > 0f
 
-                        val top = cursorY.coerceAtLeast(contentTop)
-                        val bottom = (cursorY + charHeight).coerceAtMost(contentBottom)
-                        if (bottom > top) {
-                            cursorPaint.color = Color.GREEN
-                            cursorPaint.alpha = 180
-                            canvas.drawRect(
-                                cursorX,
-                                top,
-                                cursorX + cursorCharWidth,
-                                bottom,
-                                cursorPaint
-                            )
-                        }
+                        // 继续请求渲染以保持动画流畅
+                        isDirty = true
                     }
                 }
-            }
+
+                // 使用完整内容（历史 + 屏幕缓冲）
+                val fullContent = em.getFullContent()
+                val historySize = em.getHistorySize()
+
+                val charWidth = textMetrics.charWidth
+                val charHeight = textMetrics.charHeight
+                val baseline = textMetrics.charBaseline
+                if (charHeight <= 0f) return
+
+                // 限制最大滚动偏移（不能超过内容高度）
+                val maxScrollOffset = max(0f, fullContent.size * charHeight - viewportHeight)
+
+                // 如果需要滚动到底部，在渲染时执行（使用正确的 canvas.height）
+                if (needScrollToBottom) {
+                    scrollOffsetY = maxScrollOffset
+                    needScrollToBottom = false
+                }
+
+                scrollOffsetY = scrollOffsetY.coerceIn(0f, maxScrollOffset)
+
+                // 计算可见区域
+                val visibleRows = (viewportHeight / charHeight).toInt() + 2
+                val startRow = (scrollOffsetY / charHeight).toInt().coerceAtLeast(0)
+                val endRow = min(startRow + visibleRows, fullContent.size)
+
+                canvas.save()
+                canvas.translate(0f, -getTerminalVisualOffsetY().toFloat())
+                try {
+                    // 绘制每一行（包括背景）
+                    for (row in startRow until endRow) {
+                        if (row >= fullContent.size) break
+
+                        val line = fullContent[row]
+
+                        // 使用绝对坐标计算，避免 startRow 跳变导致的整体偏移
+                        val exactY = contentTop + row * charHeight - scrollOffsetY
+                        val y = kotlin.math.round(exactY)
+                        if (y + charHeight <= contentTop || y >= contentBottom) {
+                            continue
+                        }
+
+                        // 绘制该行的所有字符
+                        drawLine(canvas, line, row, 0f, y, charWidth, charHeight, baseline)
+                    }
+
+                    // 绘制选择区域
+                    if (selectionManager.hasSelection()) {
+                        drawSelection(canvas, charWidth, charHeight)
+                    }
+
+                    // 绘制光标（光标只在可见屏幕部分显示，需要考虑历史缓冲区偏移）
+                    if (em.isCursorVisible()) {
+                        val cursorRow = historySize + em.getCursorY()
+                        val cursorCol = em.getCursorX()
+
+                        // 只有当光标在可见区域内时才绘制
+                        if (cursorRow >= startRow && cursorRow < endRow) {
+                            val exactCursorY = contentTop + cursorRow * charHeight - scrollOffsetY
+                            val cursorY = kotlin.math.round(exactCursorY)
+                            if (cursorY + charHeight > contentTop && cursorY < contentBottom) {
+                                // 计算光标的 x 坐标，考虑宽字符
+                                val line = fullContent.getOrNull(cursorRow) ?: arrayOf()
+                                var cursorX = 0f
+
+                                // 遍历到光标列，累加每个字符的宽度
+                                for (col in 0 until cursorCol.coerceAtMost(line.size)) {
+                                    val cellWidth = textMetrics.getCellWidth(line[col].char)
+                                    cursorX += charWidth * cellWidth
+                                }
+
+                                // 获取光标所在字符的宽度
+                                val cursorCharWidth = if (cursorCol < line.size) {
+                                    val cellWidth = textMetrics.getCellWidth(line[cursorCol].char)
+                                    charWidth * cellWidth
+                                } else {
+                                    charWidth
+                                }
+
+                                val top = cursorY.coerceAtLeast(contentTop)
+                                val bottom = (cursorY + charHeight).coerceAtMost(contentBottom)
+                                if (bottom > top) {
+                                    cursorPaint.color = Color.GREEN
+                                    cursorPaint.alpha = 180
+                                    canvas.drawRect(
+                                        cursorX,
+                                        top,
+                                        cursorX + cursorCharWidth,
+                                        bottom,
+                                        cursorPaint
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } finally {
+                    canvas.restore()
+                }
+
+                if (selectionManager.hasSelection()) {
+                    drawSelectionHandles(canvas, charWidth, charHeight)
+                    if (isSelectionDragging) {
+                        drawSelectionMagnifier(canvas)
+                    }
+                }
             } finally {
                 canvas.restore()
             }
@@ -2067,7 +2112,7 @@ class CanvasTerminalView @JvmOverloads constructor(
         val em = emulator ?: return
         val fullContent = em.getFullContent()
         val contentTop = getTerminalContentTop()
-        val contentBottom = canvas.height.toFloat()
+        val contentBottom = getTerminalViewportBottom(canvas.height.toFloat())
         if (contentBottom <= contentTop || charHeight <= 0f) return
         
         for (row in selection.startRow..selection.endRow) {
@@ -2297,7 +2342,7 @@ class CanvasTerminalView @JvmOverloads constructor(
             return Pair(0, 0)
         }
 
-        val localY = (y - getTerminalContentTop()).coerceAtLeast(0f)
+        val localY = (y + getTerminalVisualOffsetY() - getTerminalContentTop()).coerceAtLeast(0f)
         val row = ((localY + scrollOffsetY) / textMetrics.charHeight).toInt().coerceIn(0, fullContent.size - 1)
         
         // 获取该行的内容
@@ -2366,14 +2411,17 @@ class CanvasTerminalView @JvmOverloads constructor(
                 val charHeight = textMetrics.charHeight
 
                 val x = getXOffsetForCol(line, col, charWidth)
-                val y = kotlin.math.round(row * charHeight - scrollOffsetY)
+                val y =
+                    kotlin.math.round(row * charHeight - scrollOffsetY) -
+                        getTerminalVisualOffsetY()
                 val cellWidth = textMetrics.getCellWidth(line[col].char)
                 val w = (charWidth * cellWidth).coerceAtLeast(charWidth)
 
                 val left = x.toInt().coerceIn(0, width)
-                val top = y.toInt().coerceIn(0, height)
+                val top = y.toInt().coerceIn(0, getTerminalViewportBottom().toInt())
                 val right = (x + w).toInt().coerceIn(left, width)
-                val bottom = (y + charHeight).toInt().coerceIn(top, height)
+                val bottom =
+                    (y + charHeight).toInt().coerceIn(top, getTerminalViewportBottom().toInt())
 
                 outRect.set(left, top, right, bottom)
             }
@@ -2613,7 +2661,8 @@ class CanvasTerminalView @JvmOverloads constructor(
     private fun updateTerminalSize(width: Int, height: Int) {
         if (width <= 0 || height <= 0) return
         val contentTop = getTerminalContentTop()
-        val contentHeight = (height - contentTop).toInt().coerceAtLeast(1)
+        val contentHeight =
+            (height - contentTop - committedImeBottomInsetPx).toInt().coerceAtLeast(1)
 
         // 1. 记录当前的滚动状态（基于行数，而不是像素）
         // 这样在缩放后可以恢复到相同的逻辑位置

@@ -126,6 +126,7 @@
     <string name="interrupt_key">Ctrl+C</string>
     <string name="interrupt">Interrupt</string>
     <string name="environment_setup">Environment Setup</string>
+    <string name="terminal_exited_with_code">Terminal exited with code %1$d</string>
     <string name="settings">Settings</string>
     
     <!-- Additional new strings -->

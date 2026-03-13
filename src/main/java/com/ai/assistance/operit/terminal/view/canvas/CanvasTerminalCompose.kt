@@ -16,6 +16,8 @@ fun CanvasTerminalScreen(
     modifier: Modifier = Modifier,
     config: RenderConfig = RenderConfig(),
     pty: com.ai.assistance.operit.terminal.Pty? = null,
+    imeAnimationOffsetPx: Int = 0,
+    committedImeBottomInsetPx: Int = 0,
     onInput: (String) -> Unit = {},
     onScaleChanged: (Float) -> Unit = {},
     sessionId: String? = null,
@@ -33,6 +35,10 @@ fun CanvasTerminalScreen(
                 setConfig(config)
                 setEmulator(emulator)
                 setPty(pty)
+                setImeViewportState(
+                    animationOffsetPx = imeAnimationOffsetPx,
+                    committedBottomInsetPx = committedImeBottomInsetPx
+                )
                 setInputCallback(onInput)
                 setScaleCallback(onScaleChanged)
                 setSessionScrollCallbacks(sessionId, onScrollOffsetChanged, getScrollOffset)
@@ -59,6 +65,10 @@ fun CanvasTerminalScreen(
             view.setConfig(config)
             view.setEmulator(emulator)
             view.setPty(pty)
+            view.setImeViewportState(
+                animationOffsetPx = imeAnimationOffsetPx,
+                committedBottomInsetPx = committedImeBottomInsetPx
+            )
             view.setInputCallback(onInput)
             view.setSessionScrollCallbacks(sessionId, onScrollOffsetChanged, getScrollOffset)
             view.setTabBarState(tabs, currentTabId, onTabClick, onTabClose, onNewTab)
@@ -159,6 +169,8 @@ fun CanvasTerminalOutput(
     modifier: Modifier = Modifier,
     config: RenderConfig = RenderConfig(),
     pty: com.ai.assistance.operit.terminal.Pty? = null,
+    imeAnimationOffsetPx: Int = 0,
+    committedImeBottomInsetPx: Int = 0,
     onRequestShowKeyboard: (() -> Unit)? = null,
     sessionId: String? = null,
     onScrollOffsetChanged: ((String, Float) -> Unit)? = null,
@@ -175,6 +187,10 @@ fun CanvasTerminalOutput(
                 setConfig(config)
                 setEmulator(emulator)
                 setPty(pty)
+                setImeViewportState(
+                    animationOffsetPx = imeAnimationOffsetPx,
+                    committedBottomInsetPx = committedImeBottomInsetPx
+                )
                 setFullscreenMode(false) // 关键：设置为非全屏模式
                 setOnRequestShowKeyboard(onRequestShowKeyboard)
                 setSessionScrollCallbacks(sessionId, onScrollOffsetChanged, getScrollOffset)
@@ -196,6 +212,10 @@ fun CanvasTerminalOutput(
             view.setConfig(config)
             view.setEmulator(emulator)
             view.setPty(pty)
+            view.setImeViewportState(
+                animationOffsetPx = imeAnimationOffsetPx,
+                committedBottomInsetPx = committedImeBottomInsetPx
+            )
             view.setOnRequestShowKeyboard(onRequestShowKeyboard)
             view.setSessionScrollCallbacks(sessionId, onScrollOffsetChanged, getScrollOffset)
             view.setTabBarState(tabs, currentTabId, onTabClick, onTabClose, onNewTab)
