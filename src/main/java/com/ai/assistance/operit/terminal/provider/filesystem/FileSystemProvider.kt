@@ -16,10 +16,6 @@ data class PRootBindMount(
  * 用于统一维护 TerminalManager 的 proot -b 参数，以及 FileSystemProvider 的路径软映射逻辑。
  */
 object PRootMountMapping {
-
-    /**
-     * 各模式共用的固定 bind 挂载（不含 data 目录、动态 homeDir 和可选 /dev/shm）。
-     */
     private val BASE_BIND_MOUNTS: List<PRootBindMount> = listOf(
         PRootBindMount("/dev"),
         PRootBindMount("/proc"),
@@ -34,6 +30,9 @@ object PRootMountMapping {
         PRootBindMount("/data/local/tmp", "/data/local/tmp")
     )
 
+    /**
+     * 各模式共用的固定 bind 挂载（不含 data 目录、动态 homeDir 和可选 /dev/shm）。
+     */
     private fun buildDataBindMounts(
         appDataDir: String,
         packageName: String,
@@ -62,21 +61,6 @@ object PRootMountMapping {
         return BASE_BIND_MOUNTS +
             buildDataBindMounts(appDataDir, packageName, chrootEnabled) +
             PRootBindMount(homeDir, homeDir)
-    }
-
-    fun buildRuntimeProotBindArgs(
-        homeDir: String,
-        appDataDir: String,
-        packageName: String,
-        chrootEnabled: Boolean
-    ): List<String> {
-        return buildRuntimeBindMounts(homeDir, appDataDir, packageName, chrootEnabled).map { mount ->
-            if (mount.sourcePath == mount.targetPath) {
-                "-b ${mount.sourcePath}"
-            } else {
-                "-b ${mount.sourcePath}:${mount.targetPath}"
-            }
-        }
     }
 
     /**

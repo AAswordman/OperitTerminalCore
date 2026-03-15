@@ -34,6 +34,7 @@ import com.ai.assistance.operit.terminal.utils.SSHConfigManager
 import com.ai.assistance.operit.terminal.utils.SSHDServerManager
 import com.ai.assistance.operit.terminal.provider.filesystem.FileSystemProvider
 import com.ai.assistance.operit.terminal.provider.filesystem.LocalFileSystemProvider
+import com.ai.assistance.operit.terminal.provider.filesystem.PRootBindMount
 import com.ai.assistance.operit.terminal.provider.filesystem.PRootMountMapping
 import com.ai.assistance.operit.terminal.provider.type.HiddenExecResult
 import com.ai.assistance.operit.terminal.provider.type.TerminalProvider
@@ -819,6 +820,28 @@ nameserver 119.29.29.29
 nameserver 180.76.76.76
 EOF
         }
+        can_access_bind_source(){
+          bind_source="${'$'}1"
+          if [ -z "${'$'}bind_source" ]; then
+            return 1
+          fi
+          if [ ! -e "${'$'}bind_source" ] && [ ! -L "${'$'}bind_source" ]; then
+            return 1
+          fi
+          "${'$'}BIN/busybox" ls -Ld "${'$'}bind_source" >/dev/null 2>&1
+        }
+        append_proot_bind_arg(){
+          bind_source="${'$'}1"
+          bind_target="${'$'}2"
+          if ! can_access_bind_source "${'$'}bind_source"; then
+            return 0
+          fi
+          if [ -z "${'$'}bind_target" ] || [ "${'$'}bind_source" = "${'$'}bind_target" ]; then
+            PROOT_BIND_ARGS="${'$'}PROOT_BIND_ARGS -b ${'$'}bind_source"
+          else
+            PROOT_BIND_ARGS="${'$'}PROOT_BIND_ARGS -b ${'$'}bind_source:${'$'}bind_target"
+          fi
+        }
         """.trimIndent()
 
         val installUbuntu = """
@@ -966,19 +989,18 @@ EOF
 
         // 读取共享tmp设置
         val sharedTmpEnabled = prefs.getBoolean("shared_tmp_enabled", true)
-        val prootBindArgs = PRootMountMapping.buildRuntimeProotBindArgs(
+        val prootBindSetup = PRootMountMapping.buildRuntimeBindMounts(
             homeDir = homeDir,
             appDataDir = operitDataDir,
             packageName = operitPackage,
             chrootEnabled = false
         ).toMutableList().apply {
             if (sharedTmpEnabled) {
-                add(4, """-b "${'$'}TMPDIR":/dev/shm""")
+                add(4, PRootBindMount(tmpDir, "/dev/shm"))
             }
-        }.joinToString(
-            separator = " \\\n            ",
-            postfix = " \\"
-        )
+        }.joinToString(separator = "\n") { mount ->
+            "          append_proot_bind_arg \"${mount.sourcePath}\" \"${mount.targetPath}\""
+        }
         
         val loginUbuntu = """
         login_ubuntu(){
@@ -996,18 +1018,6 @@ EOF
                 source "${'$'}HOME/setup_fake_sysdata.sh"
                 setup_fake_sysdata
             fi
-          fi
-
-          # Prepare extra bindings for missing proc files
-          PROOT_EXTRA_BINDINGS=""
-          if [ "${'$'}USE_CHROOT" != "1" ]; then
-            if [ ! -e /proc/stat ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.stat:/proc/stat"; fi
-            if [ ! -e /proc/loadavg ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.loadavg:/proc/loadavg"; fi
-            if [ ! -e /proc/uptime ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.uptime:/proc/uptime"; fi
-            if [ ! -e /proc/version ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.version:/proc/version"; fi
-            if [ ! -e /proc/vmstat ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.vmstat:/proc/vmstat"; fi
-            if [ ! -e /proc/sys/kernel/cap_last_cap ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.sysctl_entry_cap_last_cap:/proc/sys/kernel/cap_last_cap"; fi
-            if [ ! -e /proc/sys/fs/inotify/max_user_watches ]; then PROOT_EXTRA_BINDINGS="${'$'}PROOT_EXTRA_BINDINGS -b ${'$'}UBUNTU_PATH/proc/.sysctl_inotify_max_user_watches:/proc/sys/fs/inotify/max_user_watches"; fi
           fi
 
           # 使用 proot 直接进入解压的 Ubuntu 根文件系统。
@@ -1064,12 +1074,22 @@ EOF
             chmod 700 "${'$'}CHROOT_WRAPPER" 2>/dev/null || true
             exec su -c "sh \"${'$'}CHROOT_WRAPPER\" \"${'$'}BIN\" \"${'$'}UBUNTU_PATH\" \"${'$'}CMD_FILE\" \"${homeDir}\" \"${'$'}OPERIT_UID\" \"${'$'}OPERIT_GID\" \"${'$'}OPERIT_GROUPS\""
           fi
+          PROOT_BIND_ARGS=""
+$prootBindSetup
+          if [ "${'$'}USE_CHROOT" != "1" ]; then
+            if [ ! -e /proc/stat ]; then append_proot_bind_arg "${'$'}UBUNTU_PATH/proc/.stat" "/proc/stat"; fi
+            if [ ! -e /proc/loadavg ]; then append_proot_bind_arg "${'$'}UBUNTU_PATH/proc/.loadavg" "/proc/loadavg"; fi
+            if [ ! -e /proc/uptime ]; then append_proot_bind_arg "${'$'}UBUNTU_PATH/proc/.uptime" "/proc/uptime"; fi
+            if [ ! -e /proc/version ]; then append_proot_bind_arg "${'$'}UBUNTU_PATH/proc/.version" "/proc/version"; fi
+            if [ ! -e /proc/vmstat ]; then append_proot_bind_arg "${'$'}UBUNTU_PATH/proc/.vmstat" "/proc/vmstat"; fi
+            if [ ! -e /proc/sys/kernel/cap_last_cap ]; then append_proot_bind_arg "${'$'}UBUNTU_PATH/proc/.sysctl_entry_cap_last_cap" "/proc/sys/kernel/cap_last_cap"; fi
+            if [ ! -e /proc/sys/fs/inotify/max_user_watches ]; then append_proot_bind_arg "${'$'}UBUNTU_PATH/proc/.sysctl_inotify_max_user_watches" "/proc/sys/fs/inotify/max_user_watches"; fi
+          fi
           exec ${'$'}BIN/proot \
             -0 \
             -r "${'$'}UBUNTU_PATH" \
             --link2symlink \
-            $prootBindArgs
-            ${'$'}PROOT_EXTRA_BINDINGS \
+            ${'$'}PROOT_BIND_ARGS \
             -w /root \
             /usr/bin/env -i \
               HOME=/root \
