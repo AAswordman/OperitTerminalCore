@@ -844,6 +844,83 @@ EOF
             PROOT_BIND_ARGS="${'$'}PROOT_BIND_ARGS -b ${'$'}bind_source:${'$'}bind_target"
           fi
         }
+        run_proot_probe(){
+          if [ "${'$'}PROOT_LINK2SYMLINK" = "1" ]; then
+            "${'$'}BIN/proot" \
+              -0 \
+              -r "${'$'}UBUNTU_PATH" \
+              --link2symlink \
+              "${'$'}@" \
+              -w /root \
+              /usr/bin/env -i \
+                HOME=/root \
+                TERM=xterm-256color \
+                LANG=en_US.UTF-8 \
+                PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+                /bin/bash --noprofile --norc -c 'exit 0' >/dev/null 2>&1
+          else
+            "${'$'}BIN/proot" \
+              -0 \
+              -r "${'$'}UBUNTU_PATH" \
+              "${'$'}@" \
+              -w /root \
+              /usr/bin/env -i \
+                HOME=/root \
+                TERM=xterm-256color \
+                LANG=en_US.UTF-8 \
+                PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+                /bin/bash --noprofile --norc -c 'exit 0' >/dev/null 2>&1
+          fi
+        }
+        probe_proot_link2symlink(){
+          "${'$'}BIN/proot" \
+            -0 \
+            -r "${'$'}UBUNTU_PATH" \
+            --link2symlink \
+            -w /root \
+            /usr/bin/env -i \
+              HOME=/root \
+              TERM=xterm-256color \
+              LANG=en_US.UTF-8 \
+              PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+              /bin/bash --noprofile --norc -c 'exit 0' >/dev/null 2>&1
+        }
+        probe_and_append_bind_arg(){
+          bind_source="${'$'}1"
+          bind_target="${'$'}2"
+          if ! can_access_bind_source "${'$'}bind_source"; then
+            return 0
+          fi
+
+          candidate_bind_args="-b ${'$'}bind_source"
+          if [ -n "${'$'}bind_target" ] && [ "${'$'}bind_source" != "${'$'}bind_target" ]; then
+            candidate_bind_args="-b ${'$'}bind_source:${'$'}bind_target"
+          fi
+
+          if [ -n "${'$'}PROOT_BIND_ARGS" ]; then
+            set -- ${'$'}PROOT_BIND_ARGS ${'$'}candidate_bind_args
+          else
+            set -- ${'$'}candidate_bind_args
+          fi
+
+          if run_proot_probe "${'$'}@"; then
+            append_proot_bind_arg "${'$'}bind_source" "${'$'}bind_target"
+          fi
+        }
+        resolve_proot_runtime(){
+          PROOT_LINK2SYMLINK=0
+          PROOT_BIND_ARGS=""
+
+          if ! run_proot_probe; then
+            echo "PRoot startup probe failed."
+            return 1
+          fi
+
+          if probe_proot_link2symlink; then
+            PROOT_LINK2SYMLINK=1
+          fi
+          return 0
+        }
         """.trimIndent()
 
         val installUbuntu = """
@@ -1001,7 +1078,7 @@ EOF
                 add(4, PRootBindMount(tmpDir, "/dev/shm"))
             }
         }.joinToString(separator = "\n") { mount ->
-            "          append_proot_bind_arg \"${mount.sourcePath}\" \"${mount.targetPath}\""
+            "          probe_and_append_bind_arg \"${mount.sourcePath}\" \"${mount.targetPath}\""
         }
         
         val loginUbuntu = """
@@ -1076,30 +1153,52 @@ EOF
             chmod 700 "${'$'}CHROOT_WRAPPER" 2>/dev/null || true
             exec su -c "sh \"${'$'}CHROOT_WRAPPER\" \"${'$'}BIN\" \"${'$'}UBUNTU_PATH\" \"${'$'}CMD_FILE\" \"${homeDir}\" \"${'$'}OPERIT_UID\" \"${'$'}OPERIT_GID\" \"${'$'}OPERIT_GROUPS\""
           fi
-          PROOT_BIND_ARGS=""
+          if ! resolve_proot_runtime; then
+            return 1
+          fi
 $prootBindSetup
           if [ "${'$'}USE_CHROOT" != "1" ]; then
-            if [ ! -e /proc/stat ]; then append_proot_bind_arg "${'$'}UBUNTU_PATH/proc/.stat" "/proc/stat"; fi
-            if [ ! -e /proc/loadavg ]; then append_proot_bind_arg "${'$'}UBUNTU_PATH/proc/.loadavg" "/proc/loadavg"; fi
-            if [ ! -e /proc/uptime ]; then append_proot_bind_arg "${'$'}UBUNTU_PATH/proc/.uptime" "/proc/uptime"; fi
-            if [ ! -e /proc/version ]; then append_proot_bind_arg "${'$'}UBUNTU_PATH/proc/.version" "/proc/version"; fi
-            if [ ! -e /proc/vmstat ]; then append_proot_bind_arg "${'$'}UBUNTU_PATH/proc/.vmstat" "/proc/vmstat"; fi
-            if [ ! -e /proc/sys/kernel/cap_last_cap ]; then append_proot_bind_arg "${'$'}UBUNTU_PATH/proc/.sysctl_entry_cap_last_cap" "/proc/sys/kernel/cap_last_cap"; fi
-            if [ ! -e /proc/sys/fs/inotify/max_user_watches ]; then append_proot_bind_arg "${'$'}UBUNTU_PATH/proc/.sysctl_inotify_max_user_watches" "/proc/sys/fs/inotify/max_user_watches"; fi
+            if [ ! -e /proc/stat ]; then probe_and_append_bind_arg "${'$'}UBUNTU_PATH/proc/.stat" "/proc/stat"; fi
+            if [ ! -e /proc/loadavg ]; then probe_and_append_bind_arg "${'$'}UBUNTU_PATH/proc/.loadavg" "/proc/loadavg"; fi
+            if [ ! -e /proc/uptime ]; then probe_and_append_bind_arg "${'$'}UBUNTU_PATH/proc/.uptime" "/proc/uptime"; fi
+            if [ ! -e /proc/version ]; then probe_and_append_bind_arg "${'$'}UBUNTU_PATH/proc/.version" "/proc/version"; fi
+            if [ ! -e /proc/vmstat ]; then probe_and_append_bind_arg "${'$'}UBUNTU_PATH/proc/.vmstat" "/proc/vmstat"; fi
+            if [ ! -e /proc/sys/kernel/cap_last_cap ]; then probe_and_append_bind_arg "${'$'}UBUNTU_PATH/proc/.sysctl_entry_cap_last_cap" "/proc/sys/kernel/cap_last_cap"; fi
+            if [ ! -e /proc/sys/fs/inotify/max_user_watches ]; then probe_and_append_bind_arg "${'$'}UBUNTU_PATH/proc/.sysctl_inotify_max_user_watches" "/proc/sys/fs/inotify/max_user_watches"; fi
           fi
-          exec ${'$'}BIN/proot \
-            -0 \
-            -r "${'$'}UBUNTU_PATH" \
-            --link2symlink \
-            ${'$'}PROOT_BIND_ARGS \
-            -w /root \
-            /usr/bin/env -i \
-              HOME=/root \
-              TERM=xterm-256color \
-              LANG=en_US.UTF-8 \
-              PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-              COMMAND_TO_EXEC="${'$'}COMMAND_TO_EXEC" \
-              /bin/bash -lc 'echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; eval "${'$'}COMMAND_TO_EXEC"'
+          if [ -n "${'$'}PROOT_BIND_ARGS" ]; then
+            set -- ${'$'}PROOT_BIND_ARGS
+          else
+            set --
+          fi
+          if [ "${'$'}PROOT_LINK2SYMLINK" = "1" ]; then
+            exec "${'$'}BIN/proot" \
+              -0 \
+              -r "${'$'}UBUNTU_PATH" \
+              --link2symlink \
+              "${'$'}@" \
+              -w /root \
+              /usr/bin/env -i \
+                HOME=/root \
+                TERM=xterm-256color \
+                LANG=en_US.UTF-8 \
+                PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+                COMMAND_TO_EXEC="${'$'}COMMAND_TO_EXEC" \
+                /bin/bash -lc 'echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; eval "${'$'}COMMAND_TO_EXEC"'
+          else
+            exec "${'$'}BIN/proot" \
+              -0 \
+              -r "${'$'}UBUNTU_PATH" \
+              "${'$'}@" \
+              -w /root \
+              /usr/bin/env -i \
+                HOME=/root \
+                TERM=xterm-256color \
+                LANG=en_US.UTF-8 \
+                PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+                COMMAND_TO_EXEC="${'$'}COMMAND_TO_EXEC" \
+                /bin/bash -lc 'echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; eval "${'$'}COMMAND_TO_EXEC"'
+          fi
         }
         """.trimIndent()
 
