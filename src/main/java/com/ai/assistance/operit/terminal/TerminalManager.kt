@@ -852,7 +852,7 @@ EOF
           if [ "${'$'}PROOT_LINK2SYMLINK" = "1" ]; then
             LAST_PROOT_PROBE_OUTPUT="${'$'}(
               "${'$'}BIN/proot" \
-                -v 9 \
+                -v 1 \
                 -0 \
                 -r "${'$'}UBUNTU_PATH" \
                 --link2symlink \
@@ -869,7 +869,7 @@ EOF
           else
             LAST_PROOT_PROBE_OUTPUT="${'$'}(
               "${'$'}BIN/proot" \
-                -v 9 \
+                -v 1 \
                 -0 \
                 -r "${'$'}UBUNTU_PATH" \
                 "${'$'}@" \
@@ -912,7 +912,7 @@ EOF
         }
         probe_proot_link2symlink(){
           "${'$'}BIN/proot" \
-            -v 9 \
+            -v 1 \
             -0 \
             -r "${'$'}UBUNTU_PATH" \
             --link2symlink \
@@ -1212,7 +1212,6 @@ $prootBindSetup
           fi
           if [ "${'$'}PROOT_LINK2SYMLINK" = "1" ]; then
             exec "${'$'}BIN/proot" \
-              -v 9 \
               -0 \
               -r "${'$'}UBUNTU_PATH" \
               --link2symlink \
@@ -1227,7 +1226,6 @@ $prootBindSetup
                 /bin/bash -lc 'echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; eval "${'$'}COMMAND_TO_EXEC"'
           else
             exec "${'$'}BIN/proot" \
-              -v 9 \
               -0 \
               -r "${'$'}UBUNTU_PATH" \
               "${'$'}@" \
