@@ -53,7 +53,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun TerminalScreen(
-    env: TerminalEnv
+    env: TerminalEnv,
+    useLocalImeHandling: Boolean = true,
 ) {
     val context = LocalContext.current
     val hostActivity = remember(context) { context.findActivity() }
@@ -69,12 +70,16 @@ fun TerminalScreen(
     // 更新检查器
     val updateChecker = remember { UpdateChecker(context) }
 
-    DisposableEffect(hostActivity, manifestSoftInputMode) {
-        hostActivity?.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+    DisposableEffect(hostActivity, manifestSoftInputMode, useLocalImeHandling) {
+        if (useLocalImeHandling) {
+            hostActivity?.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+        }
         onDispose {
-            val window = hostActivity?.window
-            if (window != null && manifestSoftInputMode != null) {
-                window.setSoftInputMode(manifestSoftInputMode)
+            if (useLocalImeHandling) {
+                val window = hostActivity?.window
+                if (window != null && manifestSoftInputMode != null) {
+                    window.setSoftInputMode(manifestSoftInputMode)
+                }
             }
         }
     }
@@ -103,6 +108,7 @@ fun TerminalScreen(
         composable(TerminalRoutes.TERMINAL_HOME_ROUTE) {
             TerminalHome(
                 env = env,
+                useLocalImeHandling = useLocalImeHandling,
                 onNavigateToSetup = {
                     navController.navigate(TerminalRoutes.SETUP_ROUTE)
                 },

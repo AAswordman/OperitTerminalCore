@@ -844,36 +844,75 @@ EOF
             PROOT_BIND_ARGS="${'$'}PROOT_BIND_ARGS -b ${'$'}bind_source:${'$'}bind_target"
           fi
         }
+        LAST_PROOT_PROBE_STATUS=0
+        LAST_PROOT_PROBE_OUTPUT=""
+        LAST_PROOT_PROBE_ARGS=""
         run_proot_probe(){
+          LAST_PROOT_PROBE_ARGS="${'$'}*"
           if [ "${'$'}PROOT_LINK2SYMLINK" = "1" ]; then
-            "${'$'}BIN/proot" \
-              -0 \
-              -r "${'$'}UBUNTU_PATH" \
-              --link2symlink \
-              "${'$'}@" \
-              -w /root \
-              /usr/bin/env -i \
-                HOME=/root \
-                TERM=xterm-256color \
-                LANG=en_US.UTF-8 \
-                PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-                /bin/bash --noprofile --norc -c 'exit 0' >/dev/null 2>&1
+            LAST_PROOT_PROBE_OUTPUT="${'$'}(
+              "${'$'}BIN/proot" \
+                -v 9 \
+                -0 \
+                -r "${'$'}UBUNTU_PATH" \
+                --link2symlink \
+                "${'$'}@" \
+                -w /root \
+                /usr/bin/env -i \
+                  HOME=/root \
+                  TERM=xterm-256color \
+                  LANG=en_US.UTF-8 \
+                  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+                  /bin/bash --noprofile --norc -c 'exit 0' 2>&1
+            )"
+            LAST_PROOT_PROBE_STATUS="${'$'}?"
           else
-            "${'$'}BIN/proot" \
-              -0 \
-              -r "${'$'}UBUNTU_PATH" \
-              "${'$'}@" \
-              -w /root \
-              /usr/bin/env -i \
-                HOME=/root \
-                TERM=xterm-256color \
-                LANG=en_US.UTF-8 \
-                PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-                /bin/bash --noprofile --norc -c 'exit 0' >/dev/null 2>&1
+            LAST_PROOT_PROBE_OUTPUT="${'$'}(
+              "${'$'}BIN/proot" \
+                -v 9 \
+                -0 \
+                -r "${'$'}UBUNTU_PATH" \
+                "${'$'}@" \
+                -w /root \
+                /usr/bin/env -i \
+                  HOME=/root \
+                  TERM=xterm-256color \
+                  LANG=en_US.UTF-8 \
+                  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+                  /bin/bash --noprofile --norc -c 'exit 0' 2>&1
+            )"
+            LAST_PROOT_PROBE_STATUS="${'$'}?"
           fi
+          return "${'$'}LAST_PROOT_PROBE_STATUS"
+        }
+        print_last_proot_probe_failure(){
+          echo "PRoot startup probe failed."
+          echo "exit_code=${'$'}LAST_PROOT_PROBE_STATUS"
+          echo "ubuntu_path=${'$'}UBUNTU_PATH"
+          echo "proot_loader=${'$'}{PROOT_LOADER:-<unset>}"
+          echo "ld_library_path=${'$'}{LD_LIBRARY_PATH:-<unset>}"
+          echo "proot_link2symlink=${'$'}PROOT_LINK2SYMLINK"
+          if [ -n "${'$'}PROOT_BIND_ARGS" ]; then
+            echo "bind_args=${'$'}PROOT_BIND_ARGS"
+          else
+            echo "bind_args=<none>"
+          fi
+          if [ -n "${'$'}LAST_PROOT_PROBE_ARGS" ]; then
+            echo "extra_args=${'$'}LAST_PROOT_PROBE_ARGS"
+          else
+            echo "extra_args=<none>"
+          fi
+          echo "--- proot stdout/stderr begin ---"
+          if [ -n "${'$'}LAST_PROOT_PROBE_OUTPUT" ]; then
+            printf '%s\n' "${'$'}LAST_PROOT_PROBE_OUTPUT"
+          else
+            echo "<empty>"
+          fi
+          echo "--- proot stdout/stderr end ---"
         }
         probe_proot_link2symlink(){
           "${'$'}BIN/proot" \
+            -v 9 \
             -0 \
             -r "${'$'}UBUNTU_PATH" \
             --link2symlink \
@@ -912,7 +951,7 @@ EOF
           PROOT_BIND_ARGS=""
 
           if ! run_proot_probe; then
-            echo "PRoot startup probe failed."
+            print_last_proot_probe_failure
             return 1
           fi
 
@@ -1173,6 +1212,7 @@ $prootBindSetup
           fi
           if [ "${'$'}PROOT_LINK2SYMLINK" = "1" ]; then
             exec "${'$'}BIN/proot" \
+              -v 9 \
               -0 \
               -r "${'$'}UBUNTU_PATH" \
               --link2symlink \
@@ -1187,6 +1227,7 @@ $prootBindSetup
                 /bin/bash -lc 'echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; eval "${'$'}COMMAND_TO_EXEC"'
           else
             exec "${'$'}BIN/proot" \
+              -v 9 \
               -0 \
               -r "${'$'}UBUNTU_PATH" \
               "${'$'}@" \

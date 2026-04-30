@@ -72,6 +72,7 @@ import kotlin.math.min
 @Composable
 fun TerminalHome(
     env: TerminalEnv,
+    useLocalImeHandling: Boolean = true,
     onNavigateToSetup: () -> Unit,
     onNavigateToSettings: () -> Unit
 ) {
@@ -123,7 +124,7 @@ fun TerminalHome(
     
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
-    val rawImeBottomPx = WindowInsets.ime.getBottom(density)
+    val rawImeBottomPx = if (useLocalImeHandling) WindowInsets.ime.getBottom(density) else 0
     val navigationBottomPx = WindowInsets.navigationBars.getBottom(density)
     val fullscreenImeBottomPx = rawImeBottomPx
     val standardImeBottomPx = (rawImeBottomPx - navigationBottomPx).coerceAtLeast(0)
@@ -368,7 +369,7 @@ fun TerminalHome(
                         onNewTab = env::onNewSession
                     )
                 } else {
-                    // 普通命令模式：只显示输出，点击画布时把焦点切到命令输入框并弹出输入法
+                    // 嵌入聊天页时，外层已统一处理 IME；独立终端页则继续使用本地 IME 位移来驱动画布 viewport。
                     CanvasTerminalOutput(
                         emulator = env.terminalEmulator,
                         modifier = Modifier.weight(1f),
