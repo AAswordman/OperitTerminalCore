@@ -128,11 +128,44 @@ Java_com_ai_assistance_operit_terminal_Pty_00024Companion_createSubprocess(JNIEn
 
 JNIEXPORT jint JNICALL
 Java_com_ai_assistance_operit_terminal_Pty_00024Companion_waitFor(JNIEnv *env, jobject thiz, jint pid) {
-    int status;
-    waitpid(pid, &status, 0);
-    if (WIFEXITED(status)) {
-        return WEXITSTATUS(status);
+    int status = 0;
+    pid_t waited = waitpid(pid, &status, 0);
+    if (waited < 0) {
+        LOGE("waitpid failed for pid %d: errno=%d (%s)", pid, errno, strerror(errno));
+        return -1;
     }
+
+    if (WIFEXITED(status)) {
+        int exit_code = WEXITSTATUS(status);
+        LOGD("waitpid exited normally for pid %d with code %d", pid, exit_code);
+        return exit_code;
+    }
+
+    if (WIFSIGNALED(status)) {
+        int signal_code = WTERMSIG(status);
+#ifdef WCOREDUMP
+        LOGE("waitpid signaled for pid %d: signal=%d core_dumped=%d",
+             pid, signal_code, WCOREDUMP(status) ? 1 : 0);
+#else
+        LOGE("waitpid signaled for pid %d: signal=%d", pid, signal_code);
+#endif
+        return 128 + signal_code;
+    }
+
+    if (WIFSTOPPED(status)) {
+        int stop_signal = WSTOPSIG(status);
+        LOGE("waitpid stopped for pid %d: signal=%d", pid, stop_signal);
+        return 128 + stop_signal;
+    }
+
+#ifdef WIFCONTINUED
+    if (WIFCONTINUED(status)) {
+        LOGE("waitpid continued for pid %d", pid);
+        return -1;
+    }
+#endif
+
+    LOGE("waitpid returned unexpected status for pid %d: status=0x%x", pid, status);
     return -1;
 }
 

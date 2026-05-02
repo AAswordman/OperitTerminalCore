@@ -796,8 +796,11 @@ class TerminalManager private constructor(
           printf "\\033[1A" # Move cursor up one line
           printf "\\033[K"  # Clear the line
         }
+        startup_log(){
+          printf '[operit-startup] %s\n' "${'$'}*"
+        }
         progress_echo(){
-          echo -e "\\033[31m- ${'$'}@\\033[0m"
+          printf "\\033[31m- %s\\033[0m\n" "${'$'}*"
           echo "${'$'}@" > "${'$'}TMPDIR/progress_des"
         }
         bump_progress(){
@@ -852,7 +855,7 @@ EOF
           if [ "${'$'}PROOT_LINK2SYMLINK" = "1" ]; then
             LAST_PROOT_PROBE_OUTPUT="${'$'}(
               "${'$'}BIN/proot" \
-                -v 1 \
+                -v 3 \
                 -0 \
                 -r "${'$'}UBUNTU_PATH" \
                 --link2symlink \
@@ -869,7 +872,7 @@ EOF
           else
             LAST_PROOT_PROBE_OUTPUT="${'$'}(
               "${'$'}BIN/proot" \
-                -v 1 \
+                -v 3 \
                 -0 \
                 -r "${'$'}UBUNTU_PATH" \
                 "${'$'}@" \
@@ -912,7 +915,7 @@ EOF
         }
         probe_proot_link2symlink(){
           "${'$'}BIN/proot" \
-            -v 1 \
+            -v 3 \
             -0 \
             -r "${'$'}UBUNTU_PATH" \
             --link2symlink \
@@ -947,10 +950,12 @@ EOF
           fi
         }
         resolve_proot_runtime(){
+          startup_log "resolve_proot_runtime begin"
           PROOT_LINK2SYMLINK=0
           PROOT_BIND_ARGS=""
 
           if ! run_proot_probe; then
+            startup_log "initial proot probe failed"
             print_last_proot_probe_failure
             return 1
           fi
@@ -958,6 +963,7 @@ EOF
           if probe_proot_link2symlink; then
             PROOT_LINK2SYMLINK=1
           fi
+          startup_log "resolve_proot_runtime done link2symlink=${'$'}PROOT_LINK2SYMLINK"
           return 0
         }
         """.trimIndent()
@@ -1126,6 +1132,8 @@ EOF
           if [ -z "${'$'}COMMAND_TO_EXEC" ]; then
             COMMAND_TO_EXEC="/bin/bash -il"
           fi
+          startup_log "login_ubuntu begin"
+          startup_log "command=${'$'}COMMAND_TO_EXEC"
 
           # Setup fake sysdata
           if [ "${'$'}USE_CHROOT" != "1" ]; then
@@ -1133,7 +1141,7 @@ EOF
             export distro_name=$(basename "${'$'}UBUNTU_PATH")
             
             if [ -f "${'$'}HOME/setup_fake_sysdata.sh" ]; then
-                source "${'$'}HOME/setup_fake_sysdata.sh"
+                . "${'$'}HOME/setup_fake_sysdata.sh"
                 setup_fake_sysdata
             fi
           fi
@@ -1184,7 +1192,7 @@ EOF
         "${'$'}BIN/busybox" mount --bind /data/local/tmp "${'$'}UBUNTU_PATH/data/local/tmp" 2>/dev/null || true
         "${'$'}BIN/busybox" mount --bind "${'$'}HOME_DIR" "${'$'}UBUNTU_PATH${'$'}HOME_DIR" 2>/dev/null || true
         COMMAND_TO_EXEC="$(cat "${'$'}CMD_FILE" 2>/dev/null)"
-        "${'$'}BIN/busybox" chroot "${'$'}UBUNTU_PATH" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=en_US.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "COMMAND_TO_EXEC=${'$'}COMMAND_TO_EXEC" "OPERIT_UID=${'$'}OPERIT_UID" "OPERIT_GID=${'$'}OPERIT_GID" "OPERIT_GROUPS=${'$'}OPERIT_GROUPS" /bin/bash -lc 'echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; umask 0002; if [ -n "${'$'}OPERIT_GID" ]; then chown 0:"${'$'}OPERIT_GID" /root 2>/dev/null || true; chmod 2775 /root 2>/dev/null || true; fi; eval "${'$'}COMMAND_TO_EXEC"'
+        "${'$'}BIN/busybox" chroot "${'$'}UBUNTU_PATH" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=en_US.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "COMMAND_TO_EXEC=${'$'}COMMAND_TO_EXEC" "OPERIT_UID=${'$'}OPERIT_UID" "OPERIT_GID=${'$'}OPERIT_GID" "OPERIT_GROUPS=${'$'}OPERIT_GROUPS" /bin/bash -lc 'echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; printf "[operit-startup] %s\n" "mode=chroot"; printf "[operit-startup] command=%s\n" "${'$'}COMMAND_TO_EXEC"; umask 0002; if [ -n "${'$'}OPERIT_GID" ]; then chown 0:"${'$'}OPERIT_GID" /root 2>/dev/null || true; chmod 2775 /root 2>/dev/null || true; fi; eval "${'$'}COMMAND_TO_EXEC"; rc=${'$'}?; printf "[operit-startup] command exited rc=%s\n" "${'$'}rc"; exit "${'$'}rc"'
         ret=${'$'}?
         cleanup_mounts
         exit ${'$'}ret
@@ -1210,6 +1218,7 @@ $prootBindSetup
           else
             set --
           fi
+          startup_log "starting proot session link2symlink=${'$'}PROOT_LINK2SYMLINK"
           if [ "${'$'}PROOT_LINK2SYMLINK" = "1" ]; then
             exec "${'$'}BIN/proot" \
               -0 \
@@ -1223,7 +1232,7 @@ $prootBindSetup
                 LANG=en_US.UTF-8 \
                 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
                 COMMAND_TO_EXEC="${'$'}COMMAND_TO_EXEC" \
-                /bin/bash -lc 'echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; eval "${'$'}COMMAND_TO_EXEC"'
+                /bin/bash -lc 'echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; printf "[operit-startup] %s\n" "mode=proot link2symlink=1"; printf "[operit-startup] command=%s\n" "${'$'}COMMAND_TO_EXEC"; eval "${'$'}COMMAND_TO_EXEC"; rc=${'$'}?; printf "[operit-startup] command exited rc=%s\n" "${'$'}rc"; exit "${'$'}rc"'
           else
             exec "${'$'}BIN/proot" \
               -0 \
@@ -1236,7 +1245,7 @@ $prootBindSetup
                 LANG=en_US.UTF-8 \
                 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
                 COMMAND_TO_EXEC="${'$'}COMMAND_TO_EXEC" \
-                /bin/bash -lc 'echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; eval "${'$'}COMMAND_TO_EXEC"'
+                /bin/bash -lc 'echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; printf "[operit-startup] %s\n" "mode=proot link2symlink=0"; printf "[operit-startup] command=%s\n" "${'$'}COMMAND_TO_EXEC"; eval "${'$'}COMMAND_TO_EXEC"; rc=${'$'}?; printf "[operit-startup] command exited rc=%s\n" "${'$'}rc"; exit "${'$'}rc"'
           fi
         }
         """.trimIndent()
@@ -1249,6 +1258,7 @@ $prootBindSetup
           fix_permissions
           sleep 1
           bump_progress
+          clear_lines
           
           # 先进入Ubuntu环境，然后连接SSH
           # 当SSH退出时，用户会回到本地Ubuntu shell
@@ -1265,11 +1275,15 @@ $prootBindSetup
         $sshShell
         clear_lines
         start_shell(){
+          startup_log "phase=install_ubuntu"
           install_ubuntu
+          startup_log "phase=configure_sources"
           configure_sources
+          startup_log "phase=fix_permissions"
           fix_permissions
           sleep 1
           bump_progress
+          startup_log "phase=login_ubuntu"
           login_ubuntu
         }
         """.trimIndent()

@@ -114,9 +114,9 @@ class SSHTerminalProvider(
 
                 val filesDir: File = context.filesDir
                 val binDir: File = File(filesDir, "usr/bin")
-                val bash = File(binDir, "bash").absolutePath
-                val startScript = "source \$HOME/common.sh && ssh_shell"
-                val command = arrayOf(bash, "-c", startScript)
+                val busybox = File(binDir, "busybox").absolutePath
+                val startScript = ". \$HOME/common.sh && ssh_shell"
+                val command = arrayOf(busybox, "sh", "-c", startScript)
                 
                 val env = buildEnvironment()
                 

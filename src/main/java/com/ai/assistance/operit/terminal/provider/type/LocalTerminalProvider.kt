@@ -402,15 +402,15 @@ class LocalTerminalProvider(
     }
 
     private fun buildVisibleSessionCommand(): Array<String> {
-        val bash = File(binDir, "bash").absolutePath
-        val startScript = "source \$HOME/common.sh && start_shell"
-        return arrayOf(bash, "-c", startScript)
+        val busybox = File(binDir, "busybox").absolutePath
+        val startScript = ". \$HOME/common.sh && start_shell"
+        return arrayOf(busybox, "sh", "-c", startScript)
     }
 
     private fun buildHiddenExecStartupCommand(): Array<String> {
-        val bash = File(binDir, "bash").absolutePath
-        val startScript = "source \$HOME/common.sh && login_ubuntu '/bin/bash --noprofile --norc'"
-        return arrayOf(bash, "-c", startScript)
+        val busybox = File(binDir, "busybox").absolutePath
+        val startScript = ". \$HOME/common.sh && login_ubuntu '/bin/bash --noprofile --norc'"
+        return arrayOf(busybox, "sh", "-c", startScript)
     }
 
     private fun buildHiddenExecEnvelope(command: String, token: String): String {

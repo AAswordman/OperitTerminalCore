@@ -1,5 +1,6 @@
 package com.ai.assistance.operit.terminal
 
+import android.os.Build
 import android.util.Log
 import java.io.File
 import java.io.FileDescriptor
@@ -42,22 +43,47 @@ open class Pty(
 
     companion object {
         private const val TAG = "Pty"
+        private const val LIB_NAME = "pty"
+        @Volatile
+        private var nativeLoadError: UnsatisfiedLinkError? = null
 
         init {
             try {
-                System.loadLibrary("pty")
+                System.loadLibrary(LIB_NAME)
+                nativeLoadError = null
             } catch (e: UnsatisfiedLinkError) {
+                nativeLoadError = e
                 Log.e(TAG, "Failed to load libpty.so", e)
-                // Handle error appropriately, maybe disable PTY functionality
+            }
+        }
+
+        private fun buildNativeContext(): String {
+            val supportedAbis = Build.SUPPORTED_ABIS.joinToString()
+            val supported64BitAbis = Build.SUPPORTED_64_BIT_ABIS.joinToString()
+            val processBitness = if (android.os.Process.is64Bit()) "64-bit" else "32-bit"
+            return "lib=${System.mapLibraryName(LIB_NAME)}, process=$processBitness, supportedAbis=[$supportedAbis], supported64BitAbis=[$supported64BitAbis]"
+        }
+
+        private fun ensureNativeLoaded() {
+            nativeLoadError?.let { loadError ->
+                throw UnsatisfiedLinkError(
+                    "libpty.so was not loaded. ${buildNativeContext()}. Original error: ${loadError.message}"
+                ).also { it.initCause(loadError) }
             }
         }
 
         @Throws(IOException::class)
         fun start(command: Array<String>, environment: Map<String, String>, workingDir: File): Pty {
+            ensureNativeLoaded()
             val envArray = environment.map { "${it.key}=${it.value}" }.toTypedArray()
 
-            // This will return an array of two integers: { pid, masterFd }
-            val processInfo = createSubprocess(command, envArray, workingDir.absolutePath)
+            val processInfo =
+                try {
+                    createSubprocess(command, envArray, workingDir.absolutePath)
+                } catch (e: UnsatisfiedLinkError) {
+                    Log.e(TAG, "createSubprocess failed. ${buildNativeContext()}", e)
+                    throw e
+                }
             val pid = processInfo[0]
             val masterFdInt = processInfo[1]
 
@@ -108,6 +134,7 @@ open class Pty(
                 override fun getOutputStream(): OutputStream? = null
 
                 override fun waitFor(): Int {
+                    ensureNativeLoaded()
                     return Companion.waitFor(pid)
                 }
             }
@@ -148,6 +175,8 @@ open class Pty(
                 availableBytes = 0
             )
         }
+
+        Companion.ensureNativeLoaded()
         
         val flags = Companion.getTerminalFlags(ptyMaster)
         val availableBytes = Companion.getAvailableBytes(ptyMaster)
@@ -172,6 +201,8 @@ open class Pty(
             // SSH 等远程终端由子类实现
             return false
         }
+
+        Companion.ensureNativeLoaded()
         
         val result = setPtyWindowSize(ptyMaster, rows, cols)
         if (result == 0) {
