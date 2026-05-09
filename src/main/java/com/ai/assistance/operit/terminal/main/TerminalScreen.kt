@@ -55,6 +55,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 fun TerminalScreen(
     env: TerminalEnv,
     useLocalImeHandling: Boolean = true,
+    checkUpdatesOnEnter: Boolean = true,
 ) {
     val context = LocalContext.current
     val hostActivity = remember(context) { context.findActivity() }
@@ -93,9 +94,10 @@ fun TerminalScreen(
             else -> TerminalRoutes.TERMINAL_HOME_ROUTE
         }
         
-        // 后台静默检查更新，不显示 Toast
-        coroutineScope.launch {
-            updateChecker.checkForUpdates(showToast = true)
+        if (checkUpdatesOnEnter) {
+            coroutineScope.launch {
+                updateChecker.checkForUpdates(showToast = true)
+            }
         }
     }
 
