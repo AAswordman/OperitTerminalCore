@@ -650,11 +650,16 @@ class TerminalManager private constructor(
             return
         }
 
+        try {
+            Files.deleteIfExists(File(binDir, "libtalloc.so.2").toPath())
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to remove stale libtalloc link", e)
+        }
+
         // Symlink other binaries
         val libraries = mapOf(
-            "libproot.so" to "proot",
-            "libloader.so" to "loader",
-            "liblibtalloc.so.2.so" to "libtalloc.so.2", // Keep .so extension for libs
+            "liboperit_proot.so" to "proot",
+            "liboperit_loader.so" to "loader",
             "libbash.so" to "bash",
             "libsudo.so" to "sudo"
         )
@@ -844,6 +849,12 @@ EOF
             PROOT_BIND_ARGS="${'$'}PROOT_BIND_ARGS -b ${'$'}bind_source:${'$'}bind_target"
           fi
         }
+        run_proot_binary(){
+          LD_LIBRARY_PATH= "${'$'}BIN/proot" "${'$'}@"
+        }
+        exec_proot_binary(){
+          LD_LIBRARY_PATH= exec "${'$'}BIN/proot" "${'$'}@"
+        }
         LAST_PROOT_PROBE_STATUS=0
         LAST_PROOT_PROBE_OUTPUT=""
         LAST_PROOT_PROBE_ARGS=""
@@ -851,7 +862,7 @@ EOF
           LAST_PROOT_PROBE_ARGS="${'$'}*"
           if [ "${'$'}PROOT_LINK2SYMLINK" = "1" ]; then
             LAST_PROOT_PROBE_OUTPUT="${'$'}(
-              "${'$'}BIN/proot" \
+              run_proot_binary \
                 -v 1 \
                 -0 \
                 -r "${'$'}UBUNTU_PATH" \
@@ -868,7 +879,7 @@ EOF
             LAST_PROOT_PROBE_STATUS="${'$'}?"
           else
             LAST_PROOT_PROBE_OUTPUT="${'$'}(
-              "${'$'}BIN/proot" \
+              run_proot_binary \
                 -v 1 \
                 -0 \
                 -r "${'$'}UBUNTU_PATH" \
@@ -890,7 +901,9 @@ EOF
           echo "exit_code=${'$'}LAST_PROOT_PROBE_STATUS"
           echo "ubuntu_path=${'$'}UBUNTU_PATH"
           echo "proot_loader=${'$'}{PROOT_LOADER:-<unset>}"
+          echo "proot_no_seccomp=${'$'}{PROOT_NO_SECCOMP:-<unset>}"
           echo "ld_library_path=${'$'}{LD_LIBRARY_PATH:-<unset>}"
+          echo "proot_exec_ld_library_path=<empty>"
           echo "proot_link2symlink=${'$'}PROOT_LINK2SYMLINK"
           if [ -n "${'$'}PROOT_BIND_ARGS" ]; then
             echo "bind_args=${'$'}PROOT_BIND_ARGS"
@@ -911,7 +924,7 @@ EOF
           echo "--- proot stdout/stderr end ---"
         }
         probe_proot_link2symlink(){
-          "${'$'}BIN/proot" \
+          run_proot_binary \
             -v 1 \
             -0 \
             -r "${'$'}UBUNTU_PATH" \
@@ -1211,7 +1224,7 @@ $prootBindSetup
             set --
           fi
           if [ "${'$'}PROOT_LINK2SYMLINK" = "1" ]; then
-            exec "${'$'}BIN/proot" \
+            exec_proot_binary \
               -0 \
               -r "${'$'}UBUNTU_PATH" \
               --link2symlink \
@@ -1225,7 +1238,7 @@ $prootBindSetup
                 COMMAND_TO_EXEC="${'$'}COMMAND_TO_EXEC" \
                 /bin/bash -lc 'echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; eval "${'$'}COMMAND_TO_EXEC"'
           else
-            exec "${'$'}BIN/proot" \
+            exec_proot_binary \
               -0 \
               -r "${'$'}UBUNTU_PATH" \
               "${'$'}@" \
