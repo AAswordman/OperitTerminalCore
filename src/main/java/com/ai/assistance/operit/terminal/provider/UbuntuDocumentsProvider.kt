@@ -28,8 +28,7 @@ class UbuntuDocumentsProvider : DocumentsProvider() {
     companion object {
         private const val TAG = "UbuntuDocumentsProvider"
         
-        // Authority需要与AndroidManifest中的声明一致
-        private const val AUTHORITY = "com.ai.assistance.operit.documents.ubuntu"
+        // Authority在AndroidManifest.xml中使用${applicationId}.documents.ubuntu声明
         
         // Root ID
         private const val ROOT_ID = "ubuntu_root"

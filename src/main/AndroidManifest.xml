@@ -9,7 +9,7 @@
         <!-- Ubuntu File System Documents Provider for SAF -->
         <provider
             android:name=".provider.UbuntuDocumentsProvider"
-            android:authorities="com.ai.assistance.operit.documents.ubuntu"
+            android:authorities="${applicationId}.documents.ubuntu"
             android:exported="true"
             android:grantUriPermissions="true"
             android:permission="android.permission.MANAGE_DOCUMENTS">
