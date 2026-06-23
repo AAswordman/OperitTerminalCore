@@ -1,6 +1,8 @@
 package com.ai.assistance.operit.terminal.provider.type
 
 import android.content.Context
+import android.system.Os
+import android.system.OsConstants
 import android.util.Log
 import com.ai.assistance.operit.terminal.Pty
 import com.ai.assistance.operit.terminal.TerminalSession
@@ -18,6 +20,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -57,6 +60,8 @@ class LocalTerminalProvider(
         private const val READY_MARKER = "TERMINAL_READY"
         private const val BEGIN_MARKER_PREFIX = "__OPERIT_HIDDEN_BEGIN__:"
         private const val END_MARKER_PREFIX = "__OPERIT_HIDDEN_END__:"
+        private const val PID_MARKER_PREFIX = "__OPERIT_HIDDEN_PID__:"
+        private const val HIDDEN_EXEC_CANCEL_SETTLE_TIMEOUT_MS = 3_000L
     }
 
     override suspend fun isConnected(): Boolean {
@@ -139,7 +144,6 @@ class LocalTerminalProvider(
                 }
                 collectHiddenExecResult(shell, token, timeoutMs)
             } catch (e: TimeoutCancellationException) {
-                closeHiddenExecShell(executorKey)
                 HiddenExecResult(
                     output = "",
                     exitCode = -1,
@@ -298,21 +302,26 @@ class LocalTerminalProvider(
         timeoutMs: Long
     ): HiddenExecResult {
         val endMarkerPrefix = "$END_MARKER_PREFIX$token:"
-        val rawOutput: String =
-            withTimeout(timeoutMs) {
-                val builder = StringBuilder()
-                while (true) {
-                    val chunk =
-                        shell.outputChannel.receiveCatching().getOrNull()
-                            ?: break
-                    builder.append(chunk)
-                    if (builder.indexOf(endMarkerPrefix) >= 0) {
-                        break
-                    }
-                }
-                builder.toString()
+        val deadline = System.currentTimeMillis() + timeoutMs
+        val builder = StringBuilder()
+
+        while (System.currentTimeMillis() < deadline) {
+            val chunk =
+                withTimeoutOrNull((deadline - System.currentTimeMillis()).coerceAtLeast(1L)) {
+                    shell.outputChannel.receiveCatching().getOrNull()
+                } ?: break
+            builder.append(chunk)
+            if (builder.indexOf(endMarkerPrefix) >= 0) {
+                break
             }
-        if (rawOutput.indexOf(endMarkerPrefix) < 0 && !shell.process.isAlive) {
+        }
+
+        val rawOutput = builder.toString()
+        if (rawOutput.indexOf(endMarkerPrefix) >= 0) {
+            return parseHiddenExecOutput(rawOutput, token)
+        }
+
+        if (!shell.process.isAlive) {
             return HiddenExecResult(
                 output = "",
                 exitCode = -1,
@@ -321,7 +330,18 @@ class LocalTerminalProvider(
                 rawOutputPreview = rawOutput.takeLast(1200)
             )
         }
-        return parseHiddenExecOutput(rawOutput, token)
+
+        cancelHiddenExecCommand(rawOutput, token)
+
+        val settledRawOutput = collectHiddenExecTimeoutOutput(shell, token, rawOutput)
+        val output = extractHiddenExecOutput(settledRawOutput, token)
+        return HiddenExecResult(
+            output = output,
+            exitCode = -1,
+            state = HiddenExecResult.State.TIMEOUT,
+            error = "Hidden exec command timed out after ${timeoutMs}ms",
+            rawOutputPreview = settledRawOutput.takeLast(1200)
+        )
     }
 
     private fun parseHiddenExecOutput(
@@ -353,11 +373,7 @@ class LocalTerminalProvider(
             )
         }
 
-        val commandOutput =
-            rawOutput
-                .substring(payloadStart, endIndex)
-                .trimStart('\n', '\r')
-                .trimEnd('\n', '\r')
+        val commandOutput = extractHiddenExecOutput(rawOutput, token)
 
         val exitCodeText =
             rawOutput
@@ -387,6 +403,74 @@ class LocalTerminalProvider(
             output = commandOutput,
             exitCode = exitCode
         )
+    }
+
+    private suspend fun collectHiddenExecTimeoutOutput(
+        shell: HiddenExecShell,
+        token: String,
+        initialRawOutput: String
+    ): String {
+        val endMarkerPrefix = "$END_MARKER_PREFIX$token:"
+        val builder = StringBuilder(initialRawOutput)
+        withTimeoutOrNull(HIDDEN_EXEC_CANCEL_SETTLE_TIMEOUT_MS) {
+            while (builder.indexOf(endMarkerPrefix) < 0) {
+                val chunk =
+                    shell.outputChannel.receiveCatching().getOrNull()
+                        ?: break
+                builder.append(chunk)
+            }
+        }
+        return builder.toString()
+    }
+
+    private fun cancelHiddenExecCommand(rawOutput: String, token: String) {
+        val pid = extractHiddenExecPid(rawOutput, token) ?: return
+        runCatching {
+            Os.kill((-pid).toInt(), OsConstants.SIGTERM)
+        }.onFailure { error ->
+            Log.w(TAG, "Failed to send SIGTERM to hidden exec process group $pid", error)
+        }
+        Thread.sleep(100)
+        runCatching {
+            Os.kill((-pid).toInt(), OsConstants.SIGKILL)
+        }.onFailure { error ->
+            Log.w(TAG, "Failed to send SIGKILL to hidden exec process group $pid", error)
+        }
+    }
+
+    private fun extractHiddenExecPid(rawOutput: String, token: String): Long? {
+        val pidMarkerPrefix = "$PID_MARKER_PREFIX$token:"
+        val markerIndex = rawOutput.indexOf(pidMarkerPrefix)
+        if (markerIndex < 0) {
+            return null
+        }
+        val pidText =
+            rawOutput
+                .substring(markerIndex + pidMarkerPrefix.length)
+                .lineSequence()
+                .map { it.trim() }
+                .firstOrNull { it.isNotEmpty() }
+        return pidText?.toLongOrNull()
+    }
+
+    private fun extractHiddenExecOutput(rawOutput: String, token: String): String {
+        val beginMarker = "$BEGIN_MARKER_PREFIX$token"
+        val beginIndex = rawOutput.indexOf(beginMarker)
+        if (beginIndex < 0) {
+            return ""
+        }
+        val payloadStart = beginIndex + beginMarker.length
+        val endMarkerPrefix = "$END_MARKER_PREFIX$token:"
+        val endIndex = rawOutput.indexOf(endMarkerPrefix, payloadStart).let { index ->
+            if (index >= 0) index else rawOutput.length
+        }
+        return rawOutput
+            .substring(payloadStart, endIndex)
+            .lineSequence()
+            .filterNot { it.startsWith("$PID_MARKER_PREFIX$token:") }
+            .joinToString("\n")
+            .trimStart('\n', '\r')
+            .trimEnd('\n', '\r')
     }
 
     private suspend fun closeHiddenExecShell(executorKey: String) {
@@ -426,7 +510,10 @@ class LocalTerminalProvider(
                 append('\n')
             }
             append("$heredocMarker\n")
-            append("/bin/bash --noprofile --norc \"\$__operit_hidden_script\" </dev/null\n")
+            append("setsid /bin/bash --noprofile --norc \"\$__operit_hidden_script\" </dev/null &\n")
+            append("__operit_hidden_pid=\$!\n")
+            append("printf '%s:%s\\n' '$PID_MARKER_PREFIX$token' \"\$__operit_hidden_pid\"\n")
+            append("wait \"\$__operit_hidden_pid\"\n")
             append("__operit_hidden_rc=\$?\n")
             append("rm -f \"\$__operit_hidden_script\"\n")
             append("printf '%s:%s\\n' '$END_MARKER_PREFIX$token' \"\$__operit_hidden_rc\"\n")
