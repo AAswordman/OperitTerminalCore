@@ -8,7 +8,8 @@ data class CommandExecutionEvent(
     val commandId: String,
     val sessionId: String,
     val outputChunk: String, // 命令执行过程量
-    val isCompleted: Boolean // 是否执行完毕
+    val isCompleted: Boolean, // 是否执行完毕
+    val exitCode: Int? = null // 命令退出码，仅完成事件提供
 ) : Parcelable
 
 @Parcelize

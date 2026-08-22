@@ -86,20 +86,16 @@ open class Pty(
                 }
 
                 override fun exitValue(): Int {
-                    // We can't get the actual exit value without a blocking waitpid call,
-                    // which we do in waitFor(). The contract of exitValue() is to throw
-                    // an exception if the process is still running.
-                    try {
-                        // sendSignal(pid, 0) checks if the process exists.
-                        // If it doesn't throw, the process is still alive.
+                    // Process.isAlive() relies on exitValue() throwing while the process runs.
+                    // Do not catch the deliberate IllegalThreadStateException.
+                    return try {
                         android.os.Process.sendSignal(pid, 0)
                         throw IllegalThreadStateException("Process hasn't exited")
-                    } catch (e: Exception) {
-                        // The process is dead. We don't have the exit code without waiting,
-                        // so we can't fulfill the contract perfectly. Returning 0 is a
-                        // reasonable fallback for a terminated process where the specific
-                        // exit code isn't available.
-                        return 0
+                    } catch (e: IllegalThreadStateException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // The actual exit code requires a blocking waitpid call.
+                        0
                     }
                 }
 
@@ -198,26 +194,13 @@ data class PtyMode(
     val availableBytes: Int         // 可读字节数
 ) {
     /**
-     * 判断是否正在等待交互式输入
-     * 
-     * 两种场景：
-     * 1. 非规范模式（Node.js REPL, Python REPL）：禁用 ICANON，字符模式输入
-     * 2. 规范模式但等待输入（apt upgrade, sudo）：保持 ICANON，但输出已停止
+     * 判断 PTY 是否提供了足够强的交互式输入信号。
+     *
+     * FIONREAD 返回 0 只表示当前没有待读取字节，普通命令输出完成后也会如此。
+     * 规范模式下必须由上层结合可见提示文本判断，不能仅凭 availableBytes 推断。
      */
     fun isWaitingForInput(): Boolean {
-        // 场景 1: 非规范模式 = REPL（Node/Python）
-        if (!isCanonicalMode && availableBytes == 0) {
-            return true
-        }
-        
-        // 场景 2: 规范模式但输出已停止 = 等待确认（apt/sudo）
-        // 条件：缓冲区为空（输出已停止）
-        if (availableBytes == 0) {
-            // 需要由上层结合命令状态判断（是否有命令正在执行）
-            return true
-        }
-        
-        return false
+        return !isCanonicalMode && availableBytes == 0
     }
 }
 

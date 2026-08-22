@@ -22,6 +22,7 @@ import com.ai.assistance.operit.terminal.data.QueuedCommand
 import com.ai.assistance.operit.terminal.view.domain.OutputProcessor
 import java.util.UUID
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withTimeoutOrNull
@@ -48,6 +49,7 @@ class TerminalManager private constructor(
     private val context: Context
 ) {
     internal val coroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val commandEventChannel = Channel<CommandExecutionEvent>(Channel.UNLIMITED)
     private val envInitMutex = Mutex()
     private var isEnvInitialized = false
 
@@ -65,8 +67,9 @@ class TerminalManager private constructor(
     private val sessionManager = SessionManager(this)
     private val outputProcessor = OutputProcessor(
         onCommandExecutionEvent = { event ->
-            coroutineScope.launch {
-                _commandExecutionEvents.emit(event)
+            // Serialize events before exposing them to collectors.
+            if (!commandEventChannel.trySend(event).isSuccess) {
+                Log.w(TAG, "Dropping terminal command event for session ${event.sessionId}")
             }
         },
         onDirectoryChangeEvent = { event ->
@@ -122,9 +125,16 @@ class TerminalManager private constructor(
         private const val MAX_HISTORY_ITEMS = 500
         private const val MAX_OUTPUT_LINES_PER_ITEM = 1000
         private const val TERMINAL_ENTER = "\r"
+        private const val COMMAND_COMPLETION_MARKER_PREFIX = "__OPERIT_COMMAND_DONE__:"
     }
 
     init {
+        coroutineScope.launch {
+            for (event in commandEventChannel) {
+                _commandExecutionEvents.emit(event)
+            }
+        }
+
         // 在初始化时异步创建默认session
         coroutineScope.launch {
             try {
@@ -314,16 +324,32 @@ class TerminalManager private constructor(
      */
     suspend fun sendCommandToSession(sessionId: String, command: String, commandId: String? = null): String {
         val actualCommandId = commandId ?: UUID.randomUUID().toString()
-        val session = sessionManager.getSession(sessionId) ?: return actualCommandId
+        val session = sessionManager.getSession(sessionId)
+        if (session == null) {
+            emitCommandFailureEvent(
+                commandId = actualCommandId,
+                sessionId = sessionId,
+                message = "Terminal session does not exist: $sessionId"
+            )
+            return actualCommandId
+        }
 
-        // 如果会话在交互模式，直接发送输入（不创建命令历史）
+        // Tool commands must not be silently converted into interactive input.
+        // There is no completion event for that path, so the caller would wait forever.
+        if (session.initState != SessionInitState.READY) {
+            emitCommandFailureEvent(
+                commandId = actualCommandId,
+                sessionId = sessionId,
+                message = "Terminal session is not ready: ${session.initState}"
+            )
+            return actualCommandId
+        }
         if (session.isInteractiveMode) {
-            Log.d(TAG, "Session $sessionId in interactive mode, sending as input: $command")
-            try {
-                writeInputToKernel(session, command + TERMINAL_ENTER, "interactive-session-command")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error sending input to session $sessionId", e)
-            }
+            emitCommandFailureEvent(
+                commandId = actualCommandId,
+                sessionId = sessionId,
+                message = "Terminal session is waiting for interactive input"
+            )
             return actualCommandId
         }
 
@@ -338,6 +364,25 @@ class TerminalManager private constructor(
             }
         }
         return actualCommandId
+    }
+
+    private fun emitCommandFailureEvent(
+        commandId: String,
+        sessionId: String,
+        message: String
+    ) {
+        if (!commandEventChannel.trySend(
+                CommandExecutionEvent(
+                    commandId = commandId,
+                    sessionId = sessionId,
+                    outputChunk = message,
+                    isCompleted = true,
+                    exitCode = -1
+                )
+            ).isSuccess
+        ) {
+            Log.w(TAG, "Dropping terminal command failure event for session $sessionId")
+        }
     }
 
     /**
@@ -364,21 +409,32 @@ class TerminalManager private constructor(
      * 内部执行命令的函数, 必须在 commandMutex 锁内部调用
      */
     private suspend fun executeCommandInternal(command: String, session: TerminalSessionData, commandId: String) {
-        if (command.trim() == "clear") {
-            try {
-                writeInputToKernel(session, "clear$TERMINAL_ENTER", "command-clear")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error sending 'clear' command", e)
-            }
-        } else {
-            handleRegularCommand(command, session, commandId)
-            try {
-                val fullInput = "$command$TERMINAL_ENTER"
-                writeInputToKernel(session, fullInput, "command")
-                Log.d(TAG, "Sent command to PTY: $command")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error sending command", e)
-            }
+        handleRegularCommand(command, session, commandId)
+        try {
+            val fullInput = buildCommandInput(command, commandId)
+            writeInputToKernel(session, fullInput, "command")
+            Log.d(TAG, "Sent command to PTY: $command")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending command", e)
+            outputProcessor.handleCommandDispatchFailure(
+                sessionId = session.id,
+                message = e.message ?: "Failed to send command to PTY",
+                sessionManager = sessionManager
+            )
+        }
+    }
+
+    private fun buildCommandInput(command: String, commandId: String): String {
+        val normalizedCommand = command.trimEnd('\r', '\n')
+        return buildString {
+            append(normalizedCommand)
+            append(TERMINAL_ENTER)
+            append("printf '\\n%s:%s\\n' '")
+            append(COMMAND_COMPLETION_MARKER_PREFIX)
+            append(commandId)
+            append("' " )
+            append('$').append('?')
+            append(TERMINAL_ENTER)
         }
     }
 
@@ -507,6 +563,7 @@ class TerminalManager private constructor(
         outputProcessor.handleSessionExit(
             sessionId = sessionId,
             message = context.getString(R.string.terminal_exited_with_code, exitCode),
+            exitCode = exitCode,
             sessionManager = sessionManager
         )
 
@@ -1358,6 +1415,7 @@ $prootBindSetup
 
     fun cleanup() {
         prepareForMaintenance()
+        commandEventChannel.close()
         coroutineScope.cancel()
         Log.d(TAG, "All active sessions cleaned up.")
     }
