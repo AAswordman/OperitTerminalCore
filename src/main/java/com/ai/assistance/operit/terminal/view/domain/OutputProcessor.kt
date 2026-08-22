@@ -34,6 +34,7 @@ class OutputProcessor(
 
         private const val MAX_RAW_BUFFER_CHARS = 256 * 1024
         private const val MAX_OUTPUT_PAGES_PER_COMMAND = 100
+        private const val COMMAND_COMPLETION_MARKER_PREFIX = "__OPERIT_COMMAND_DONE__:"
     }
 
     /**
@@ -197,6 +198,15 @@ class OutputProcessor(
                 handleAwaitingFirstPromptState(sessionId, line, sessionManager)
             }
             SessionInitState.READY -> {
+                if (handleCommandCompletionMarker(
+                        sessionId,
+                        AnsiUtils.stripAnsi(line),
+                        sessionManager
+                    )
+                ) {
+                    return
+                }
+
                 val state = sessionStates.getOrPut(sessionId) { SessionProcessingState() }
                 if (state.justHandledCarriageReturn) {
                     // A newline is received after a carriage return. This finalizes the line that was being updated.
@@ -285,6 +295,11 @@ class OutputProcessor(
 
         val session = sessionManager.getSession(sessionId) ?: return
 
+        // A wrapped command emits a unique marker with the real shell exit code.
+        if (handleCommandCompletionMarker(sessionId, cleanLine, sessionManager)) {
+            return
+        }
+
         // 检测命令回显
         if (isCommandEcho(cleanLine, session)) {
             Log.d(TAG, "Ignoring command echo: '$cleanLine'")
@@ -301,6 +316,30 @@ class OutputProcessor(
 
         // 处理普通输出
         updateCommandOutput(sessionId, cleanLine, sessionManager)
+    }
+
+    private fun handleCommandCompletionMarker(
+        sessionId: String,
+        cleanLine: String,
+        sessionManager: SessionManager
+    ): Boolean {
+        val session = sessionManager.getSession(sessionId) ?: return false
+        val currentCommand = session.currentExecutingCommand ?: return false
+        if (!currentCommand.isExecuting) return false
+
+        val marker = "$COMMAND_COMPLETION_MARKER_PREFIX${currentCommand.id}"
+        val markerIndex = cleanLine.indexOf(marker)
+        if (markerIndex < 0) return false
+
+        val markerTail = cleanLine.substring(markerIndex + marker.length)
+        val exitCode = markerTail.removePrefix(":").trim().toIntOrNull()
+        if (exitCode != null && cleanLine.trimStart().startsWith(marker)) {
+            finishCurrentCommand(sessionId, sessionManager, exitCode)
+        } else {
+            // The PTY echoes the injected printf command; it is not command output.
+            Log.d(TAG, "Ignoring command completion marker echo: '$cleanLine'")
+        }
+        return true
     }
 
     /**
@@ -394,6 +433,11 @@ class OutputProcessor(
                     )
                 }
             }
+            if (session.currentExecutingCommand?.isExecuting == true) {
+                // Wrapped commands complete through the marker so the exit code is preserved.
+                Log.d(TAG, "Prompt observed before command completion marker for session $sessionId")
+                return true
+            }
             finishCurrentCommand(sessionId, sessionManager)
             return true
         }
@@ -401,8 +445,8 @@ class OutputProcessor(
     }
 
     /**
-     * 使用 PTY 模式检测是否正在等待交互式输入
-     * 完全依赖 PTY 层面的状态，不使用任何文本模式匹配
+     * 使用 PTY 模式和可见提示文本检测是否正在等待交互式输入。
+     * 规范模式下仅凭 FIONREAD=0 不能判断程序是否真的在等待输入。
      */
     fun isInteractivePrompt(line: String, sessionId: String, sessionManager: SessionManager): Boolean {
         val session = sessionManager.getSession(sessionId) ?: return false
@@ -415,17 +459,19 @@ class OutputProcessor(
         
         try {
             val ptyMode = pty.getPtyMode()
-            val isWaiting = ptyMode.isWaitingForInput()
-            
-            if (!isWaiting) {
+            val textLooksLikeInputPrompt = looksLikeCanonicalInputPrompt(line)
+
+            // FIONREAD == 0 is normal after the reader consumes a chunk. Only
+            // non-canonical mode is strong evidence; canonical mode needs a prompt hint.
+            if (ptyMode.isCanonicalMode) {
+                if (!textLooksLikeInputPrompt) return false
+            } else if (!ptyMode.isWaitingForInput()) {
                 return false
             }
-            
-            // 无论 canonical 还是 non-canonical mode，都完全依赖 PTY 状态判断
-            // 不使用任何文本模式匹配或关键词判断
+
             val mode = if (ptyMode.isCanonicalMode) "canonical" else "non-canonical"
             Log.d(TAG, "Detected interactive prompt ($mode mode, available=${ptyMode.availableBytes}): $line")
-            
+
             return true
         } catch (e: Exception) {
             Log.e(TAG, "Error checking PTY mode", e)
@@ -434,6 +480,26 @@ class OutputProcessor(
     }
 
 
+    private fun looksLikeCanonicalInputPrompt(line: String): Boolean {
+        val normalized = AnsiUtils.stripAnsi(line).trim().lowercase()
+        if (normalized.isBlank()) return false
+
+        val inputHints = listOf(
+            "password",
+            "passphrase",
+            "username",
+            "login",
+            "confirm",
+            "continue",
+            "press enter",
+            "select",
+            "choose",
+            "[y/n]",
+            "(y/n)",
+            "yes/no"
+        )
+        return inputHints.any { normalized.contains(it) }
+    }
 
     private fun handleInteractivePrompt(
         sessionId: String,
@@ -541,7 +607,11 @@ class OutputProcessor(
         }
     }
 
-    private fun finishCurrentCommand(sessionId: String, sessionManager: SessionManager) {
+    private fun finishCurrentCommand(
+        sessionId: String,
+        sessionManager: SessionManager,
+        exitCode: Int = 0
+    ) {
         sessionManager.updateSession(sessionId) { session ->
             session.copy(
                 isWaitingForInteractiveInput = false,
@@ -576,7 +646,8 @@ class OutputProcessor(
                 commandId = lastExecutingItem.id,
                 sessionId = sessionId,
                 outputChunk = finalOutput,
-                isCompleted = true
+                isCompleted = true,
+                exitCode = exitCode
             ))
 
             // Clear the reference since command is no longer executing
@@ -588,10 +659,28 @@ class OutputProcessor(
         }
     }
 
-    fun handleSessionExit(
+    fun handleCommandDispatchFailure(
         sessionId: String,
         message: String,
         sessionManager: SessionManager
+    ) {
+        val session = sessionManager.getSession(sessionId) ?: return
+        val currentCommand = session.currentExecutingCommand
+        if (currentCommand?.isExecuting != true) return
+
+        updateCommandOutput(
+            sessionId = sessionId,
+            cleanLine = "Terminal command dispatch failed: $message",
+            sessionManager = sessionManager
+        )
+        finishCurrentCommand(sessionId, sessionManager, exitCode = -1)
+    }
+
+    fun handleSessionExit(
+        sessionId: String,
+        message: String,
+        sessionManager: SessionManager,
+        exitCode: Int = -1
     ) {
         sessionManager.updateSession(sessionId) {
             it.copy(
@@ -633,7 +722,8 @@ class OutputProcessor(
                     commandId = lastExecutingItem.id,
                     sessionId = sessionId,
                     outputChunk = finalOutput,
-                    isCompleted = true
+                    isCompleted = true,
+                    exitCode = exitCode
                 )
             )
 
@@ -688,8 +778,7 @@ class OutputProcessor(
             // 消耗包括退出代码在内的所有内容
             buffer.delete(0, exitIndex + exitFullscreen.length)
 
-            // 退出全屏后，我们可能需要重新绘制提示符
-            finishCurrentCommand(sessionId, sessionManager)
+            // The command completion marker will arrive after the full-screen process exits.
             return true
         }
         return false
