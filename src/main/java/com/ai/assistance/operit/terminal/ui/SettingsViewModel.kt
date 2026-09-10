@@ -89,6 +89,10 @@ class SettingsViewModel(
     private val _chrootEnabled = MutableStateFlow(false)
     val chrootEnabled = _chrootEnabled.asStateFlow()
 
+    // HarmonyOS proot compat (PROOT_NO_SECCOMP) setting state
+    private val _prootNoSeccompCompat = MutableStateFlow(false)
+    val prootNoSeccompCompat = _prootNoSeccompCompat.asStateFlow()
+
     private val _chrootMountStatus = MutableStateFlow(
         application.getString(com.ai.assistance.operit.terminal.R.string.chroot_mount_status_idle)
     )
@@ -115,6 +119,7 @@ class SettingsViewModel(
         loadSSHEnabled()
         loadSharedTmpSetting()
         loadChrootSetting()
+        loadProotNoSeccompCompat()
         loadVirtualKeyboardLayout()
     }
 
@@ -505,6 +510,19 @@ class SettingsViewModel(
     
     fun isChrootEnabled(): Boolean {
         return prefs.getBoolean("chroot_enabled", false)
+    }
+
+    private fun loadProotNoSeccompCompat() {
+        _prootNoSeccompCompat.value = prefs.getBoolean("proot_no_seccomp_compat", false)
+    }
+
+    fun setProotNoSeccompCompat(enabled: Boolean) {
+        prefs.edit().putBoolean("proot_no_seccomp_compat", enabled).apply()
+        _prootNoSeccompCompat.value = enabled
+    }
+
+    fun isProotNoSeccompCompat(): Boolean {
+        return prefs.getBoolean("proot_no_seccomp_compat", false)
     }
 
     private fun loadVirtualKeyboardLayout() {

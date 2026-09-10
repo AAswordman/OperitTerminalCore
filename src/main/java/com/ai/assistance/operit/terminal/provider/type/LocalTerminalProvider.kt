@@ -566,6 +566,16 @@ class LocalTerminalProvider(
         env["PROOT_TMP_DIR"] = File(filesDir, "tmp").absolutePath
         env["TERM"] = "xterm-256color"
         env["LANG"] = "en_US.UTF-8"
+
+        // HarmonyOS NEXT proot compatibility: on some HarmonyOS devices proot's
+        // seccomp filter breaks chdir/getcwd/shebang/static execve with ENOSYS
+        // (see https://github.com/AAswordman/Operit/issues/1128). Injecting
+        // PROOT_NO_SECCOMP=1 makes proot skip installing the seccomp filter.
+        // Opt-in via settings, default off.
+        val settingsPrefs = context.getSharedPreferences("terminal_settings", Context.MODE_PRIVATE)
+        if (settingsPrefs.getBoolean("proot_no_seccomp_compat", false)) {
+            env["PROOT_NO_SECCOMP"] = "1"
+        }
         return env
     }
 }

@@ -100,6 +100,7 @@ fun SettingsScreen(
     val sharedTmpEnabled by viewModel.sharedTmpEnabled.collectAsState()
     
     val chrootEnabled by viewModel.chrootEnabled.collectAsState()
+    val prootNoSeccompCompat by viewModel.prootNoSeccompCompat.collectAsState()
     val chrootMountStatus by viewModel.chrootMountStatus.collectAsState()
     val chrootMountDetails by viewModel.chrootMountDetails.collectAsState()
     val isInspectingChrootMounts by viewModel.isInspectingChrootMounts.collectAsState()
@@ -631,6 +632,59 @@ fun SettingsScreen(
                             )
                         }
                     }
+                }
+            }
+
+            // HarmonyOS proot compat (PROOT_NO_SECCOMP) setting card
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = SettingsTheme.surfaceColor)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = context.getString(com.ai.assistance.operit.terminal.R.string.proot_no_seccomp_compat_title),
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = SettingsTheme.onSurfaceColor
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = if (prootNoSeccompCompat) {
+                                    context.getString(com.ai.assistance.operit.terminal.R.string.proot_no_seccomp_compat_enabled_desc)
+                                } else {
+                                    context.getString(com.ai.assistance.operit.terminal.R.string.proot_no_seccomp_compat_disabled_desc)
+                                },
+                                fontSize = 14.sp,
+                                color = SettingsTheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = prootNoSeccompCompat,
+                            onCheckedChange = { enabled ->
+                                viewModel.setProotNoSeccompCompat(enabled)
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = SettingsTheme.primaryColor,
+                                checkedTrackColor = SettingsTheme.primaryColor.copy(alpha = 0.5f)
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = context.getString(com.ai.assistance.operit.terminal.R.string.proot_no_seccomp_compat_note),
+                        fontSize = 12.sp,
+                        color = SettingsTheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        lineHeight = 16.sp
+                    )
                 }
             }
 

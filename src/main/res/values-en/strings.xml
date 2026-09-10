@@ -153,6 +153,10 @@
     <string name="chroot_mode_enabled_desc">Enabled - Start Ubuntu via chroot (Root required)</string>
     <string name="chroot_mode_disabled_desc">Disabled - Start Ubuntu via proot</string>
     <string name="chroot_mode_note">Note: chroot mode mounts /proc, /sys, /dev (including /dev/pts) into the Ubuntu environment. Root users, please use with caution. This mode requires a rooted device and root permission granted to this app, otherwise startup may fail</string>
+    <string name="proot_no_seccomp_compat_title">HarmonyOS proot compat mode</string>
+    <string name="proot_no_seccomp_compat_enabled_desc">Enabled - Inject PROOT_NO_SECCOMP=1 when starting proot</string>
+    <string name="proot_no_seccomp_compat_disabled_desc">Disabled - No extra environment variable</string>
+    <string name="proot_no_seccomp_compat_note">Note: Only enable this on devices where the proot seccomp filter breaks the terminal (e.g. HarmonyOS NEXT, where chdir/getcwd/shebang return ENOSYS and terminal sessions fail to start). When enabled, proot runs without installing the seccomp filter. Keep it off on other devices</string>
     <string name="chroot_mount_check">Inspect Mounts</string>
     <string name="chroot_mount_unmount">Unmount</string>
     <string name="chroot_mount_status_idle">chroot mounts have not been inspected yet</string>

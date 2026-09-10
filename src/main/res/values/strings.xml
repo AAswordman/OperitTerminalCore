@@ -153,6 +153,10 @@
     <string name="chroot_mode_enabled_desc">已启用 - 使用 chroot 启动 Ubuntu（需要 Root）</string>
     <string name="chroot_mode_disabled_desc">已禁用 - 使用 proot 启动 Ubuntu</string>
     <string name="chroot_mode_note">注意：chroot 模式会将 /proc、/sys、/dev（含 /dev/pts）挂载到 Ubuntu 环境中，请各位 Root 用户谨慎对待。并且该模式需要设备已 Root 且授予本应用 Root 权限，否则可能无法启动</string>
+    <string name="proot_no_seccomp_compat_title">鸿蒙 proot 兼容模式</string>
+    <string name="proot_no_seccomp_compat_enabled_desc">已启用 - 启动 proot 时注入 PROOT_NO_SECCOMP=1 环境变量</string>
+    <string name="proot_no_seccomp_compat_disabled_desc">已禁用 - 不注入额外环境变量</string>
+    <string name="proot_no_seccomp_compat_note">注意：仅适用于存在 proot seccomp 兼容问题的设备（如 HarmonyOS NEXT，表现为 chdir/getcwd/shebang 执行返回 ENOSYS、终端会话无法启动）。开启后 proot 将不再安装 seccomp 过滤器，可恢复正常。其他设备请保持关闭</string>
     <string name="chroot_mount_check">检测挂载</string>
     <string name="chroot_mount_unmount">解挂载</string>
     <string name="chroot_mount_status_idle">尚未检测 chroot 挂载</string>
