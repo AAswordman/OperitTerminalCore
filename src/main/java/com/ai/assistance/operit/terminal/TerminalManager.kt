@@ -2,7 +2,9 @@ package com.ai.assistance.operit.terminal
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
@@ -544,6 +546,8 @@ class TerminalManager private constructor(
                     val startScript = generateStartScript()
                     File(filesDir, "common.sh").writeText(startScript.replace("\r\n", "\n").replace("\r", "\n"))
                     true
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     Log.e(TAG, "Environment script refresh failed", e)
                     false
@@ -578,6 +582,8 @@ class TerminalManager private constructor(
 
                     Log.d(TAG, "Environment initialization completed successfully.")
                     true
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     Log.e(TAG, "Environment initialization failed", e)
                     false
@@ -1367,21 +1373,46 @@ $prootBindSetup
         executorKey: String = "default",
         timeoutMs: Long = 120000L
     ): HiddenExecResult {
-        val initialized = initializeEnvironment()
-        if (!initialized) {
-            return HiddenExecResult(
+        val startedAtNanos = System.nanoTime()
+        return try {
+            withTimeoutOrNull(timeoutMs) {
+                // Await without joining blocking provider IO when the caller's deadline expires.
+                val execution = coroutineScope.async {
+                    Log.d(TAG, "Hidden exec initializing environment: key=$executorKey timeoutMs=$timeoutMs")
+                    if (!initializeEnvironment()) {
+                        return@async HiddenExecResult(
+                            output = "",
+                            exitCode = -1,
+                            state = HiddenExecResult.State.SHELL_START_FAILED,
+                            error = "Terminal environment initialization failed"
+                        )
+                    }
+                    Log.d(TAG, "Hidden exec obtaining provider: key=$executorKey")
+                    val provider = getTerminalProvider()
+                    val elapsedMs = (System.nanoTime() - startedAtNanos) / 1_000_000L
+                    provider.executeHiddenCommand(
+                        command = command,
+                        executorKey = executorKey,
+                        timeoutMs = (timeoutMs - elapsedMs).coerceAtLeast(0L)
+                    )
+                }
+                try {
+                    execution.await()
+                } finally {
+                    execution.cancel()
+                }
+            } ?: HiddenExecResult(
                 output = "",
                 exitCode = -1,
-                state = HiddenExecResult.State.SHELL_START_FAILED,
-                error = "Terminal environment initialization failed"
-            )
+                state = HiddenExecResult.State.TIMEOUT,
+                error = "Hidden exec lifecycle timed out after ${timeoutMs}ms"
+            ).also {
+                Log.w(TAG, "Hidden exec lifecycle timed out: key=$executorKey timeoutMs=$timeoutMs")
+            }
+        } catch (e: CancellationException) {
+            Log.i(TAG, "Hidden exec lifecycle cancelled: key=$executorKey")
+            throw e
         }
-
-        return getTerminalProvider().executeHiddenCommand(
-            command = command,
-            executorKey = executorKey,
-            timeoutMs = timeoutMs
-        )
     }
 
     /**
