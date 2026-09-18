@@ -109,9 +109,8 @@ class LocalTerminalProvider(
     }
 
     override suspend fun closeSession(sessionId: String) {
-        activeSessions[sessionId]?.let { session ->
-            session.process.destroy()
-            activeSessions.remove(sessionId)
+        activeSessions.remove(sessionId)?.let { session ->
+            destroyProcessTree(session.process)
             Log.d(TAG, "Closed local terminal session: $sessionId")
         }
     }
@@ -484,12 +483,46 @@ class LocalTerminalProvider(
         hiddenExecShells.remove(executorKey)?.let { shell ->
             withContext(Dispatchers.IO) {
                 runCatching { shell.writer.close() }
-                runCatching { shell.process.destroy() }
+                destroyProcessTree(shell.process)
                 runCatching { shell.readJob.cancel() }
                 runCatching { shell.outputChannel.close() }
             }
             Log.d(TAG, "Closed hidden exec shell: $executorKey")
         }
+    }
+
+    private fun destroyProcessTree(process: Process) {
+        val pid = pidOf(process)
+        if (pid != null && pid > 0) {
+            runCatching { Os.kill((-pid).toInt(), OsConstants.SIGTERM) }
+            try {
+                Thread.sleep(80)
+            } catch (_: InterruptedException) {
+            }
+            runCatching { Os.kill((-pid).toInt(), OsConstants.SIGKILL) }
+        }
+        runCatching { process.destroy() }
+        runCatching { process.waitFor() }
+        runCatching { process.destroyForcibly() }
+    }
+
+    private fun pidOf(process: Process): Long? {
+        return runCatching {
+            val method = Process::class.java.getMethod("pid")
+            when (val value = method.invoke(process)) {
+                is Long -> value
+                is Int -> value.toLong()
+                else -> null
+            }
+        }.getOrNull() ?: runCatching {
+            val field = process.javaClass.getDeclaredField("pid")
+            field.isAccessible = true
+            when (val value = field.get(process)) {
+                is Int -> value.toLong()
+                is Long -> value
+                else -> null
+            }
+        }.getOrNull()
     }
 
     private fun buildVisibleSessionCommand(): Array<String> {
