@@ -1,5 +1,7 @@
 package com.ai.assistance.operit.terminal
 
+import android.system.Os
+import android.system.OsConstants
 import android.util.Log
 import java.io.File
 import java.io.FileDescriptor
@@ -72,19 +74,16 @@ open class Pty(
             // We need a Process object to manage the subprocess lifetime
             val dummyProcess = object : Process() {
                 override fun destroy() {
-                    // Send SIGHUP to the process group to ensure all child processes are terminated
+                    // Negative pid targets the whole process group created by forkpty/setsid.
+                    runCatching { Os.kill(-pid, OsConstants.SIGHUP) }
+                    runCatching { Os.kill(-pid, OsConstants.SIGTERM) }
+                    runCatching { android.os.Process.sendSignal(pid, 1) }
                     try {
-                        android.os.Process.sendSignal(pid, 1) // SIGHUP
-                    } catch (e: Exception) {
-                        // Ignore
+                        Thread.sleep(80)
+                    } catch (_: InterruptedException) {
                     }
-                    
-                    // Send SIGKILL to ensure the process is dead immediately
-                    try {
-                        android.os.Process.sendSignal(pid, 9) // SIGKILL
-                    } catch (e: Exception) {
-                        // Ignore
-                    }
+                    runCatching { Os.kill(-pid, OsConstants.SIGKILL) }
+                    runCatching { android.os.Process.sendSignal(pid, 9) }
                 }
 
                 override fun exitValue(): Int {
