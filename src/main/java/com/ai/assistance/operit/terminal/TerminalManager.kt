@@ -1204,6 +1204,13 @@ EOF
         COMMAND_TO_EXEC="$(cat "${'$'}CMD_FILE" 2>/dev/null)"
         "${'$'}BIN/busybox" chroot "${'$'}UBUNTU_PATH" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=en_US.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "COMMAND_TO_EXEC=${'$'}COMMAND_TO_EXEC" "OPERIT_UID=${'$'}OPERIT_UID" "OPERIT_GID=${'$'}OPERIT_GID" "OPERIT_GROUPS=${'$'}OPERIT_GROUPS" /bin/bash -lc 'echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; umask 0002; if [ -n "${'$'}OPERIT_GID" ]; then chown 0:"${'$'}OPERIT_GID" /root 2>/dev/null || true; chmod 2775 /root 2>/dev/null || true; fi; eval "${'$'}COMMAND_TO_EXEC"'
         ret=${'$'}?
+        if [ -n "${'$'}OPERIT_UID" ] && [ -n "${'$'}OPERIT_GID" ]; then
+          for apt_path in /var/lib/apt/lists /var/cache/apt; do
+            if [ -e "${'$'}UBUNTU_PATH${'$'}apt_path" ] && ! "${'$'}BIN/busybox" chown -R "${'$'}OPERIT_UID:${'$'}OPERIT_GID" "${'$'}UBUNTU_PATH${'$'}apt_path" 2>/dev/null; then
+              echo "Warning: failed to restore proot ownership for ${'$'}apt_path" >&2
+            fi
+          done
+        fi
         cleanup_mounts
         exit ${'$'}ret
         EOF
