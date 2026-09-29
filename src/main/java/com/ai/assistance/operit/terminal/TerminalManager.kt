@@ -1178,6 +1178,19 @@ EOF
         OPERIT_UID="$5"
         OPERIT_GID="$6"
         OPERIT_GROUPS="$7"
+        mount_bind(){
+          source_path="${'$'}1"
+          target_path="${'$'}2"
+          if ! "${'$'}BIN/busybox" mount --bind "${'$'}source_path" "${'$'}target_path"; then
+            echo "chroot bind mount failed: ${'$'}source_path -> ${'$'}target_path" >&2
+            return 1
+          fi
+          if ! "${'$'}BIN/busybox" mountpoint -q "${'$'}target_path"; then
+            echo "chroot bind mount verification failed: ${'$'}target_path" >&2
+            return 1
+          fi
+          echo "chroot bind mount active: ${'$'}target_path"
+        }
         cleanup_mounts(){
           "${'$'}BIN/busybox" umount "${'$'}UBUNTU_PATH/dev/pts" 2>/dev/null || true
           "${'$'}BIN/busybox" umount "${'$'}UBUNTU_PATH/dev" 2>/dev/null || true
@@ -1193,14 +1206,14 @@ EOF
 
         "${'$'}BIN/busybox" mkdir -p "${'$'}UBUNTU_PATH/proc" "${'$'}UBUNTU_PATH/sys" "${'$'}UBUNTU_PATH/dev" "${'$'}UBUNTU_PATH/dev/pts" "${'$'}UBUNTU_PATH/sdcard" "${'$'}UBUNTU_PATH$currentUserDataRootPath" "${'$'}UBUNTU_PATH/data/data" "${'$'}UBUNTU_PATH/data/local/tmp" "${'$'}UBUNTU_PATH${'$'}HOME_DIR" 2>/dev/null
         "${'$'}BIN/busybox" mount -t proc proc "${'$'}UBUNTU_PATH/proc" 2>/dev/null || true
-        "${'$'}BIN/busybox" mount --bind /dev "${'$'}UBUNTU_PATH/dev" 2>/dev/null || true
-        "${'$'}BIN/busybox" mount --bind /sys "${'$'}UBUNTU_PATH/sys" 2>/dev/null || true
-        "${'$'}BIN/busybox" mount --bind /dev/pts "${'$'}UBUNTU_PATH/dev/pts" 2>/dev/null || true
-        "${'$'}BIN/busybox" mount --bind $currentEmulatedStoragePath "${'$'}UBUNTU_PATH/sdcard" 2>/dev/null || true
-        "${'$'}BIN/busybox" mount --bind $currentUserDataRootPath "${'$'}UBUNTU_PATH$currentUserDataRootPath" 2>/dev/null || true
-        "${'$'}BIN/busybox" mount --bind /data/data "${'$'}UBUNTU_PATH/data/data" 2>/dev/null || true
-        "${'$'}BIN/busybox" mount --bind /data/local/tmp "${'$'}UBUNTU_PATH/data/local/tmp" 2>/dev/null || true
-        "${'$'}BIN/busybox" mount --bind "${'$'}HOME_DIR" "${'$'}UBUNTU_PATH${'$'}HOME_DIR" 2>/dev/null || true
+        mount_bind /dev "${'$'}UBUNTU_PATH/dev"
+        mount_bind /sys "${'$'}UBUNTU_PATH/sys"
+        mount_bind /dev/pts "${'$'}UBUNTU_PATH/dev/pts"
+        mount_bind "$currentEmulatedStoragePath" "${'$'}UBUNTU_PATH/sdcard"
+        mount_bind "$currentUserDataRootPath" "${'$'}UBUNTU_PATH$currentUserDataRootPath"
+        mount_bind /data/data "${'$'}UBUNTU_PATH/data/data"
+        mount_bind /data/local/tmp "${'$'}UBUNTU_PATH/data/local/tmp"
+        mount_bind "${'$'}HOME_DIR" "${'$'}UBUNTU_PATH${'$'}HOME_DIR"
         COMMAND_TO_EXEC="$(cat "${'$'}CMD_FILE" 2>/dev/null)"
         "${'$'}BIN/busybox" chroot "${'$'}UBUNTU_PATH" /usr/bin/env -i HOME=/root TERM=xterm-256color LANG=en_US.UTF-8 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin "COMMAND_TO_EXEC=${'$'}COMMAND_TO_EXEC" "OPERIT_UID=${'$'}OPERIT_UID" "OPERIT_GID=${'$'}OPERIT_GID" "OPERIT_GROUPS=${'$'}OPERIT_GROUPS" /bin/bash -lc 'echo LOGIN_SUCCESSFUL; echo TERMINAL_READY; umask 0002; if [ -n "${'$'}OPERIT_GID" ]; then chown 0:"${'$'}OPERIT_GID" /root 2>/dev/null || true; chmod 2775 /root 2>/dev/null || true; fi; eval "${'$'}COMMAND_TO_EXEC"'
         ret=${'$'}?
