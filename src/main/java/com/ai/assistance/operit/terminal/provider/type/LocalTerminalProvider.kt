@@ -135,7 +135,7 @@ class LocalTerminalProvider(
             }
 
         return try {
-            withTimeout(timeoutMs) {
+            val result = withTimeout(timeoutMs) {
                 shell.mutex.withLock {
                     val token = UUID.randomUUID().toString()
                     Log.d(TAG, "Hidden exec command started: key=$executorKey token=$token timeoutMs=$timeoutMs command=${command.lineSequence().firstOrNull().orEmpty().take(200)}")
@@ -147,10 +147,12 @@ class LocalTerminalProvider(
                     collectHiddenExecResult(shell, token, timeoutMs)
                 }
             }
-        } catch (e: TimeoutCancellationException) {
-            hiddenExecScope.launch {
-                closeHiddenExecShell(executorKey)
+            if (!result.isOk) {
+                closeHiddenExecShell(shell)
             }
+            result
+        } catch (e: TimeoutCancellationException) {
+            closeHiddenExecShell(shell)
             HiddenExecResult(
                 output = "",
                 exitCode = -1,
@@ -158,9 +160,7 @@ class LocalTerminalProvider(
                 error = "Hidden exec command timed out after ${timeoutMs}ms"
             )
         } catch (e: Exception) {
-            hiddenExecScope.launch {
-                closeHiddenExecShell(executorKey)
-            }
+            closeHiddenExecShell(shell)
             Log.e(TAG, "Failed to execute hidden command in shell: $executorKey", e)
             HiddenExecResult(
                 output = "",
@@ -248,7 +248,7 @@ class LocalTerminalProvider(
 
         val readyResult = awaitHiddenExecReady(shell)
         if (!readyResult.isOk) {
-            closeHiddenExecShell(executorKey)
+            closeHiddenExecShell(shell)
             throw IllegalStateException(
                 readyResult.error.ifBlank { "Hidden exec shell did not become ready" }
             )
@@ -481,15 +481,21 @@ class LocalTerminalProvider(
     }
 
     private suspend fun closeHiddenExecShell(executorKey: String) {
-        hiddenExecShells.remove(executorKey)?.let { shell ->
-            withContext(Dispatchers.IO) {
-                runCatching { shell.writer.close() }
-                runCatching { shell.process.destroy() }
-                runCatching { shell.readJob.cancel() }
-                runCatching { shell.outputChannel.close() }
+        hiddenExecShells[executorKey]?.let { shell -> closeHiddenExecShell(shell) }
+    }
+
+    private suspend fun closeHiddenExecShell(shell: HiddenExecShell) {
+        hiddenExecShells.remove(shell.key, shell)
+        withContext(Dispatchers.IO) {
+            runCatching { shell.writer.close() }
+            runCatching { shell.process.destroy() }
+            if (shell.process.isAlive) {
+                runCatching { shell.process.destroyForcibly() }
             }
-            Log.d(TAG, "Closed hidden exec shell: $executorKey")
+            runCatching { shell.readJob.cancel() }
+            runCatching { shell.outputChannel.close() }
         }
+        Log.d(TAG, "Closed hidden exec shell: ${shell.key}")
     }
 
     private fun buildVisibleSessionCommand(): Array<String> {
