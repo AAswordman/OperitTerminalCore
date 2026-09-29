@@ -135,7 +135,7 @@ class LocalTerminalProvider(
             }
 
         return try {
-            withTimeout(timeoutMs) {
+            val result = withTimeout(timeoutMs) {
                 shell.mutex.withLock {
                     val token = UUID.randomUUID().toString()
                     Log.d(TAG, "Hidden exec command started: key=$executorKey token=$token timeoutMs=$timeoutMs command=${command.lineSequence().firstOrNull().orEmpty().take(200)}")
@@ -147,10 +147,12 @@ class LocalTerminalProvider(
                     collectHiddenExecResult(shell, token, timeoutMs)
                 }
             }
-        } catch (e: TimeoutCancellationException) {
-            hiddenExecScope.launch {
+            if (!result.isOk) {
                 closeHiddenExecShell(executorKey)
             }
+            result
+        } catch (e: TimeoutCancellationException) {
+            closeHiddenExecShell(executorKey)
             HiddenExecResult(
                 output = "",
                 exitCode = -1,
@@ -158,9 +160,7 @@ class LocalTerminalProvider(
                 error = "Hidden exec command timed out after ${timeoutMs}ms"
             )
         } catch (e: Exception) {
-            hiddenExecScope.launch {
-                closeHiddenExecShell(executorKey)
-            }
+            closeHiddenExecShell(executorKey)
             Log.e(TAG, "Failed to execute hidden command in shell: $executorKey", e)
             HiddenExecResult(
                 output = "",
