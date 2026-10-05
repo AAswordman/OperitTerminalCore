@@ -360,7 +360,19 @@ class SSHFileConnectionManager private constructor(private val context: Context)
                 channel.setInputStream(null)
                 channel.setErrStream(stderrBuffer, true)
                 channel.setCommand(command)
-                channel.connect()
+                try {
+                    channel.connect(timeoutMs.coerceIn(1000L, Int.MAX_VALUE.toLong()).toInt())
+                } catch (e: Exception) {
+                    runCatching { channel.disconnect() }
+                    return@withContext Result.success(
+                        HiddenExecResult(
+                            output = "",
+                            exitCode = -1,
+                            state = HiddenExecResult.State.TIMEOUT,
+                            error = "SSH hidden exec connect timed out after ${timeoutMs}ms"
+                        )
+                    )
+                }
 
                 val stdoutBuilder = StringBuilder()
                 val buffer = ByteArray(4096)
@@ -514,7 +526,7 @@ class SSHFileConnectionManager private constructor(private val context: Context)
                 
                 val channel = connection.session.openChannel("exec") as com.jcraft.jsch.ChannelExec
                 channel.setCommand(mountCommands)
-                channel.connect()
+                channel.connect(30_000)
                 
                 val output = channel.inputStream.bufferedReader().readText()
                 val errorOutput = channel.errStream.bufferedReader().readText()
@@ -632,7 +644,7 @@ class SSHFileConnectionManager private constructor(private val context: Context)
             
             val channel = connection.session.openChannel("exec") as com.jcraft.jsch.ChannelExec
             channel.setCommand(unmountCommands)
-            channel.connect()
+            channel.connect(30_000)
             
             val output = channel.inputStream.bufferedReader().readText()
             channel.disconnect()
