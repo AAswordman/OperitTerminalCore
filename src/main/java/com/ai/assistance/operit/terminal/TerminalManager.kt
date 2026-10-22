@@ -259,26 +259,8 @@ class TerminalManager private constructor(
         )
     }
 
-    private fun escapeInputForLog(input: String): String {
-        return buildString(input.length) {
-            input.forEach { char ->
-                when (char) {
-                    '\\' -> append("\\\\")
-                    '\n' -> append("\\n")
-                    '\r' -> append("\\r")
-                    '\t' -> append("\\t")
-                    else -> {
-                        if (char.isISOControl()) {
-                            append("\\u")
-                            append(char.code.toString(16).padStart(4, '0'))
-                        } else {
-                            append(char)
-                        }
-                    }
-                }
-            }
-        }
-    }
+    private fun escapeInputForLog(input: String): String =
+        SessionInputRouter.escapeInputForLog(input)
 
     /**
      * 发送命令
@@ -383,42 +365,63 @@ class TerminalManager private constructor(
     }
 
     /**
-     * 发送输入
+     * 发送输入到当前会话
+     *
+     * 目标在调用时确定：协程真正执行时再去读当前会话，中途切换会话就会写错 pty。
      */
     fun sendInput(input: String) {
+        val sessionId = sessionManager.getCurrentSession()?.id ?: return
         coroutineScope.launch(Dispatchers.IO) {
-            val session = sessionManager.getCurrentSession() ?: return@launch
-
-            try {
-                writeInputToKernel(session, input, "direct-input")
-
-                // 如果用户提供了交互式输入，则重置等待状态
-                if (session.isWaitingForInteractiveInput) {
-                    sessionManager.updateSession(session.id) {
-                        it.copy(isWaitingForInteractiveInput = false)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error sending input", e)
-            }
+            sendInputToSession(sessionId, input)
         }
     }
 
     /**
-     * 发送中断信号
+     * 发送输入到指定会话，不读写全局当前会话
+     *
+     * 目标只由 [sessionId] 决定：调用方点名了会话，异步写入再去看当前会话就会写错 pty。
      */
-    fun sendInterruptSignal() {
-        coroutineScope.launch(Dispatchers.IO) {
-            try {
-                val currentSession = sessionManager.getCurrentSession()
-                currentSession?.let {
-                    writeInputToKernel(it, "\u0003", "interrupt")
-                    Log.d(TAG, "Sent interrupt signal (Ctrl+C) to session ${it.id}")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error sending interrupt signal", e)
+    fun sendInputToSession(sessionId: String, input: String): SessionInputResult {
+        val session = sessionManager.getSession(sessionId)
+        val result = SessionInputRouter.deliver(session, sessionId, input, "session-input")
+        if (result != SessionInputResult.DELIVERED || session == null) {
+            return result
+        }
+
+        // 如果用户提供了交互式输入，则重置等待状态
+        if (session.isWaitingForInteractiveInput) {
+            sessionManager.updateSession(session.id) {
+                it.copy(isWaitingForInteractiveInput = false)
             }
         }
+        return result
+    }
+
+    /**
+     * 发送中断信号到当前会话
+     *
+     * 目标在调用时确定，规则同 [sendInput]。
+     */
+    fun sendInterruptSignal() {
+        val sessionId = sessionManager.getCurrentSession()?.id ?: return
+        coroutineScope.launch(Dispatchers.IO) {
+            sendInterruptSignalToSession(sessionId)
+        }
+    }
+
+    /**
+     * 发送中断信号 (Ctrl+C) 到指定会话，不读写全局当前会话
+     *
+     * 中断必须落在调用方点名的那个 pty 上：顺手切走前台终端会让界面跳到后台会话，
+     * 而先切换再写入会让中断落到切换期间被改成当前会话的另一个 pty。
+     */
+    fun sendInterruptSignalToSession(sessionId: String): SessionInputResult {
+        return SessionInputRouter.deliver(
+            sessionManager.getSession(sessionId),
+            sessionId,
+            SessionInputRouter.INTERRUPT_SEQUENCE,
+            "interrupt"
+        )
     }
 
     private fun initializeSession(sessionId: String) {
