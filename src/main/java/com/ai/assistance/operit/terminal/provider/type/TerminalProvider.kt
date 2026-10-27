@@ -46,6 +46,8 @@ interface TerminalProvider {
     
     /**
      * 断开连接
+     *
+     * 返回时隐藏执行器的进程已经终止：调用方可以在返回后直接回收环境资源。
      */
     suspend fun disconnect()
     
@@ -69,6 +71,7 @@ interface TerminalProvider {
      *
      * 本地终端会复用后台 shell，避免每次命令重新 login/proot。
      * SSH 终端可映射到 exec channel。
+     * timeoutMs 约束 provider 准备、executor 排队和命令执行的完整生命周期。
      */
     suspend fun executeHiddenCommand(
         command: String,
