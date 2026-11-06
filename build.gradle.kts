@@ -51,6 +51,9 @@ android {
         aidl = true
         compose = true
     }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
     packaging {
         resources {
             excludes += setOf(
@@ -76,6 +79,8 @@ kotlin {
 }
 
 dependencies {
+    testImplementation(libs.junit)
+
     implementation(libs.androidx.core.ktx)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
