@@ -71,50 +71,12 @@ open class Pty(
             val fileDescriptor = Reflect.getFileDescriptor(masterFdInt)
             
             // We need a Process object to manage the subprocess lifetime
-            val dummyProcess = object : Process() {
-                override fun destroy() {
-                    // Send SIGHUP to the process group to ensure all child processes are terminated
-                    try {
-                        android.os.Process.sendSignal(pid, 1) // SIGHUP
-                    } catch (e: Exception) {
-                        // Ignore
-                    }
-                    
-                    // Send SIGKILL to ensure the process is dead immediately
-                    try {
-                        android.os.Process.sendSignal(pid, 9) // SIGKILL
-                    } catch (e: Exception) {
-                        // Ignore
-                    }
-                }
+            val dummyProcess = PtyChildProcess(
+                pid = pid,
+                waitForExit = { Companion.waitFor(pid) },
+                sendSignal = { signal -> android.os.Process.sendSignal(pid, signal) }
+            )
 
-                override fun exitValue(): Int {
-                    // We can't get the actual exit value without a blocking waitpid call,
-                    // which we do in waitFor(). The contract of exitValue() is to throw
-                    // an exception if the process is still running.
-                    try {
-                        // sendSignal(pid, 0) checks if the process exists.
-                        // If it doesn't throw, the process is still alive.
-                        android.os.Process.sendSignal(pid, 0)
-                        throw IllegalThreadStateException("Process hasn't exited")
-                    } catch (e: Exception) {
-                        // The process is dead. We don't have the exit code without waiting,
-                        // so we can't fulfill the contract perfectly. Returning 0 is a
-                        // reasonable fallback for a terminated process where the specific
-                        // exit code isn't available.
-                        return 0
-                    }
-                }
-
-                override fun getErrorStream(): InputStream? = null
-                override fun getInputStream(): InputStream? = null
-                override fun getOutputStream(): OutputStream? = null
-
-                override fun waitFor(): Int {
-                    return Companion.waitFor(pid)
-                }
-            }
-            
             return try {
                 Pty(dummyProcess, fileDescriptor, masterFdInt, PtyIo(fileDescriptor), pid)
             } catch (error: Exception) {

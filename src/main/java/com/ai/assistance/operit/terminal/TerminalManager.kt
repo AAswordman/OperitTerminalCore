@@ -312,11 +312,11 @@ class TerminalManager private constructor(
         session.commandMutex.withLock {
             if (session.currentExecutingCommand?.isExecuting == true) {
                 // 有命令正在执行，将新命令加入队列
-                session.commandQueue.add(QueuedCommand(actualCommandId, command))
+                session.commandQueue.add(QueuedCommand(actualCommandId, command, tracksExitStatus = true))
                 Log.d(TAG, "Command queued for session $sessionId: $command (id: $actualCommandId). Queue size: ${session.commandQueue.size}")
             } else {
                 // 没有命令在执行，直接执行
-                executeCommandInternal(command, session, actualCommandId)
+                executeCommandInternal(command, session, actualCommandId, tracksExitStatus = true)
             }
         }
         return actualCommandId
@@ -337,7 +337,7 @@ class TerminalManager private constructor(
             if (session.commandQueue.isNotEmpty()) {
                 val nextCommand = session.commandQueue.removeAt(0)
                 Log.d(TAG, "Processing next queued command: ${nextCommand.command} (id: ${nextCommand.id}). Queue size: ${session.commandQueue.size}")
-                executeCommandInternal(nextCommand.command, session, nextCommand.id)
+                executeCommandInternal(nextCommand.command, session, nextCommand.id, nextCommand.tracksExitStatus)
             }
         }
     }
@@ -345,17 +345,18 @@ class TerminalManager private constructor(
     /**
      * 内部执行命令的函数, 必须在 commandMutex 锁内部调用
      */
-    private suspend fun executeCommandInternal(command: String, session: TerminalSessionData, commandId: String) {
-        if (command.trim() == "clear") {
+    private suspend fun executeCommandInternal(command: String, session: TerminalSessionData, commandId: String, tracksExitStatus: Boolean = false) {
+        if (command.trim() == "clear" && !tracksExitStatus) {
             try {
                 writeInputToKernel(session, "clear$TERMINAL_ENTER", "command-clear")
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending 'clear' command", e)
             }
         } else {
-            handleRegularCommand(command, session, commandId)
+            val submittedCommand = if (tracksExitStatus) TrackedCommandProtocol.wrap(command, commandId) else command
+            handleRegularCommand(command, session, commandId, tracksExitStatus, submittedCommand)
             try {
-                val fullInput = "$command$TERMINAL_ENTER"
+                val fullInput = "$submittedCommand$TERMINAL_ENTER"
                 writeInputToKernel(session, fullInput, "command")
                 Log.d(TAG, "Sent command to PTY: $command")
             } catch (e: Exception) {
@@ -494,27 +495,30 @@ class TerminalManager private constructor(
         }
 
         val exitCode =
-            if (terminalSession.process.isAlive) {
-                -1
+            if (terminalSession.process.waitFor(250, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                terminalSession.process.exitValue()
             } else {
-                runCatching { terminalSession.process.waitFor() }
-                    .getOrElse {
-                        Log.w(TAG, "Failed to read exit code for session $sessionId", it)
-                        -1
-                    }
+                // EOF without an observed process exit is an unknown result, never success.
+                Log.w(TAG, "PTY closed before process exit was observed for session $sessionId")
+                -1
             }
 
         Log.i(TAG, "Terminal session $sessionId exited with code $exitCode")
-        outputProcessor.handleSessionExit(
+        val completion = outputProcessor.handleSessionExit(
             sessionId = sessionId,
             message = context.getString(R.string.terminal_exited_with_code, exitCode),
-            sessionManager = sessionManager
+            sessionManager = sessionManager,
+            exitCode = exitCode
         )
 
         // 已退出的会话不能继续留在状态表中，否则同名 terminal.create 会复用已关闭的 PTY，
         // 后续命令只会写入失效 writer 并等待一个永远不会到达的完成事件。下一次按名称创建时，
         // 会话管理器会启动新的会话。
         sessionManager.closeSession(sessionId)
+        // Publish only after removal, so an immediate terminal.create cannot reuse the dead PTY.
+        if (completion != null) {
+            coroutineScope.launch { _commandExecutionEvents.emit(completion) }
+        }
     }
     
     /**
@@ -1312,7 +1316,7 @@ $prootBindSetup
         }
     }
 
-    private fun handleRegularCommand(command: String, session: com.ai.assistance.operit.terminal.data.TerminalSessionData, commandId: String) {
+    private fun handleRegularCommand(command: String, session: com.ai.assistance.operit.terminal.data.TerminalSessionData, commandId: String, tracksExitStatus: Boolean, submittedCommand: String) {
         session.currentCommandOutput.clear()
         session.currentOutputLineCount = 0
 
@@ -1321,11 +1325,14 @@ $prootBindSetup
             prompt = session.currentDirectory,
             command = command,
             output = "",
-            isExecuting = true
+            isExecuting = true,
+            tracksExitStatus = tracksExitStatus,
+            submittedCommand = submittedCommand
         )
 
         // Set the current executing command reference for efficient access
         session.currentExecutingCommand = newCommandItem
+        sessionManager.updateSession(session.id) { it.copy(commandRevision = it.commandRevision + 1) }
 
         // 发出命令开始执行事件
         coroutineScope.launch {

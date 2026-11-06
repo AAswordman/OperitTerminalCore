@@ -4,6 +4,7 @@ import android.util.Log
 import com.ai.assistance.operit.terminal.CommandExecutionEvent
 import com.ai.assistance.operit.terminal.SessionDirectoryEvent
 import com.ai.assistance.operit.terminal.SessionManager
+import com.ai.assistance.operit.terminal.TrackedCommandProtocol
 import com.ai.assistance.operit.terminal.data.SessionInitState
 import com.ai.assistance.operit.terminal.data.TerminalSessionData
 import com.ai.assistance.operit.terminal.view.domain.ansi.AnsiUtils
@@ -13,7 +14,8 @@ import com.ai.assistance.operit.terminal.view.domain.ansi.AnsiUtils
  * @property justHandledCarriageReturn 如果最近处理的行分隔符是回车符（CR），则为 true
  */
 private data class SessionProcessingState(
-    var justHandledCarriageReturn: Boolean = false
+    var justHandledCarriageReturn: Boolean = false,
+    val completionDecoder: TrackedCommandProtocol.Decoder = TrackedCommandProtocol.Decoder()
 )
 
 /**
@@ -44,7 +46,38 @@ class OutputProcessor(
         chunk: String,
         sessionManager: SessionManager
     ) {
+        val state = sessionStates.getOrPut(sessionId) { SessionProcessingState() }
+        for (frame in state.completionDecoder.append(chunk)) {
+            when (frame) {
+                is TrackedCommandProtocol.Frame.Text -> processText(sessionId, frame.value, sessionManager)
+                is TrackedCommandProtocol.Frame.Started -> {
+                    val session = sessionManager.getSession(sessionId) ?: continue
+                    val command = session.currentExecutingCommand ?: continue
+                    if (command.id != frame.commandId || !command.tracksExitStatus) continue
+                    command.outputStarted = true
+                    session.rawBuffer.clear()
+                    // Display the original command, excluding transport and prompt-hook setup.
+                    session.ansiParser.parse(command.command + "\r\n")
+                    state.justHandledCarriageReturn = false
+                }
+                is TrackedCommandProtocol.Frame.Completed -> {
+                    val session = sessionManager.getSession(sessionId) ?: continue
+                    val command = session.currentExecutingCommand ?: continue
+                    if (command.id != frame.commandId || !command.tracksExitStatus) continue
+                    // A final line need not end in LF before the shell's control record.
+                    if (session.rawBuffer.isNotEmpty()) {
+                        updateCommandOutput(sessionId, AnsiUtils.stripAnsi(session.rawBuffer.toString()), sessionManager)
+                        session.rawBuffer.clear()
+                    }
+                    finishCurrentCommand(sessionId, sessionManager, frame.exitCode)
+                }
+            }
+        }
+    }
+
+    private fun processText(sessionId: String, chunk: String, sessionManager: SessionManager) {
         val session = sessionManager.getSession(sessionId) ?: return
+        if (session.currentExecutingCommand?.outputStarted == false) return
         session.rawBuffer.append(chunk)
 
         if (session.rawBuffer.length > MAX_RAW_BUFFER_CHARS) {
@@ -162,7 +195,7 @@ class OutputProcessor(
         
         // 检查是否是命令提示符（优先级最高）
         // 即使是 CR line，如果是提示符也应该作为命令完成处理
-        if (isPrompt(cleanLine.trim())) {
+        if (session.currentExecutingCommand?.tracksExitStatus != true && isPrompt(cleanLine.trim())) {
             Log.d(TAG, "Detected prompt in CR line: '$cleanLine'")
             handlePrompt(sessionId, cleanLine, sessionManager)
             sessionStates[sessionId]?.justHandledCarriageReturn = false
@@ -330,6 +363,7 @@ class OutputProcessor(
         sessionManager: SessionManager
     ): Boolean {
         val session = sessionManager.getSession(sessionId) ?: return false
+        if (session.currentExecutingCommand?.tracksExitStatus == true) return false
 
         val cwdPromptRegex = Regex("<cwd>(.*)</cwd>.*[#$]")
         val match = cwdPromptRegex.find(line)
@@ -394,7 +428,11 @@ class OutputProcessor(
                     )
                 }
             }
-            finishCurrentCommand(sessionId, sessionManager)
+            // Prompt-looking output is not proof of command success. Tracked commands finish
+            // only on their own shell record (or a real process exit).
+            if (session.currentExecutingCommand?.tracksExitStatus != true) {
+                finishCurrentCommand(sessionId, sessionManager, exitCode = null)
+            }
             return true
         }
         return false
@@ -463,7 +501,7 @@ class OutputProcessor(
     private fun isCommandEcho(cleanLine: String, session: TerminalSessionData): Boolean {
         val lastExecutingItem = session.currentExecutingCommand
         if (lastExecutingItem != null && lastExecutingItem.isExecuting) {
-            val commandToCheck = lastExecutingItem.command.trim()
+            val commandToCheck = lastExecutingItem.submittedCommand.trim()
             val lineToCheck = cleanLine.trim()
             val isMatch = lineToCheck == commandToCheck
 
@@ -541,7 +579,7 @@ class OutputProcessor(
         }
     }
 
-    private fun finishCurrentCommand(sessionId: String, sessionManager: SessionManager) {
+    private fun finishCurrentCommand(sessionId: String, sessionManager: SessionManager, exitCode: Int?) {
         sessionManager.updateSession(sessionId) { session ->
             session.copy(
                 isWaitingForInteractiveInput = false,
@@ -576,12 +614,15 @@ class OutputProcessor(
                 commandId = lastExecutingItem.id,
                 sessionId = sessionId,
                 outputChunk = finalOutput,
-                isCompleted = true
+                isCompleted = true,
+                exitCode = exitCode
             ))
 
             // Clear the reference since command is no longer executing
             session.currentExecutingCommand = null
             session.currentCommandOutput.clear()
+            // The history item's mutation alone does not emit a new StateFlow value.
+            sessionManager.updateSession(sessionId) { it.copy(commandRevision = it.commandRevision + 1) }
             
             // 通知命令已完成，可以处理下一个队列命令
             onCommandCompleted(sessionId)
@@ -591,8 +632,9 @@ class OutputProcessor(
     fun handleSessionExit(
         sessionId: String,
         message: String,
-        sessionManager: SessionManager
-    ) {
+        sessionManager: SessionManager,
+        exitCode: Int
+    ): CommandExecutionEvent? {
         sessionManager.updateSession(sessionId) {
             it.copy(
                 isWaitingForInteractiveInput = false,
@@ -602,11 +644,15 @@ class OutputProcessor(
             )
         }
 
-        val session = sessionManager.getSession(sessionId) ?: return
-        session.rawBuffer.clear()
+        val session = sessionManager.getSession(sessionId) ?: return null
+        if (session.rawBuffer.isNotEmpty()) {
+            updateCommandOutput(sessionId, AnsiUtils.stripAnsi(session.rawBuffer.toString()), sessionManager)
+            session.rawBuffer.clear()
+        }
         session.ansiParser.parse("\r\n$message\r\n")
 
         val lastExecutingItem = session.currentExecutingCommand
+        var completion: CommandExecutionEvent? = null
         if (lastExecutingItem != null && lastExecutingItem.isExecuting) {
             val builder = session.currentCommandOutput
             if (builder.isNotEmpty() && builder.last() != '\n') {
@@ -628,13 +674,13 @@ class OutputProcessor(
             lastExecutingItem.setOutput(finalOutput)
             lastExecutingItem.setExecuting(false)
 
-            onCommandExecutionEvent(
-                CommandExecutionEvent(
+            completion = CommandExecutionEvent(
                     commandId = lastExecutingItem.id,
                     sessionId = sessionId,
                     outputChunk = finalOutput,
-                    isCompleted = true
-                )
+                    isCompleted = true,
+                    exitCode = exitCode,
+                    sessionExited = true
             )
 
             session.currentExecutingCommand = null
@@ -643,6 +689,8 @@ class OutputProcessor(
         session.currentCommandOutput.clear()
         session.currentOutputLineCount = 0
         session.commandQueue.clear()
+        sessionManager.updateSession(sessionId) { it.copy(commandRevision = it.commandRevision + 1) }
+        return completion
     }
 
     /**
@@ -689,7 +737,9 @@ class OutputProcessor(
             buffer.delete(0, exitIndex + exitFullscreen.length)
 
             // 退出全屏后，我们可能需要重新绘制提示符
-            finishCurrentCommand(sessionId, sessionManager)
+            if (sessionManager.getSession(sessionId)?.currentExecutingCommand?.tracksExitStatus != true) {
+                finishCurrentCommand(sessionId, sessionManager, exitCode = null)
+            }
             return true
         }
         return false
