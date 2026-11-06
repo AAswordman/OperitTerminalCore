@@ -17,7 +17,8 @@ import java.util.UUID
  */
 data class QueuedCommand(
     val id: String,
-    val command: String
+    val command: String,
+    val tracksExitStatus: Boolean = false
 )
 
 /**
@@ -28,12 +29,15 @@ class CommandHistoryItem(
     prompt: String,
     command: String,
     output: String,
-    isExecuting: Boolean = false
+    isExecuting: Boolean = false,
+    val tracksExitStatus: Boolean = false,
+    val submittedCommand: String = command
 ) {
     private var _prompt by mutableStateOf(prompt)
     private var _command by mutableStateOf(command)
     private var _output by mutableStateOf(output)
     private var _isExecuting by mutableStateOf(isExecuting)
+    var outputStarted: Boolean = !tracksExitStatus
     
     val outputPages = mutableStateListOf<String>()
     
@@ -100,6 +104,8 @@ data class TerminalSessionData(
     @Transient var currentOutputLineCount: Int = 0,
     @Transient val commandQueue: MutableList<QueuedCommand> = mutableListOf(),
     @Transient val commandMutex: Mutex = Mutex(),
+    // Completion mutates the history item. A revision makes that change visible to StateFlow.
+    val commandRevision: Long = 0,
     // 保存每个会话的滚动位置
     var scrollOffsetY: Float = 0f
 ) {
@@ -150,4 +156,4 @@ data class SourceConfig(
     val packageManager: PackageManagerType,
     val selectedSourceId: String,
     val sources: List<MirrorSource>
-) 
+)
