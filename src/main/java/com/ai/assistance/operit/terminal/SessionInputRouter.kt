@@ -17,7 +17,10 @@ enum class SessionInputResult {
     SESSION_NOT_READY,
 
     /** The session exists but the write itself failed; the input did not reach the PTY. */
-    WRITE_FAILED
+    WRITE_FAILED,
+
+    /** The PTY could not accept the input within its write deadline. */
+    WRITE_TIMED_OUT
 }
 
 /**
@@ -32,6 +35,23 @@ internal object SessionInputRouter {
 
     /** Ctrl+C as seen by the line discipline: a single 0x03 byte, turned into SIGINT by ISIG. */
     const val INTERRUPT_SEQUENCE = "\u0003"
+
+    fun interrupt(session: TerminalSessionData?, sessionId: String): SessionInputResult {
+        if (session == null) return SessionInputResult.SESSION_NOT_FOUND
+        val pty = session.pty ?: return SessionInputResult.SESSION_NOT_READY
+        return try {
+            // Bypass the text encoder's monitor: a large paste may be waiting there. Keep the
+            // actual Ctrl+C byte so raw terminals and SSH forward it with their existing semantics.
+            pty.sendInterrupt()
+            SessionInputResult.DELIVERED
+        } catch (error: PtyWriteTimeoutException) {
+            Log.w(TAG, "Interrupt input timed out for session $sessionId", error)
+            SessionInputResult.WRITE_TIMED_OUT
+        } catch (error: Exception) {
+            Log.e(TAG, "Interrupt input failed for session $sessionId", error)
+            SessionInputResult.WRITE_FAILED
+        }
+    }
 
     fun deliver(
         session: TerminalSessionData?,
@@ -58,6 +78,9 @@ internal object SessionInputRouter {
                 "Delivered $source input to session $sessionId: '${escapeInputForLog(input)}'"
             )
             SessionInputResult.DELIVERED
+        } catch (e: PtyWriteTimeoutException) {
+            Log.w(TAG, "Input timed out for session $sessionId", e)
+            SessionInputResult.WRITE_TIMED_OUT
         } catch (e: Exception) {
             Log.e(TAG, "Failed to deliver $source input to session $sessionId", e)
             SessionInputResult.WRITE_FAILED

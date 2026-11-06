@@ -3,8 +3,6 @@ package com.ai.assistance.operit.terminal
 import android.util.Log
 import java.io.File
 import java.io.FileDescriptor
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -16,16 +14,19 @@ open class Pty(
     val stdout: InputStream,
     val stdin: OutputStream,
     /** 子进程 pid；JNI createSubprocess 已返回该值。无法取得 pid 的实现（如远程会话）为 -1。 */
-    val pid: Int = -1
+    val pid: Int = -1,
+    private val interruptInput: () -> Unit = { stdin.write(0x03); stdin.flush() }
 ) {
     // 为本地终端提供的便利构造函数
     constructor(process: Process, masterFd: FileDescriptor, ptyMaster: Int) : this(
-        process = process,
-        masterFd = masterFd,
-        ptyMaster = ptyMaster,
-        stdout = FileInputStream(masterFd),
-        stdin = FileOutputStream(masterFd)
+        process, masterFd, ptyMaster, PtyIo(masterFd)
     )
+
+    private constructor(
+        process: Process, masterFd: FileDescriptor, ptyMaster: Int, io: PtyIo, pid: Int = -1
+    ) : this(process, masterFd, ptyMaster, io.input, io.output, pid, io::interrupt)
+
+    fun sendInterrupt() = interruptInput()
 
     fun waitFor(): Int {
         return process.waitFor()
@@ -114,7 +115,17 @@ open class Pty(
                 }
             }
             
-            return Pty(dummyProcess, fileDescriptor, masterFdInt, stdout = FileInputStream(fileDescriptor), stdin = FileOutputStream(fileDescriptor), pid = pid)
+            return try {
+                Pty(dummyProcess, fileDescriptor, masterFdInt, PtyIo(fileDescriptor), pid)
+            } catch (error: Exception) {
+                dummyProcess.destroy()
+                try {
+                    android.system.Os.close(fileDescriptor)
+                } catch (closeError: Exception) {
+                    error.addSuppressed(closeError)
+                }
+                throw error
+            }
         }
 
         private external fun createSubprocess(cmdArray: Array<String>, envArray: Array<String>, workingDir: String): IntArray
@@ -236,4 +247,4 @@ object Reflect {
         }
         return fileDescriptor
     }
-} 
+}

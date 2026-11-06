@@ -5,9 +5,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayOutputStream
+import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.io.OutputStream
 import java.io.OutputStreamWriter
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class SessionInputRouterTest {
     @Test
@@ -46,7 +50,7 @@ class SessionInputRouterTest {
         val failing =
             TerminalSessionData(
                 title = "failing",
-                sessionWriter = OutputStreamWriter(FailingOutputStream())
+                pty = testPty(FailingOutputStream())
             )
 
         val result = interrupt(failing, failing.id)
@@ -81,19 +85,48 @@ class SessionInputRouterTest {
         assertTrue(SessionInputRouter.escapeInputForLog("ls -la").contains("ls -la"))
     }
 
+    @Test
+    fun interruptDoesNotWaitForTheTextWriterMonitor() {
+        val target = RecordingSession("target")
+        val locked = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            executor.submit {
+                synchronized(requireNotNull(target.session.sessionWriter)) {
+                    locked.countDown()
+                    release.await()
+                }
+            }
+            assertTrue(locked.await(1, TimeUnit.SECONDS))
+            val result = executor.submit<SessionInputResult> { interrupt(target.session, target.session.id) }
+            assertEquals(SessionInputResult.DELIVERED, result.get(1, TimeUnit.SECONDS))
+        } finally {
+            release.countDown()
+            executor.shutdownNow()
+        }
+        assertEquals(listOf(0x03.toByte()), target.bytes().toList())
+    }
+
+    @Test
+    fun interruptReportsTimeoutWithoutWritingToAnotherSession() {
+        val other = RecordingSession("other")
+        val target = TerminalSessionData(title = "blocked", pty = testPty(object : OutputStream() {
+            override fun write(value: Int) { throw PtyWriteTimeoutException(0) }
+        }))
+        assertEquals(SessionInputResult.WRITE_TIMED_OUT, interrupt(target, target.id))
+        assertTrue(other.bytes().isEmpty())
+    }
+
     private fun interrupt(session: TerminalSessionData?, sessionId: String): SessionInputResult =
-        SessionInputRouter.deliver(
-            session,
-            sessionId,
-            SessionInputRouter.INTERRUPT_SEQUENCE,
-            "interrupt"
-        )
+        SessionInputRouter.interrupt(session, sessionId)
 
     private class RecordingSession(title: String) {
         private val sink = ByteArrayOutputStream()
         val session =
             TerminalSessionData(
                 title = title,
+                pty = testPty(sink),
                 sessionWriter = OutputStreamWriter(sink, Charsets.UTF_8)
             )
 
@@ -110,6 +143,20 @@ class SessionInputRouterTest {
 
         override fun write(b: ByteArray, off: Int, len: Int) {
             throw IOException("injected write failure")
+        }
+    }
+
+    private companion object {
+        fun testPty(sink: OutputStream): Pty {
+            val process = object : Process() {
+                override fun getOutputStream() = sink
+                override fun getInputStream() = ByteArrayInputStream(byteArrayOf())
+                override fun getErrorStream() = ByteArrayInputStream(byteArrayOf())
+                override fun waitFor() = 0
+                override fun exitValue() = 0
+                override fun destroy() {}
+            }
+            return Pty(process, null, -1, process.inputStream, sink)
         }
     }
 }

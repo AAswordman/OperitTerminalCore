@@ -416,11 +416,9 @@ class TerminalManager private constructor(
      * 而先切换再写入会让中断落到切换期间被改成当前会话的另一个 pty。
      */
     fun sendInterruptSignalToSession(sessionId: String): SessionInputResult {
-        return SessionInputRouter.deliver(
+        return SessionInputRouter.interrupt(
             sessionManager.getSession(sessionId),
-            sessionId,
-            SessionInputRouter.INTERRUPT_SEQUENCE,
-            "interrupt"
+            sessionId
         )
     }
 
