@@ -22,14 +22,18 @@ internal class PtyWriteTimeoutException(bytesWritten: Int) : InterruptedIOExcept
  * each input write has one deadline. A coroutine timeout around FileOutputStream cannot stop
  * a kernel write, and toggling O_NONBLOCK only during a write would race the reader.
  */
-internal class PtyIo(private val descriptor: FileDescriptor, private val writeTimeoutMs: Long = 3_000) {
+internal class PtyIo(
+    private val descriptor: FileDescriptor,
+    masterFd: Int,
+    private val writeTimeoutMs: Long = 3_000
+) {
     private val closed = AtomicBoolean(false)
     private val writeLock = ReentrantLock()
     private var inputGeneration = 0L
 
     init {
-        val flags = Os.fcntlInt(descriptor, OsConstants.F_GETFL, 0)
-        Os.fcntlInt(descriptor, OsConstants.F_SETFL, flags or OsConstants.O_NONBLOCK)
+        // Os.fcntlInt requires API 30; JNI keeps the same nonblocking I/O on API 26-29.
+        Pty.configureNonBlocking(masterFd)
     }
 
     val input: InputStream = object : InputStream() {

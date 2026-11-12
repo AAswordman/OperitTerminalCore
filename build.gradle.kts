@@ -52,6 +52,8 @@ android {
         compose = true
     }
     testOptions {
+        // Run instrumentation with the same target SDK as the consuming Operit app.
+        targetSdk = 34
         unitTests.isReturnDefaultValues = true
     }
     packaging {
@@ -80,6 +82,8 @@ kotlin {
 
 dependencies {
     testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.test.runner)
 
     implementation(libs.androidx.core.ktx)
     implementation(platform(libs.compose.bom))

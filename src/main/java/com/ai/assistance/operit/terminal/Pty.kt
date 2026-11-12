@@ -1,5 +1,6 @@
 package com.ai.assistance.operit.terminal
 
+import android.system.ErrnoException
 import android.util.Log
 import java.io.File
 import java.io.FileDescriptor
@@ -19,7 +20,7 @@ open class Pty(
 ) {
     // 为本地终端提供的便利构造函数
     constructor(process: Process, masterFd: FileDescriptor, ptyMaster: Int) : this(
-        process, masterFd, ptyMaster, PtyIo(masterFd)
+        process, masterFd, ptyMaster, PtyIo(masterFd, ptyMaster)
     )
 
     private constructor(
@@ -78,7 +79,7 @@ open class Pty(
             )
 
             return try {
-                Pty(dummyProcess, fileDescriptor, masterFdInt, PtyIo(fileDescriptor), pid)
+                Pty(dummyProcess, fileDescriptor, masterFdInt, PtyIo(fileDescriptor, masterFdInt), pid)
             } catch (error: Exception) {
                 dummyProcess.destroy()
                 try {
@@ -89,6 +90,15 @@ open class Pty(
                 throw error
             }
         }
+
+        internal fun configureNonBlocking(fd: Int) {
+            val error = setNonBlocking(fd)
+            if (error != 0) {
+                throw IOException("Failed to set PTY nonblocking mode", ErrnoException("fcntl", error))
+            }
+        }
+
+        private external fun setNonBlocking(fd: Int): Int
 
         private external fun createSubprocess(cmdArray: Array<String>, envArray: Array<String>, workingDir: String): IntArray
 

@@ -25,6 +25,21 @@ The `terminal-core` module is responsible for the following core tasks:
 -   **Concurrency**: Asynchronous operations are managed using Kotlin Coroutines, ensuring that the main thread is not blocked.
 -   **Communication**: While designed for IPC with AIDL, the `TerminalManager` can also be used directly within the same process for a simpler setup.
 
+## PTY compatibility checks
+
+Local PTY streams use `O_NONBLOCK` for bounded writes and interrupt handling. The
+flag is set through `libpty` and libc `fcntl`, preserving existing descriptor
+flags on all supported versions (Android 8 / API 26 and later). Do not call
+`android.system.Os.fcntlInt` here: that Java API requires Android 11 / API 30.
+Native setup errors propagate as `IOException` so the caller closes the PTY and
+terminates the child process.
+
+From the parent application's root, run `./gradlew :terminal:testDebugUnitTest`
+and `./gradlew :terminal:connectedDebugAndroidTest`. The device tests cover shell
+startup and bidirectional I/O, timeout with a full PTY input queue, and invalid
+descriptor error reporting. Include an API 26-29 device when checking old Android
+compatibility.
+
 ## Usage
 
-This module can be integrated as a Git Submodule. The client application can either bind to the `TerminalService` for background operation and IPC, or directly access the `TerminalManager` singleton if running in the same process. Refer to the main project's `README.md` for a detailed example of the AIDL interface. 
+This module can be integrated as a Git Submodule. The client application can either bind to the `TerminalService` for background operation and IPC, or directly access the `TerminalManager` singleton if running in the same process. Refer to the main project's `README.md` for a detailed example of the AIDL interface.
